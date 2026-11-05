@@ -1,3 +1,25 @@
+
+  const STATIC_MODE = /github\.io$/i.test(location.hostname) || location.search.includes('static=1') || window.STATIC_MODE === true;
+  function apiUrl(path) {
+    if (!STATIC_MODE) return path;
+    const clean = String(path).split('?')[0].replace(/\/+$/, '');
+    const map = {
+      '/api/quotes': './api/quotes.json',
+      '/api/analysis/all': './api/analysis_all.json',
+      '/api/supply': './api/supply.json',
+      '/api/supply/refresh': './api/supply.json',
+      '/api/ng/dashboard': './api/ng_dashboard.json',
+      '/api/ng/refresh': './api/ng_dashboard.json',
+      '/api/futures-movers': './api/futures_movers.json',
+      '/api/us-movers': './api/us_movers.json',
+      '/api/health': './api/health.json',
+      '/api/instruments': './api/instruments.json',
+    };
+    if (clean.startsWith('/api/history')) return './api/history_empty.json';
+    if (clean.startsWith('/api/analysis') && clean !== '/api/analysis/all') return './api/analysis_one_empty.json';
+    return map[clean] || path;
+  }
+
 /* Local futures dashboard — quotes, chart, extremes & cost analysis */
 (() => {
   const state = {
@@ -346,7 +368,7 @@
   async function loadQuotes(force = false) {
     try {
       setStatus(true, "刷新中…");
-      const url = force ? "/api/quotes?force=1" : "/api/quotes";
+      const url = apiUrl(force ? "/api/quotes?force=1" : "/api/quotes");
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "quotes failed");
@@ -376,7 +398,7 @@
 
   async function loadExtremes(force = false) {
     try {
-      const url = force ? "/api/analysis/all?force=1" : "/api/analysis/all";
+      const url = apiUrl(force ? "/api/analysis/all?force=1" : "/api/analysis/all");
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "extremes failed");
@@ -441,7 +463,7 @@
 
   async function loadAnalysis(id) {
     try {
-      const res = await fetch(`/api/analysis?id=${encodeURIComponent(id)}`);
+      const res = await fetch(apiUrl(`/api/analysis?id=${encodeURIComponent(id)}`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "analysis failed");
       // update map
@@ -645,7 +667,7 @@
     chart.showLoading("default", { text: "加载 K 线…", maskColor: "rgba(11,15,20,0.55)", color: "#3d9cf0" });
     try {
       const url = `/api/history?id=${encodeURIComponent(state.selectedId)}&interval=${state.interval}`;
-      const res = await fetch(url);
+      const res = await fetch(apiUrl(url));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "history failed");
 
@@ -1219,7 +1241,7 @@
         market: state.fxMarket,
         limit: "20",
       });
-      const res = await fetch("/api/futures-movers?" + q.toString());
+      const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()));
       const data = await res.json();
       renderFutMovers(data);
     } catch (err) {
@@ -1253,7 +1275,7 @@
         limit: "20",
       });
       if (force) q.set("force", "1");
-      const res = await fetch("/api/us-movers?" + q.toString());
+      const res = await fetch(apiUrl("/api/us-movers?" + q.toString()));
       const data = await res.json();
       renderUsMovers(data);
     } catch (err) {
@@ -1273,7 +1295,7 @@
     try {
       const url = force ? "/api/supply/refresh" : "/api/supply";
       if (force && body) body.innerHTML = `<tr><td colspan="8" class="empty">正在抓取仓单/能繁/气库存…</td></tr>`;
-      const res = await fetch(url);
+      const res = await fetch(apiUrl(url));
       const data = await res.json();
       renderSupply(data);
     } catch (err) {
@@ -1313,7 +1335,7 @@
     }
     try {
       const url = force ? "/api/ng/refresh" : "/api/ng/dashboard";
-      const res = await fetch(url);
+      const res = await fetch(apiUrl(url));
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "NG dashboard failed");
       renderNgDashboard(data);
