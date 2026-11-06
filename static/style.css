@@ -1534,3 +1534,11 @@ tbody tr.active {
 
 .cnidx-note { color: var(--muted, #9ca3af); font-size: 13px; margin: 8px 0 0; }
 .cnidx-fut { font-size: 12px; color: #93c5fd; margin-top: 6px; }
+
+.cnidx-opt { margin-top: 8px; font-size: 12px; color: #cbd5e1; }
+.cnidx-opt-head { margin-bottom: 4px; line-height: 1.4; }
+.cnidx-opt-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.cnidx-opt-table th, .cnidx-opt-table td { padding: 2px 4px; border-bottom: 1px solid rgba(148,163,184,.2); }
+.cnidx-opt-table th { color: #94a3b8; font-weight: 500; text-align: right; }
+.cnidx-opt-table td.num, .cnidx-opt-table th.num { text-align: right; }
+.cnidx-opt-table tr.atm td { color: #fbbf24; font-weight: 600; }

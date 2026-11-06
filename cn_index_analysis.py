@@ -119,7 +119,7 @@ def _row_from_series(yahoo: str, series: pd.Series, meta: dict) -> dict | None:
         "futures_id": meta.get("futures_id"),
         "futures_name": meta.get("futures_name"),
         "futures": None,
-        "options_note": "Yahoo 不提供该指数的场内期权链，本页仅做波动与位置分析",
+        "options_note": "场内期权见中金所 IO/HO/MO 近月链（新浪转播）",
     }
     row["bias_cn"] = _bias_index(row)
     return row
@@ -328,7 +328,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         "method": {
             "goal": "沪深300 / 上证50 / 中证1000 的指数波动与位置分析",
             "source": "指数日线优先 akshare，Render 上改用快照/Yahoo；卫星 ETF 用 Yahoo",
-            "options": "Yahoo 不提供这些指数或对应A股ETF的场内期权链，本页不展示卖Put/卖Call候选",
+            "options": "中金所 IO/HO/MO 近月链经新浪转播；本页不做卖Put/卖Call筛选",
             "stats": "HV20/HV60、HV分位、RSI14、相对均线、近1/5/21日涨跌、距52周高低点",
             "futures": "若看板行情池含 IF0/IH0/IM0/IC0，则附加股指期货对照报价；当前大宗商品池通常不含股指",
             "satellite": "FXI / KWEB 为美股上市中国相关 ETF，仅作对照，不是指数本身",
@@ -336,7 +336,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         "indices": indices,
         "satellites": satellites,
         "futures_extra": getattr(_attach_futures, "extras", []),
-        "disclaimer": "研究用途。A股权限/场内期权请用国内行情与期权系统核验，勿把本页当作期权报价。",
+        "disclaimer": "研究用途。期权链为延时转播+估算 IV，请用国内行情与期权系统核验。",
     }
     _cache = (time.time(), payload)
     return payload

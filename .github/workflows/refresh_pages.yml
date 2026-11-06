@@ -5,12 +5,18 @@ on:
     # 美股收盘后约北京时间 05:00；夜盘/开盘附近 22:30
     - cron: "0 21 * * 1-5"
     - cron: "30 14 * * 1-5"
+    # A股日盘：北京 10:05 / 11:35 / 14:05（抓 IO/HO/MO 期权链）
+    - cron: "5 2 * * 1-5"
+    - cron: "35 3 * * 1-5"
+    - cron: "5 6 * * 1-5"
   workflow_dispatch:
   push:
     branches: ["main"]
     paths:
       - "short_put_screen.py"
       - "export_static_pages.py"
+      - "cffex_options.py"
+      - "cn_index_analysis.py"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"
@@ -35,6 +41,9 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Refresh CFFEX index options snapshot
+        run: python cffex_options.py --write
+        continue-on-error: true
       - name: Rebuild static docs (quotes/analysis/NG/short-put)
         run: python export_static_pages.py
       - name: Commit & push docs snapshot

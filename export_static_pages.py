@@ -250,6 +250,19 @@ def main() -> None:
             {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)},
         )
 
+    print("cffex index options (IO/HO/MO)...")
+    try:
+        from cffex_options import build_cn_index_options
+
+        dump(API / "cn_index_options.json", build_cn_index_options())
+    except Exception as exc:
+        print("cn index options failed:", exc)
+        traceback.print_exc()
+        dump(
+            API / "cn_index_options.json",
+            {"products": [], "by_index": {}, "updated_at": now, "error": str(exc)},
+        )
+
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})
     dump(API / "analysis_one_empty.json", {"analysis": None, "note": "静态站请看高低位总表"})
     print("DONE", now)
