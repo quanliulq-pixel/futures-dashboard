@@ -304,43 +304,57 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
         options = list(t.options or ())
         if spot <= 0:
             return None
-        # try several candidate expiries until we get a liquid chain
+        # try several candidate expiries until we get a chain with strikes near spot
         candidates = []
         primary = _pick_expiry(options)
         if primary:
             candidates.append(primary)
         today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        ranked_exps = []
         for e in options:
             try:
                 dte = (datetime.strptime(e, "%Y-%m-%d").date() - today).days
             except Exception:
                 continue
-            if 14 <= dte <= 60 and e not in candidates:
+            if 10 <= dte <= 120:
+                ranked_exps.append((abs(dte - 28), dte, e))
+        for _, _, e in sorted(ranked_exps):
+            if e not in candidates:
                 candidates.append(e)
-            if len(candidates) >= 5:
+            if len(candidates) >= 10:
                 break
         exp = None
         puts = None
         chain = None
+        fallback = None  # (score, exp, puts)
         for cand in candidates:
             try:
                 chain = t.option_chain(cand)
                 ptmp = chain.puts.copy()
                 if ptmp.empty:
                     continue
+                strikes = ptmp["strike"].fillna(0).astype(float)
+                near_mask = (strikes >= spot * 0.70) & (strikes <= spot * 1.05)
+                near_n = int(near_mask.sum())
+                # Skip stale pre-split chains (e.g. SOXX 300+ strikes while spot ~132).
+                if near_n < 2:
+                    continue
                 ivs = ptmp["impliedVolatility"].fillna(0).astype(float)
                 bids = ptmp["bid"].fillna(0).astype(float)
                 asks = ptmp["ask"].fillna(0).astype(float)
-                # Yahoo often returns ~0 IV for liquid ETF puts; treat bid/ask as liquidity signal.
-                liquid = (bids + asks > 0).sum()
-                usable_iv = (ivs > 0.03).sum()
-                if liquid >= 3 or usable_iv >= 3:
+                lasts = ptmp["lastPrice"].fillna(0).astype(float)
+                liquid = int(((bids + asks > 0) | (lasts > 0)).sum())
+                usable_iv = int((ivs > 0.03).sum())
+                score = near_n * 3 + liquid + usable_iv
+                if liquid >= 3 or usable_iv >= 3 or near_n >= 5:
                     exp, puts = cand, ptmp
                     break
-                if puts is None and (liquid > 0 or not ptmp.empty):
-                    exp, puts = cand, ptmp
+                if fallback is None or score > fallback[0]:
+                    fallback = (score, cand, ptmp)
             except Exception:
                 continue
+        if (not exp or puts is None or puts.empty) and fallback is not None:
+            _, exp, puts = fallback
         if not exp or puts is None or puts.empty:
             return None
         # target 8% OTM (cash-secured put zone)
@@ -354,7 +368,11 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
         otm["_iv"] = otm["impliedVolatility"].fillna(0).astype(float)
         otm["_bid"] = otm["bid"].fillna(0).astype(float)
         otm["_ask"] = otm["ask"].fillna(0).astype(float)
-        otm["_liq"] = (otm["_bid"] + otm["_ask"] > 0).astype(int) * 2 + (otm["_iv"] > 0.03).astype(int)
+        otm["_last"] = otm["lastPrice"].fillna(0).astype(float)
+        otm["_liq"] = (
+            ((otm["_bid"] + otm["_ask"] > 0) | (otm["_last"] > 0)).astype(int) * 2
+            + (otm["_iv"] > 0.03).astype(int)
+        )
         otm = otm.sort_values(["_liq", "dist", "openInterest"], ascending=[False, True, False])
         row = otm.iloc[0]
         bid = float(row.get("bid") or 0)
