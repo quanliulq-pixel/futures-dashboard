@@ -2206,6 +2206,25 @@
     return f;
   }
 
+
+  function themeRowsFromPayload(data, symbols) {
+    const syms = symbols || [];
+    if (!syms.length) return [];
+    const want = new Set(syms);
+    const bySym = new Map();
+    const themes = (data && data.themes) || [];
+    for (const th of themes) {
+      for (const r of th.items || []) {
+        if (want.has(r.symbol)) bySym.set(r.symbol, r);
+      }
+    }
+    for (const r of [...((data && data.picks) || []), ...((data && data.all) || []), ...((data && data.watchlist) || [])]) {
+      if (want.has(r.symbol)) bySym.set(r.symbol, { ...bySym.get(r.symbol), ...r });
+    }
+    // Keep theme symbol order
+    return syms.map((s) => bySym.get(s)).filter(Boolean);
+  }
+
   function applyPutFilters(rows) {
     const f = readPutFiltersFromDom();
     const core = new Set((state.putPayload && state.putPayload.core_symbols) || []);
@@ -2472,9 +2491,30 @@
       if (r.edge && r.edge.metrics) copy.edge = recomputeEdgeClient(r, weights);
       return copy;
     });
-    const filteredPicks = applyPutFilters(enrich(data.picks));
-    const filteredAll = applyPutFilters(enrich(data.all || data.picks));
-    if (pill) pill.textContent = `${filteredPicks.length} 推荐`;
+    const themeSyms = state.putFilters && state.putFilters.themeSymbols;
+    let filteredPicks;
+    let filteredAll;
+    if (themeSyms && themeSyms.length) {
+      // Theme browse: show linked names even if they failed CSP gates / missing from picks.
+      const themeRows = enrich(themeRowsFromPayload(data, themeSyms));
+      filteredPicks = themeRows;
+      filteredAll = themeRows;
+      if (pill) pill.textContent = `主题 ${themeRows.length} 只`;
+      const note = $("#put-theme-note");
+      if (note) {
+        note.hidden = false;
+        note.textContent = "当前为主题成分明细（含未过推荐门槛的标的，如期权链暂不可用）。";
+      }
+    } else {
+      filteredPicks = applyPutFilters(enrich(data.picks));
+      filteredAll = applyPutFilters(enrich(data.all || data.picks));
+      if (pill) pill.textContent = `${filteredPicks.length} 推荐`;
+      const note = $("#put-theme-note");
+      if (note) {
+        note.hidden = true;
+        note.textContent = "";
+      }
+    }
     renderPutCards(filteredPicks);
     renderPutTable(filteredAll);
     renderPutWatch();
@@ -2508,7 +2548,11 @@
     const el = $("#put-picks");
     if (!el) return;
     if (!picks || !picks.length) {
-      el.innerHTML = `<div class="empty-card">当前筛选下暂无推荐（放宽条件或切换主题）</div>`;
+      el.innerHTML = `<div class="empty-card">${
+        state.putFilters && state.putFilters.themeSymbols
+          ? "该主题暂无成分明细（数据里没有对应标的）"
+          : "当前筛选下暂无推荐（放宽条件或切换主题）"
+      }</div>`;
       return;
     }
     el.innerHTML = picks.slice(0, 12).map((r) => {

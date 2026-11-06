@@ -1506,3 +1506,14 @@ tbody tr.active {
 .put-check-item.fail { border-left-color: #ef4444; }
 .put-check-item.soft { border-left-color: #f59e0b; }
 .put-chain-table tr.selected td { background: rgba(245,158,11,0.08); }
+
+.put-theme-note {
+  margin: 6px 14px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(61, 156, 240, 0.08);
+  border: 1px solid rgba(61, 156, 240, 0.28);
+  color: #9cc7ef;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
