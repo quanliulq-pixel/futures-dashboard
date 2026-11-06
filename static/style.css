@@ -52,23 +52,33 @@ html, body { overflow: hidden; }
   flex-shrink: 0;
   flex-wrap: wrap;
 }
+.topbar .brand { order: 1; }
+.topbar .top-actions { order: 2; margin-left: auto; }
 .view-tabs {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
-  flex-shrink: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+  order: 3; /* own row under brand/actions on wrap */
 }
 .view-tabs button {
   border: 0;
   background: transparent;
   color: var(--muted);
-  padding: 7px 12px;
+  padding: 7px 10px;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   cursor: pointer;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 .view-tabs button + button { border-left: 1px solid var(--border); }
 .view-tabs button.active {
@@ -605,6 +615,8 @@ th, td {
   min-width: 4.6em;
 }
 @media (max-width: 720px) {
+  .view-tabs { border-radius: 8px; }
+  .view-tabs button { padding: 8px 9px; font-size: 0.84rem; }
   .movers-panel .mover-pct { font-size: 1.05rem; }
   .movers-panel td:first-child,
   .movers-panel th:first-child { width: 1.6em; padding-left: 6px; padding-right: 4px; }
