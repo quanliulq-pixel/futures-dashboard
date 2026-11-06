@@ -16,6 +16,7 @@ on:
       - "short_put_screen.py"
       - "export_static_pages.py"
       - "cffex_options.py"
+      - "cn_short_options.py"
       - "cn_index_analysis.py"
       - "cn_index_advice.py"
       - "static/**"

@@ -21,6 +21,8 @@
       '/api/cn-index-options': './api/cn_index_options.json',
       '/api/cn-index-options/refresh': './api/cn_index_options.json',
       '/api/cn-index-advice': './api/cn_index_advice.json',
+      '/api/cn-short-put': './api/cn_short_put.json',
+      '/api/cn-short-call': './api/cn_short_call.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };

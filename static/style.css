@@ -1614,3 +1614,22 @@ tbody tr.active {
 .cnidx-advice.stance-bear .cnidx-stance {
   background: rgba(251, 113, 133, 0.18); color: #fda4af;
 }
+
+/* 国内期权卖方候选 */
+.cn-market-bar { display: flex; gap: 0; margin: 0 0 10px; border: 1px solid var(--border); border-radius: 8px; width: fit-content; overflow: hidden; }
+.cn-market-bar button { background: transparent; color: var(--muted); border: 0; padding: 6px 14px; cursor: pointer; font-size: 0.85rem; }
+.cn-market-bar button + button { border-left: 1px solid var(--border); }
+.cn-market-bar button.active { background: rgba(80,140,255,0.18); color: inherit; }
+.cn-opt-panel.hidden, .put-layout.hidden { display: none; }
+.cn-opt-panel { padding: 12px; }
+.cn-opt-notes { color: var(--muted); font-size: 0.8rem; margin: 6px 0 10px; line-height: 1.5; }
+.cn-opt-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cn-opt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; white-space: nowrap; }
+.cn-opt-table th, .cn-opt-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.cn-opt-table td.num, .cn-opt-table th.num { text-align: right; }
+.cn-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.72rem; border: 1px solid var(--border); }
+.cn-badge.warn { color: #f0b429; border-color: #f0b429; }
+@media (max-width: 640px) { .cn-opt-table { font-size: 0.75rem; } .cn-market-bar button { padding: 6px 10px; } }
+.cn-opt-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 8px 0; font-size: 0.82rem; }
+.cn-opt-controls input, .cn-opt-controls select { background: transparent; color: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
+.cn-stale-banner { border: 1px solid #f0b429; color: #f0b429; border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-weight: 600; }
