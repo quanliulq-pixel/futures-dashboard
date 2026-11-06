@@ -20,6 +20,7 @@
       '/api/cn-indices/refresh': './api/cn_indices.json',
       '/api/cn-index-options': './api/cn_index_options.json',
       '/api/cn-index-options/refresh': './api/cn_index_options.json',
+      '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -3420,6 +3421,43 @@
       </table>
     </div>`;
   }
+
+  function _cnAdviceSnippet(advice) {
+    if (!advice) {
+      return `<div class="cnidx-advice empty">交易建议：暂无（刷新后由指数+近月期权链生成）</div>`;
+    }
+    const stance = advice.stance_cn || "—";
+    const score = advice.score;
+    const conf = advice.confidence;
+    const bias = advice.option_bias_cn || "—";
+    const stanceCls = ({
+      "卖波动": "stance-sellvol",
+      "防守区间": "stance-range",
+      "观望高波": "stance-wait",
+      "偏多": "stance-bull",
+      "偏空": "stance-bear",
+    })[stance] || "stance-range";
+    const bullets = (advice.bullets_cn || []).slice(0, 4)
+      .map((b) => `<li>${esc(b)}</li>`).join("");
+    const lv = advice.levels || {};
+    const supp = (lv.support || []).map((x) => fmt(x, 0)).join(" / ") || "—";
+    const res = (lv.resistance || []).map((x) => fmt(x, 0)).join(" / ") || "—";
+    const scoreTxt = score == null ? "—" : `${score > 0 ? "+" : ""}${score}`;
+    return `<div class="cnidx-advice ${stanceCls}">
+      <div class="cnidx-advice-top">
+        <span class="cnidx-stance">${esc(stance)}</span>
+        <span class="cnidx-score">评分 ${esc(scoreTxt)} · 置信 ${conf != null ? conf : "—"}</span>
+      </div>
+      <div class="cnidx-opt-bias">期权偏向：<strong>${esc(bias)}</strong></div>
+      <ul class="cnidx-bullets">${bullets || "<li>暂无细则</li>"}</ul>
+      <div class="cnidx-levels">
+        <span class="lvl support">支撑 ${esc(supp)}</span>
+        <span class="lvl resist">阻力 ${esc(res)}</span>
+      </div>
+      <div class="cnidx-disc">${esc(advice.disclaimer_cn || "研究用途，非投资建议")}</div>
+    </div>`;
+  }
+
   function renderCnIndices(data, optPayload) {
     if (!data) return;
     state.cnidxPayload = data;
@@ -3442,11 +3480,13 @@
       const optMethod = (optPayload && optPayload.method && optPayload.method.live)
         ? optPayload.method.live
         : (m.options || "");
+      const am = data.advice_method || {};
       method.innerHTML = [
         `<strong>目标</strong>：${esc(m.goal || "")}`,
         `<strong>数据</strong>：${esc(m.source || "")}`,
         `<strong>期权</strong>：${esc(optMethod || "中金所 IO/HO/MO（新浪转播延时）")}`,
         `<strong>指标</strong>：${esc(m.stats || "")}`,
+        am.score ? `<strong>建议评分</strong>：${esc(am.score)}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
       ].filter(Boolean).join("<br/>");
     }
@@ -3494,6 +3534,7 @@
             <div class="put-metric"><span class="l">距52周低</span><span class="v">${r.from_52w_low_pct == null ? "—" : fmt(r.from_52w_low_pct, 2) + "%"}</span></div>
           </div>
           <div class="cnidx-fut">${futTxt}</div>
+          ${_cnAdviceSnippet(r.advice || (data.advices || {})[r.id])}
           ${optHtml}
           <div class="put-action">${esc(note)}</div>
         </article>`;

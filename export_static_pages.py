@@ -238,29 +238,50 @@ def main() -> None:
         )
 
     print("cn indices analysis...")
+    cn_idx_payload = None
     try:
         from cn_index_analysis import build_cn_index_analysis
 
-        dump(API / "cn_indices.json", build_cn_index_analysis(force=True))
+        cn_idx_payload = build_cn_index_analysis(force=True)
+        dump(API / "cn_indices.json", cn_idx_payload)
     except Exception as exc:
         print("cn indices failed:", exc)
         traceback.print_exc()
-        dump(
-            API / "cn_indices.json",
-            {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)},
-        )
+        cn_idx_payload = {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)}
+        dump(API / "cn_indices.json", cn_idx_payload)
 
     print("cffex index options (IO/HO/MO)...")
+    cn_opt_payload = None
     try:
         from cffex_options import build_cn_index_options
 
-        dump(API / "cn_index_options.json", build_cn_index_options())
+        cn_opt_payload = build_cn_index_options()
+        dump(API / "cn_index_options.json", cn_opt_payload)
     except Exception as exc:
         print("cn index options failed:", exc)
         traceback.print_exc()
+        cn_opt_payload = {"products": [], "by_index": {}, "updated_at": now, "error": str(exc)}
+        dump(API / "cn_index_options.json", cn_opt_payload)
+
+    print("cn index advice...")
+    try:
+        from cn_index_advice import write_advice_snapshot, attach_advice_to_indices
+
+        advice = write_advice_snapshot(
+            API / "cn_index_advice.json",
+            indices_payload=cn_idx_payload,
+            options_payload=cn_opt_payload,
+        )
+        # Re-write cn_indices with embedded advice for one-request UI
+        if cn_idx_payload and cn_idx_payload.get("indices"):
+            dump(API / "cn_indices.json", attach_advice_to_indices(cn_idx_payload, cn_opt_payload, advice_bundle=advice))
+        print("advice stances:", {k: v.get("stance_cn") for k, v in (advice.get("advices") or {}).items()})
+    except Exception as exc:
+        print("cn index advice failed:", exc)
+        traceback.print_exc()
         dump(
-            API / "cn_index_options.json",
-            {"products": [], "by_index": {}, "updated_at": now, "error": str(exc)},
+            API / "cn_index_advice.json",
+            {"advices": {}, "updated_at": now, "error": str(exc), "disclaimer_cn": "研究用途，非投资建议"},
         )
 
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})

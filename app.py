@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn14"
+    asset_v = "20261106dyn15"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -676,6 +676,23 @@ def cn_index_options_refresh_api():
         return jsonify({"error": str(exc)}), 500
 
 
+def _with_cn_advice(payload: dict) -> dict:
+    """Attach structured A-share advice offline from seeds (never network)."""
+    try:
+        from cn_index_advice import attach_advice_to_indices, load_advice_seed, build_cn_index_advice
+
+        opt = _read_api_seed("cn_index_options.json")
+        # Prefer recomputing from current indices+options so stance stays consistent
+        try:
+            bundle = build_cn_index_advice(payload, opt)
+        except Exception:
+            bundle = load_advice_seed()
+        return attach_advice_to_indices(payload, opt, advice_bundle=bundle)
+    except Exception:
+        logger.debug("attach cn advice failed", exc_info=True)
+        return payload
+
+
 @app.route("/api/cn-indices")
 def cn_indices_api():
     force = request.args.get("force") == "1"
@@ -687,16 +704,16 @@ def cn_indices_api():
         if seed is not None and (os.environ.get("RENDER") or not force):
             seed = dict(seed)
             seed["source"] = "seed"
-            return jsonify(seed)
+            return jsonify(_with_cn_advice(seed))
 
-        return jsonify(build_cn_index_analysis(force=force))
+        return jsonify(_with_cn_advice(build_cn_index_analysis(force=force)))
     except Exception as exc:
         logger.exception("cn indices failed")
         seed = _read_api_seed("cn_indices.json")
         if seed:
             seed = dict(seed)
             seed["source"] = "seed"
-            return jsonify(seed)
+            return jsonify(_with_cn_advice(seed))
         return jsonify({"error": str(exc)}), 500
 
 
@@ -712,14 +729,44 @@ def cn_indices_refresh_api():
             seed = dict(seed)
             seed["source"] = "seed"
             seed["note"] = "已排队后台更新（美国节点拉 A 股源较慢），先返回快照"
-            return jsonify(seed)
-        return jsonify(build_cn_index_analysis(force=True))
+            return jsonify(_with_cn_advice(seed))
+        return jsonify(_with_cn_advice(build_cn_index_analysis(force=True)))
     except Exception as exc:
         logger.exception("cn indices refresh failed")
         seed = _read_api_seed("cn_indices.json")
         if seed:
             seed = dict(seed)
             seed["source"] = "seed"
+            return jsonify(_with_cn_advice(seed))
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/cn-index-advice")
+def cn_index_advice_api():
+    """Seed-first advice bundle for A-share indices."""
+    try:
+        from cn_index_advice import build_cn_index_advice, load_advice_seed
+
+        seed = load_advice_seed() or _read_api_seed("cn_index_advice.json")
+        # Always recompute from latest index/options seeds when present (CPU-only)
+        idx = _read_api_seed("cn_indices.json")
+        opt = _read_api_seed("cn_index_options.json")
+        if idx and idx.get("indices"):
+            bundle = build_cn_index_advice(idx, opt)
+            bundle["served_from"] = "computed_from_seeds"
+            return jsonify(bundle)
+        if seed:
+            seed = dict(seed)
+            seed["served_from"] = "seed"
+            return jsonify(seed)
+        return jsonify({"error": "no advice seed", "advices": {}}), 404
+    except Exception as exc:
+        logger.exception("cn index advice failed")
+        seed = _read_api_seed("cn_index_advice.json")
+        if seed:
+            seed = dict(seed)
+            seed["served_from"] = "seed"
+            seed["note"] = f"live失败: {exc}"
             return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 

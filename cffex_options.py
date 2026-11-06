@@ -474,6 +474,17 @@ def write_snapshot(path: Path | None = None, **kwargs) -> dict:
     payload = build_cn_index_options(**kwargs)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
+    # Keep advice seed in sync with the latest options chain (indices seed may be older).
+    try:
+        from cn_index_advice import write_advice_snapshot, attach_advice_to_indices, _load_json, SEED_INDICES
+
+        idx = _load_json(SEED_INDICES)
+        advice = write_advice_snapshot(indices_payload=idx, options_payload=payload)
+        if idx and idx.get("indices"):
+            enriched = attach_advice_to_indices(idx, payload, advice_bundle=advice)
+            SEED_INDICES.write_text(json.dumps(enriched, ensure_ascii=False, default=str), encoding="utf-8")
+    except Exception:
+        logger.debug("advice snapshot after options write failed", exc_info=True)
     return payload
 
 
