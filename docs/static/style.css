@@ -1221,3 +1221,110 @@ tbody tr.active {
     min-height: 520px;
   }
 }
+
+/* Short Put high-vol recommendations */
+.tab-put.active { box-shadow: inset 0 -2px 0 #f59e0b; }
+.put-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 20px;
+}
+.put-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.put-method {
+  margin: 0 14px 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fde68a;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.put-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+.put-card {
+  background: #141c27;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.put-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+.put-sym {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+.put-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.put-score {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #fbbf24;
+}
+.put-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.put-metric {
+  background: #101620;
+  border-radius: 6px;
+  padding: 6px;
+}
+.put-metric .l {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.put-metric .v {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.put-action {
+  font-size: 0.78rem;
+  color: #dbe7f7;
+  line-height: 1.45;
+  background: rgba(61, 156, 240, 0.08);
+  border-left: 3px solid #3d9cf0;
+  padding: 6px 8px;
+  border-radius: 0 6px 6px 0;
+}
+.put-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.put-table th, .put-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #1a2533;
+  font-size: 0.8rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.put-table th {
+  background: #131a24;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+}
+.put-table th.num, .put-table td.num { text-align: right; }
+.put-table tr:hover td { background: rgba(255,255,255,0.02); }

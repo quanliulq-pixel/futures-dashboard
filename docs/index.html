@@ -16,7 +16,7 @@
         <span class="logo">◆</span>
         <div>
           <h1>期货本地看板</h1>
-          <p class="sub">大宗商品 · 国内+北美 · 涨跌榜</p>
+          <p class="sub">大宗商品 · 高低位 · 高波动卖Put</p>
         </div>
       </div>
       <nav class="view-tabs" id="view-tabs">
@@ -24,6 +24,7 @@
         <button type="button" data-view="extremes">高低位</button>
         <button type="button" data-view="supply">产业周报</button>
         <button type="button" data-view="movers">涨跌榜</button>
+        <button type="button" data-view="put" class="tab-put">卖Put推荐</button>
         <button type="button" data-view="ng" class="tab-ng">美气 NG</button>
       </nav>
       <div class="top-actions">
@@ -332,6 +333,77 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- 高波动美股/ETF 卖 Put 推荐 -->
+    <section class="view view-put" id="view-put">
+      <div class="put-layout">
+        <div class="panel put-hero">
+          <div class="panel-head">
+            <div>
+              <h2>高波动股票 / ETF · 卖出看跌（CSP）推荐</h2>
+              <p class="sub" id="put-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Put 候选</p>
+            </div>
+            <div class="put-hero-actions">
+              <span class="tag-pill" id="put-count-pill">—</span>
+              <button type="button" id="btn-put-refresh" class="btn btn-tiny">重新扫描期权</button>
+            </div>
+          </div>
+          <div class="put-method" id="put-method">加载方法说明…</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>优先推荐</h2>
+              <p class="sub">综合分靠前 · 已匹配期权链</p>
+            </div>
+            <div class="seg" id="put-kind-filter">
+              <button type="button" data-kind="all" class="active">全部</button>
+              <button type="button" data-kind="stock">股票</button>
+              <button type="button" data-kind="etf">ETF</button>
+            </div>
+          </div>
+          <div class="put-card-grid" id="put-picks">
+            <div class="empty-card">正在计算高波动卖Put候选…</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>完整扫描表</h2>
+              <p class="sub">HV / RSI / 涨跌 / 建议行权价与权利金</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="put-table" id="put-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th class="num">现价</th>
+                  <th class="num">HV20</th>
+                  <th class="num">波动分位</th>
+                  <th class="num">RSI</th>
+                  <th class="num">5日%</th>
+                  <th class="num">综合分</th>
+                  <th>倾向</th>
+                  <th>建议 Put</th>
+                  <th class="num">权利金</th>
+                  <th class="num">IV</th>
+                  <th class="num">年化%</th>
+                </tr>
+              </thead>
+              <tbody id="put-body">
+                <tr><td colspan="14" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

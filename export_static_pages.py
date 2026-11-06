@@ -195,6 +195,20 @@ def main() -> None:
             {"gainers": [], "losers": [], "note": f"静态导出未取到: {exc}", "snapshot_at": now},
         )
 
+
+    print("short put high-vol screen...")
+    try:
+        from short_put_screen import build_short_put_screen
+
+        dump(API / "short_put.json", build_short_put_screen(force=True, top_n=20, option_n=28))
+    except Exception as exc:
+        print("short put failed:", exc)
+        traceback.print_exc()
+        dump(
+            API / "short_put.json",
+            {"picks": [], "all": [], "watchlist": [], "updated_at": now, "error": str(exc)},
+        )
+
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})
     dump(API / "analysis_one_empty.json", {"analysis": None, "note": "静态站请看高低位总表"})
     print("DONE", now)

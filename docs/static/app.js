@@ -12,6 +12,8 @@
       '/api/ng/refresh': './api/ng_dashboard.json',
       '/api/futures-movers': './api/futures_movers.json',
       '/api/us-movers': './api/us_movers.json',
+      '/api/short-put/high-vol': './api/short_put.json',
+      '/api/short-put/refresh': './api/short_put.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -85,6 +87,14 @@
   const highsCards = $("#highs-cards");
   const analysisBody = $("#analysis-body");
   const analysisTag = $("#analysis-tag");
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
 
   function fmt(n, digits = 2) {
     if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
@@ -770,6 +780,9 @@
       setTimeout(resizeNgCharts, 60);
       setTimeout(resizeNgCharts, 250);
     }
+    if (name === "put") {
+      loadShortPut(false);
+    }
   }
 
   function bindEvents() {
@@ -991,6 +1004,22 @@
     const btnNgRefresh = $("#btn-ng-refresh");
     if (btnNgRefresh) {
       btnNgRefresh.addEventListener("click", () => loadNgDashboard(true));
+    }
+    const btnPutRefresh = $("#btn-put-refresh");
+    if (btnPutRefresh) {
+      btnPutRefresh.addEventListener("click", () => loadShortPut(true));
+    }
+    const putKind = $("#put-kind-filter");
+    if (putKind) {
+      putKind.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-kind]");
+        if (!btn) return;
+        state.putKind = btn.dataset.kind || "all";
+        [...putKind.querySelectorAll("button")].forEach((b) =>
+          b.classList.toggle("active", b === btn)
+        );
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
     }
     const newsFilter = $("#ng-news-filter");
     if (newsFilter) {
@@ -1951,6 +1980,140 @@
       ],
     };
     chart.setOption(opt, true);
+  }
+
+
+  async function loadShortPut(force = false) {
+    if (state.putLoading) return;
+    state.putLoading = true;
+    const btn = $("#btn-put-refresh");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = force ? "扫描期权中…" : "加载中…";
+    }
+    try {
+      const url = force ? "/api/short-put/refresh" : "/api/short-put/high-vol";
+      const res = await fetch(apiUrl(url));
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "short put failed");
+      renderShortPut(data);
+    } catch (err) {
+      console.error("loadShortPut error:", err);
+      const picks = $("#put-picks");
+      if (picks) picks.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}</div>`;
+      const body = $("#put-body");
+      if (body) body.innerHTML = `<tr><td colspan="14" class="empty">加载失败</td></tr>`;
+    } finally {
+      state.putLoading = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "重新扫描期权";
+      }
+    }
+  }
+
+  function putKindFilter(rows) {
+    const kind = state.putKind || "all";
+    if (kind === "all") return rows || [];
+    return (rows || []).filter((r) => (r.kind || "stock") === kind);
+  }
+
+  function renderShortPut(data) {
+    if (!data) return;
+    state.putPayload = data;
+    const meta = $("#put-meta");
+    if (meta) {
+      const n = (data.picks || []).length;
+      const u = data.universe_size || 0;
+      meta.textContent = `更新 ${data.updated_at || "—"} · 扫描 ${u} 只高波动标的 · 推荐 ${n} 只`;
+    }
+    const pill = $("#put-count-pill");
+    if (pill) pill.textContent = `${(data.picks || []).length} 推荐`;
+    const method = $("#put-method");
+    if (method && data.method) {
+      const m = data.method;
+      method.innerHTML = [
+        `<strong>目标</strong>：${esc(m.goal || "")}`,
+        `<strong>波动</strong>：${esc(m.vol || "")}`,
+        `<strong>期权</strong>：${esc(m.option || "")}`,
+        `<strong>打分</strong>：${esc(m.score || "")}`,
+        `<strong>风险</strong>：${esc(m.risk || "")}`,
+        data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
+      ].filter(Boolean).join("<br/>");
+    }
+    renderPutCards(putKindFilter(data.picks));
+    renderPutTable(putKindFilter(data.all || data.picks));
+  }
+
+  function renderPutCards(picks) {
+    const el = $("#put-picks");
+    if (!el) return;
+    if (!picks || !picks.length) {
+      el.innerHTML = `<div class="empty-card">当前筛选下暂无推荐（可切换股票/ETF，或稍后重扫）</div>`;
+      return;
+    }
+    el.innerHTML = picks.slice(0, 12).map((r) => {
+      const put = r.put || {};
+      const chg = r.chg_5d;
+      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+      const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
+      return `<article class="put-card">
+        <div class="put-card-top">
+          <div>
+            <div class="put-sym">${esc(r.symbol)} <span class="tag-pill">${esc(r.kind === "etf" ? "ETF" : "股票")}</span></div>
+            <div class="put-name">${esc(r.name || "")} · ${esc(r.sector || "")}</div>
+          </div>
+          <div class="put-score">${fmt(r.score, 1)}</div>
+        </div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
+          <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
+          <div class="put-metric"><span class="l">RSI</span><span class="v">${fmt(r.rsi14, 1)}</span></div>
+          <div class="put-metric"><span class="l">5日</span><span class="v ${chgCls}">${chgTxt}</span></div>
+        </div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">行权价</span><span class="v">${put.strike != null ? "$" + fmt(put.strike, 2) : "—"}</span></div>
+          <div class="put-metric"><span class="l">到期</span><span class="v">${esc(put.expiry || "—")} (${put.dte != null ? put.dte + "d" : "—"})</span></div>
+          <div class="put-metric"><span class="l">权利金</span><span class="v">${put.mid != null ? "$" + fmt(put.mid, 2) : "—"}</span></div>
+          <div class="put-metric"><span class="l">年化</span><span class="v">${put.yield_ann_pct != null ? fmt(put.yield_ann_pct, 1) + "%" : "—"}</span></div>
+        </div>
+        <div class="put-action"><strong>${esc(r.bias_cn || "")}</strong> · ${esc(r.action || "")}</div>
+      </article>`;
+    }).join("");
+  }
+
+  function renderPutTable(rows) {
+    const body = $("#put-body");
+    if (!body) return;
+    if (!rows || !rows.length) {
+      body.innerHTML = `<tr><td colspan="14" class="empty">暂无数据</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((r) => {
+      const put = r.put || {};
+      const putTxt = put.strike != null
+        ? `$${fmt(put.strike, 2)} · ${esc(put.expiry || "")}`
+        : "—";
+      const chg = r.chg_5d;
+      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+      const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
+      return `<tr>
+        <td><strong>${esc(r.symbol)}</strong></td>
+        <td>${esc(r.name || "")}</td>
+        <td>${esc(r.kind === "etf" ? "ETF" : "股票")}</td>
+        <td class="num">$${fmt(r.price, 2)}</td>
+        <td class="num">${fmt(r.hv20, 1)}%</td>
+        <td class="num">${fmt(r.hv_pctile, 0)}</td>
+        <td class="num">${fmt(r.rsi14, 1)}</td>
+        <td class="num ${chgCls}">${chgTxt}</td>
+        <td class="num"><strong>${fmt(r.score, 1)}</strong></td>
+        <td>${esc(r.bias_cn || "")}</td>
+        <td>${putTxt}</td>
+        <td class="num">${put.mid != null ? "$" + fmt(put.mid, 2) : "—"}</td>
+        <td class="num">${put.iv != null ? fmt(put.iv, 1) + "%" : "—"}</td>
+        <td class="num">${put.yield_ann_pct != null ? fmt(put.yield_ann_pct, 1) + "%" : "—"}</td>
+      </tr>`;
+    }).join("");
   }
 
   async function boot() {
