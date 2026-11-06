@@ -368,13 +368,27 @@ def short_put_refresh_api():
         logger.exception("short put refresh failed")
         return jsonify({"error": str(exc)}), 500
 
-if __name__ == "__main__":
+def _start_background_jobs() -> None:
+    """Warm caches in the background (local + gunicorn/Render)."""
     threading.Thread(target=_bg_warmup, daemon=True).start()
     threading.Thread(target=_weekly_supply_loop, daemon=True).start()
     threading.Thread(target=_us_movers_warmup, daemon=True).start()
     threading.Thread(target=_ng_warmup, daemon=True).start()
+
+
+# Under gunicorn/Render the module is imported; start warmups once.
+if __name__ != "__main__":
+    _start_background_jobs()
+
+
+if __name__ == "__main__":
+    import os
+
+    _start_background_jobs()
+    port = int(os.environ.get("PORT", "5050"))
+    host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
-    print("  期货本地看板  http://127.0.0.1:5050")
-    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美气NG")
+    print(f"  期货看板  http://{host}:{port}")
+    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美气NG · 卖Put")
     print("=" * 60)
-    app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)
+    app.run(host=host, port=port, debug=False, threaded=True)

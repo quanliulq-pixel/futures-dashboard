@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: futures-dashboard
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT -w 1 -k gthread --threads 8 --timeout 180 --graceful-timeout 30 app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: TZ
+        value: Asia/Shanghai

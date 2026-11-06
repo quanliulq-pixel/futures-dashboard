@@ -17,4 +17,19 @@ Windows 也可双击 `start_dashboard.bat`；周报数据用 `fetch_supply.bat`�
 
 ## 说明
 
-GitHub Pages 只能托管静态文件，本项目依赖 Flask API，不能直接作为 Pages 站点运行。仓库可存放源码；线上需自备可跑 Python 的主机。
+静态快照可走 GitHub Pages；要实时刷新请部署 Flask（见下方 Render）。
+
+
+## GitHub Pages（静态快照）
+
+定时导出在 `docs/`，站点：[https://quanliulq-pixel.github.io/futures-dashboard/](https://quanliulq-pixel.github.io/futures-dashboard/)
+
+## Render（动态站）
+
+仓库已含 `render.yaml` / `Procfile`。在 [Render Dashboard](https://dashboard.render.com) 用 GitHub 登录后：
+
+1. **New → Blueprint**，选本仓库，按 `render.yaml` 创建；或 **New → Web Service**，连 `quanliulq-pixel/futures-dashboard`，Build `pip install -r requirements.txt`，Start 用 Procfile。
+2. 免费档闲置约 15 分钟会休眠，首次打开可能要等几十秒。
+3. 部署成功后打开 `https://<服务名>.onrender.com`，前端会自动走实时 `/api/*`（非 github.io 即动态模式）。
+
+卖 Put 全市场扫描较慢，点「重新扫描」可能要 1–2 分钟。
