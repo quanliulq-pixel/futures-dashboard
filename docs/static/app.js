@@ -1296,28 +1296,34 @@
 
   function moverRows(list, mode) {
     if (!list || !list.length) {
-      return `<tr><td colspan="6" class="empty">暂无数据</td></tr>`;
+      return `<tr><td colspan="5" class="empty">暂无数据</td></tr>`;
     }
     return list
       .map((r, i) => {
         const cls = clsByChange(r.change_pct);
+        const pct = moverPct(r.change_pct);
+        const name = r.name || r.symbol || "—";
         if (mode === "fut") {
-          return `<tr data-id="${r.id}" title="打开 ${r.name} 走势">
+          const badges = futKindBadge(r);
+          return `<tr data-id="${r.id}" title="打开 ${name} 走势">
             <td>${i + 1}</td>
-            <td class="mono">${r.symbol}</td>
-            <td title="${r.name || ""}">${r.name || "—"}</td>
-            <td>${futKindBadge(r)}</td>
+            <td class="mover-name" title="${name} ${r.symbol || ""}">
+              <div class="mover-title">${name}</div>
+              <div class="mover-sub mono">${r.symbol || ""} · ${badges}</div>
+            </td>
+            <td class="num mover-pct ${cls}">${pct}</td>
             <td class="num">${fmt(r.price, 2)}</td>
-            <td class="num ${cls}">${moverPct(r.change_pct)}</td>
           </tr>`;
         }
+        const badge = kindBadge(r.kind, r.leverage);
         return `<tr data-symbol="${r.symbol}" title="打开 Yahoo 看 ${r.symbol}">
           <td>${i + 1}</td>
-          <td class="mono">${r.symbol}</td>
-          <td title="${r.name || ""}">${r.name || "—"}</td>
-          <td>${kindBadge(r.kind, r.leverage)}</td>
+          <td class="mover-name" title="${name} ${r.symbol || ""}">
+            <div class="mover-title">${name}</div>
+            <div class="mover-sub mono">${r.symbol || ""} · ${badge}</div>
+          </td>
+          <td class="num mover-pct ${cls}">${pct}</td>
           <td class="num">${fmt(r.price, 2)}</td>
-          <td class="num ${cls}">${moverPct(r.change_pct)}</td>
         </tr>`;
       })
       .join("");
