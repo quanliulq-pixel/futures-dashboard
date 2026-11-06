@@ -2,8 +2,12 @@
 """High-volatility US stocks/ETFs screener for cash-secured / short put ideas."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import logging
+import json
 import math
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -658,10 +662,38 @@ def _action(row: dict) -> str:
     return "；".join(parts)
 
 
+def _load_seed_snapshot() -> dict | None:
+    """Cold-start fallback from exported Pages JSON (bundled in repo)."""
+    for rel in ("docs/api/short_put.json", "data/short_put_seed.json"):
+        path = Path(__file__).resolve().parent / rel
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("picks") is not None:
+                data = dict(data)
+                data["source"] = "seed"
+                return data
+        except Exception:
+            logger.debug("seed load failed for %s", path, exc_info=True)
+    return None
+
+
 def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int = 28) -> dict:
     global _cache
     if not force and _cache and time.time() - _cache[0] < CACHE_TTL:
         return _cache[1]
+
+    # First hit on a fresh dyno: serve last export while a live scan would take minutes.
+    if not force and _cache is None:
+        seed = _load_seed_snapshot()
+        if seed is not None:
+            _cache = (time.time(), seed)
+            threading.Thread(
+                target=lambda: build_short_put_screen(force=True, top_n=top_n, option_n=option_n),
+                daemon=True,
+            ).start()
+            return seed
 
     close, meta = _load_price_panel()
     symbols = [s for s in CORE_UNIVERSE if s in close.columns]
