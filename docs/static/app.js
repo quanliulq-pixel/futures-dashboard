@@ -223,7 +223,7 @@
     const rows = sortQuotes(filteredQuotes().map(mergeQuoteRow));
     updateSortHeaders();
     if (!rows.length) {
-      quoteBody.innerHTML = `<tr><td colspan="14" class="empty">暂无匹配行情</td></tr>`;
+      quoteBody.innerHTML = `<tr><td colspan="13" class="empty">暂无匹配行情</td></tr>`;
       return;
     }
 
@@ -250,7 +250,6 @@
         const tag = q.tag || "—";
         return `<tr data-id="${q.id}" class="${active}">
           <td title="${q.name}">${q.name}</td>
-          <td>${deflBadge(q.deflation_tag)}</td>
           <td>${q.symbol}</td>
           <td><span class="badge ${mBadge}">${mLabel}</span></td>
           <td>${q.exchange || "—"}</td>
