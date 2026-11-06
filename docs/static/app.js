@@ -410,7 +410,7 @@
     try {
       setStatus(true, "刷新中…");
       const url = apiUrl(force ? "/api/quotes?force=1" : "/api/quotes");
-      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "quotes failed");
       state.quotes = data.items || [];
@@ -433,7 +433,7 @@
     } catch (err) {
       console.error(err);
       const timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
-      setStatus(false, timedOut ? "刷新超时，请再试" : "刷新失败");
+      setStatus(false, timedOut ? "冷启动较慢，请再点一次刷新" : "刷新失败");
       quoteMeta.textContent = timedOut
         ? "行情接口超时（冷启动/Yahoo 限流），请点「立即刷新」或稍后再试"
         : String(err.message || err);
@@ -443,7 +443,7 @@
   async function loadExtremes(force = false) {
     try {
       const url = apiUrl(force ? "/api/analysis/all?force=1" : "/api/analysis/all");
-      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "extremes failed");
 
@@ -1574,7 +1574,7 @@
         market: state.fxMarket,
         limit: "20",
       });
-      const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
+      const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()), { signal: AbortSignal.timeout(60000) });
       let data = await res.json();
       if (!res.ok) throw new Error(data.error || "futures movers failed");
       data = pickMoversPeriod(data, state.usPeriod);
@@ -1610,7 +1610,7 @@
         limit: "20",
       });
       if (force) q.set("force", "1");
-      const res = await fetch(apiUrl("/api/us-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
+      const res = await fetch(apiUrl("/api/us-movers?" + q.toString()), { signal: AbortSignal.timeout(60000) });
       let data = await res.json();
       if (!res.ok) throw new Error(data.error || "us movers failed");
       data = pickMoversPeriod(data, state.usPeriod);
@@ -1672,7 +1672,7 @@
     }
     try {
       const url = force ? "/api/ng/refresh" : "/api/ng/dashboard";
-      const res = await fetch(apiUrl(url));
+      const res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(60000) });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "NG dashboard failed");
       renderNgDashboard(data);
@@ -3324,7 +3324,7 @@
     }
     try {
       const url = force ? "/api/cn-indices/refresh" : "/api/cn-indices";
-      const res = await fetch(apiUrl(url));
+      const res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(60000) });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "cn indices failed");
       renderCnIndices(data);
