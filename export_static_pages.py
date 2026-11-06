@@ -61,7 +61,6 @@ def export_html() -> None:
         )
     html = html.replace('href="/static/style.css?v={{ asset_v }}"', 'href="./static/style.css?v=static"')
     html = html.replace('src="/static/app.js?v={{ asset_v }}"', 'src="./static/app.js?v=static"')
-    html = html.replace('src="/static/cn_options.js?v={{ asset_v }}"', 'src="./static/cn_options.js?v=static"')
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
@@ -263,16 +262,6 @@ def main() -> None:
         traceback.print_exc()
         cn_opt_payload = {"products": [], "by_index": {}, "updated_at": now, "error": str(exc)}
         dump(API / "cn_index_options.json", cn_opt_payload)
-
-    print("cn short put/call candidates (index + commodity options)...")
-    try:
-        from cn_short_options import build_all
-
-        # 自行写入 docs/api/cn_short_{put,call}.json；失败时保留上一份有效快照
-        build_all(write=True)
-    except Exception as exc:
-        print("cn short options failed (kept previous snapshot):", exc)
-        traceback.print_exc()
 
     print("cn index advice...")
     try:

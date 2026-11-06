@@ -337,13 +337,7 @@
 
     <!-- 高波动美股/ETF 卖 Put 推荐 -->
     <section class="view view-put" id="view-put">
-      <div class="cn-market-bar" role="tablist" aria-label="市场" data-side="put">
-        <button type="button" class="active" data-market="us">美股</button>
-        <button type="button" data-market="cn_index">国内股指</button>
-        <button type="button" data-market="cn_commodity">国内商品</button>
-      </div>
-      <div class="panel cn-opt-panel hidden" id="put-cn-panel" aria-live="polite"></div>
-      <div class="put-layout" id="put-us-layout">
+      <div class="put-layout">
         <div class="panel put-hero">
           <div class="panel-head">
             <div>
@@ -488,13 +482,7 @@
 
     <!-- 高波动美股/ETF 卖 Call 推荐 -->
     <section class="view view-call" id="view-call">
-      <div class="cn-market-bar" role="tablist" aria-label="市场" data-side="call">
-        <button type="button" class="active" data-market="us">美股</button>
-        <button type="button" data-market="cn_index">国内股指</button>
-        <button type="button" data-market="cn_commodity">国内商品</button>
-      </div>
-      <div class="panel cn-opt-panel hidden" id="call-cn-panel" aria-live="polite"></div>
-      <div class="put-layout" id="call-us-layout">
+      <div class="put-layout">
         <div class="panel put-hero">
           <div class="panel-head">
             <div>
@@ -1001,6 +989,5 @@
     </div>
 
   <script src="./static/app.js?v=static"></script>
-  <script src="./static/cn_options.js?v=static"></script>
 </body>
 </html>
