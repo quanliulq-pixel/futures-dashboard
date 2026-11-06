@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn15"
+    asset_v = "20261106dyn16"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -615,6 +615,24 @@ def short_call_refresh_api():
         logger.exception("short call refresh failed")
         return jsonify({"error": str(exc)}), 500
 
+
+
+@app.route("/api/cn-short-put")
+def cn_short_put_api():
+    """国内期权卖Put候选：只读快照（GitHub Actions 生成），不在页面请求时抓取。"""
+    seed = _read_api_seed("cn_short_put.json")
+    if seed is None:
+        return jsonify({"side": "put", "markets": {}, "error": "尚无国内期权快照"})
+    return jsonify(seed)
+
+
+@app.route("/api/cn-short-call")
+def cn_short_call_api():
+    """国内期权卖Call候选：只读快照。"""
+    seed = _read_api_seed("cn_short_call.json")
+    if seed is None:
+        return jsonify({"side": "call", "markets": {}, "error": "尚无国内期权快照"})
+    return jsonify(seed)
 
 
 @app.route("/api/cn-index-options")
