@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 _history_cache: dict[str, tuple[float, pd.DataFrame]] = {}
 _quote_bundle_cache: tuple[float, list[dict]] | None = None
+_quotes_refresh_lock = __import__("threading").Lock()
+_quotes_refresh_running = False
+
 
 
 def _now() -> float:
@@ -435,46 +438,97 @@ def _load_quotes_seed() -> list[dict] | None:
 
 
 def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
-    global _quote_bundle_cache
+    """Return quotes fast. Live Yahoo/Sina pulls never block the HTTP request.
 
-    if not force and _quote_bundle_cache and _now() - _quote_bundle_cache[0] < QUOTE_CACHE_TTL:
-        quotes = _quote_bundle_cache[1]
+    force=True only schedules a background refresh; callers always get the
+    current cache or the exported docs/api/quotes.json seed within milliseconds.
+    """
+    global _quote_bundle_cache, _quotes_refresh_running
+
+    def _filter(quotes: list[dict]) -> list[dict]:
         if market in ("cn", "us"):
-            return [q for q in quotes if q["market"] == market]
+            return [q for q in quotes if q.get("market") == market]
         return quotes
 
-    # Fresh dyno / empty cache: serve last export immediately, refresh in background.
-    if not force and _quote_bundle_cache is None:
+    # Fresh-enough cache: serve immediately.
+    if _quote_bundle_cache and (not force) and _now() - _quote_bundle_cache[0] < QUOTE_CACHE_TTL:
+        return _filter(_quote_bundle_cache[1])
+
+    # Prefer any in-memory cache, else the Pages export seed.
+    snapshot: list[dict] | None = None
+    if _quote_bundle_cache is not None:
+        snapshot = _quote_bundle_cache[1]
+    else:
         seed = _load_quotes_seed()
         if seed is not None:
             _quote_bundle_cache = (_now(), seed)
-            import threading
+            snapshot = seed
 
-            def _bg_refresh():
-                try:
-                    get_quotes(force=True)
-                except Exception:
-                    logger.exception("background quotes refresh failed")
+    def _kick_bg() -> None:
+        global _quotes_refresh_running
+        if not _quotes_refresh_lock.acquire(blocking=False):
+            return
+        if _quotes_refresh_running:
+            _quotes_refresh_lock.release()
+            return
+        _quotes_refresh_running = True
+        _quotes_refresh_lock.release()
 
-            threading.Thread(target=_bg_refresh, daemon=True).start()
-            if market in ("cn", "us"):
-                return [q for q in seed if q.get("market") == market]
-            return seed
+        import threading
 
-    items, _ = get_universe()
+        def _bg():
+            global _quotes_refresh_running, _quote_bundle_cache
+            try:
+                live = _fetch_quotes_live()
+                if live:
+                    _quote_bundle_cache = (_now(), live)
+            except Exception:
+                logger.exception("background quotes refresh failed")
+            finally:
+                with _quotes_refresh_lock:
+                    _quotes_refresh_running = False
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    if snapshot is not None:
+        # TTL miss or force: return snapshot now, refresh once in background.
+        _kick_bg()
+        return _filter(snapshot)
+
+    # No seed/cache at all (shouldn't happen in deploy) — last resort sync with timeout.
+    try:
+        live = _fetch_quotes_live(timeout_sec=12)
+        if live:
+            _quote_bundle_cache = (_now(), live)
+            return _filter(live)
+    except Exception:
+        logger.exception("sync quotes fetch failed")
+    return []
+
+
+def _fetch_quotes_live(timeout_sec: int = 45) -> list[dict]:
+    """Build a live quote bundle. Soft-timeouts so one slow source cannot hang forever."""
     quotes: list[dict] = []
 
     cn_rt: dict[str, dict] = {}
-    try:
-        cn_rt = _fetch_cn_realtime_map()
-    except Exception as exc:
-        logger.warning("cn realtime batch failed: %s", exc)
-
     us_rt: dict[str, dict] = {}
+
+    pool = ThreadPoolExecutor(max_workers=2)
     try:
-        us_rt = _batch_us_quotes()
-    except Exception as exc:
-        logger.warning("us batch quotes failed: %s", exc)
+        fut_cn = pool.submit(_fetch_cn_realtime_map)
+        fut_us = pool.submit(_batch_us_quotes)
+        try:
+            cn_rt = fut_cn.result(timeout=timeout_sec) or {}
+        except Exception as exc:
+            logger.warning("cn realtime batch failed/timeout: %s", exc)
+        try:
+            # Don't let US wait the full CN budget if CN already consumed it.
+            us_rt = fut_us.result(timeout=max(5, min(20, timeout_sec))) or {}
+        except Exception as exc:
+            logger.warning("us batch quotes failed/timeout: %s", exc)
+    finally:
+        # Never block the caller on stranded Yahoo/Sina workers.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # CN first
     for item in get_cn_instruments():
@@ -550,10 +604,8 @@ def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
                     }
                 )
 
-    _quote_bundle_cache = (_now(), quotes)
-    if market in ("cn", "us"):
-        return [q for q in quotes if q["market"] == market]
     return quotes
+
 
 
 def warmup(ids: list[str] | None = None, max_workers: int | None = None) -> None:
