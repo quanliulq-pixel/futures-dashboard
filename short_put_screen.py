@@ -768,6 +768,13 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
 
     close, meta = _load_price_panel()
     symbols = [s for s in CORE_UNIVERSE if s in close.columns]
+    # Theme ETFs (TLT/HYG/GLD/…) must stay even when HV is quiet.
+    theme_force = set()
+    for _meta in THEME_LINKS.values():
+        theme_force.update(_meta.get("symbols") or [])
+    for s in theme_force:
+        if s in close.columns and s not in symbols:
+            symbols.append(s)
     # also add other high-HV liquid names from panel that are stock/etf (not lev)
     try:
         rets = close.pct_change()
@@ -800,8 +807,11 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
         px = float(series.iloc[-1])
         hv20 = _hv(series, 20)
         hv60 = _hv(series, 60)
-        if hv20 is None or hv20 < 18:
-            continue  # focus high / elevated vol
+        if hv20 is None:
+            continue
+        # Quiet bond/gold names stay for theme panels; HV screen still focuses elevated vol.
+        if hv20 < 18 and s not in theme_force:
+            continue
         info = CORE_UNIVERSE.get(s) or meta.get(s) or {"name": s, "kind": "stock", "sector": ""}
         ma20 = float(series.tail(20).mean()) if len(series) >= 20 else None
         ma60 = float(series.tail(60).mean()) if len(series) >= 60 else None
@@ -961,7 +971,38 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             if s in all_by_sym:
                 items.append(all_by_sym[s])
             elif s in CORE_UNIVERSE:
-                items.append({"symbol": s, "name": CORE_UNIVERSE[s]["name"], "kind": CORE_UNIVERSE[s]["kind"], "missing": True})
+                stub = {
+                    "symbol": s,
+                    "name": CORE_UNIVERSE[s]["name"],
+                    "kind": CORE_UNIVERSE[s]["kind"],
+                    "sector": CORE_UNIVERSE[s].get("sector") or "",
+                    "missing": True,
+                    "put": None,
+                }
+                try:
+                    if s in close.columns:
+                        series = close[s].dropna()
+                        if len(series) >= 20:
+                            px = float(series.iloc[-1])
+                            stub.update({
+                                "price": _r(px, 2),
+                                "hv20": _r(_hv(series, 20), 1),
+                                "hv60": _r(_hv(series, 60), 1),
+                                "hv_pctile": _r(_hv_percentile(series), 1),
+                                "rsi14": _r(_rsi(series), 1),
+                                "chg_1d": _r(float(series.pct_change().iloc[-1] * 100), 2),
+                                "chg_5d": _r(float(series.iloc[-1] / series.iloc[-6] - 1) * 100, 2) if len(series) >= 6 else None,
+                                "missing": False,
+                            })
+                            stub["put"] = _option_put_idea(s, px)
+                            if stub.get("put"):
+                                stub["score"] = _r(_score_row(stub), 1)
+                                stub["bias_cn"] = _bias_cn(stub)
+                                stub["action"] = _action(stub)
+                                stub["risk"] = _build_risk(stub)
+                except Exception:
+                    logger.debug("theme stub enrich failed for %s", s, exc_info=True)
+                items.append(stub)
         themes.append({
             "id": key,
             "label": meta["label"],

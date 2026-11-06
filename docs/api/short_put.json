@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-06T16:50:20",
+  "updated_at": "2026-11-06T18:31:34",
   "method": {
     "goal": "高波动美股/ETF 的现金担保卖出看跌（CSP / Short Put）候选",
     "vol": "HV20/HV60 为近20/60日收益年化波动；hv_pctile 为近一年分位",
@@ -22,7 +22,7 @@
     "rv_stable": 15,
     "skew": 10
   },
-  "universe_size": 86,
+  "universe_size": 89,
   "picks": [
     {
       "symbol": "CSGP",
@@ -28794,7 +28794,282 @@
         "Copper",
         "CU"
       ],
-      "items": []
+      "items": [
+        {
+          "symbol": "FCX",
+          "name": "Freeport-McMoRan",
+          "kind": "stock",
+          "sector": "",
+          "price": 57.9,
+          "hv20": 44.5,
+          "hv60": 43.8,
+          "hv_pctile": 37.3,
+          "rsi14": 19.1,
+          "chg_1d": -7.51,
+          "chg_5d": -12.46,
+          "chg_21d": -19.25,
+          "vs_ma20_pct": -13.38,
+          "vs_ma60_pct": -17.79,
+          "put": {
+            "expiry": "2026-12-04",
+            "dte": 28,
+            "strike": 55.0,
+            "bid": 0.0,
+            "ask": 0.0,
+            "mid": 1.86,
+            "iv": 50.5,
+            "iv_source": "est",
+            "volume": 5,
+            "open_interest": 0,
+            "otm_pct": -5.0,
+            "premium_pct": 3.21,
+            "yield_ann_pct": 44.1,
+            "capital": 5500.0,
+            "atm_iv": 50.5,
+            "near_iv": 50.5,
+            "far_iv": 3.1,
+            "far_expiry": "2027-01-15",
+            "otm_put_iv": 50.5,
+            "chain": [
+              {
+                "strike": 58.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 3.23,
+                "iv": 0.0,
+                "volume": 29,
+                "open_interest": 0,
+                "otm_pct": 0.2,
+                "selected": false
+              },
+              {
+                "strike": 57.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 2.99,
+                "iv": 1.6,
+                "volume": 19,
+                "open_interest": 0,
+                "otm_pct": -1.6,
+                "selected": false
+              },
+              {
+                "strike": 56.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 2.55,
+                "iv": 3.1,
+                "volume": 1,
+                "open_interest": 0,
+                "otm_pct": -3.3,
+                "selected": false
+              },
+              {
+                "strike": 55.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 1.86,
+                "iv": 6.3,
+                "volume": 5,
+                "open_interest": 0,
+                "otm_pct": -5.0,
+                "selected": true
+              },
+              {
+                "strike": 50.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.52,
+                "iv": 12.5,
+                "volume": 1,
+                "open_interest": 0,
+                "otm_pct": -13.6,
+                "selected": false
+              }
+            ]
+          },
+          "earnings": {
+            "date": "2027-01-21",
+            "days": 76
+          },
+          "iv_hv_spread": 6.0,
+          "score": 8.5,
+          "bias_cn": "检查否决",
+          "action": "建议卖出 2026-12-04 $55.0 Put；权利金约 $1.86；静态年化约 44.1%；距财报约 76 天(2027-01-21)；仅作研究参考，注意保证金与事件风险。",
+          "risk": {
+            "capital_per_contract": 5500.0,
+            "max_contracts_hint": 1,
+            "budget_usd": 50000.0,
+            "max_name_pct": 15.0,
+            "margin_note": "CSP按现金担保估算（行权价×100）；券商保证金规则可能更松或更严",
+            "iv_tag": "IV估中性",
+            "iv_hv_spread": 6.0,
+            "earnings": {
+              "date": "2027-01-21",
+              "days": 76
+            },
+            "flags": [
+              "超卖刀口",
+              "OI偏低"
+            ],
+            "level": "高"
+          },
+          "edge": {
+            "edge": 44.7,
+            "parts": {
+              "vrp": 14.2,
+              "iv_pctile": 7.5,
+              "term": 8.0,
+              "rv_stable": 11.0,
+              "skew": 4.0
+            },
+            "weights": {
+              "vrp": 30.0,
+              "iv_pctile": 25.0,
+              "term": 20.0,
+              "rv_stable": 15.0,
+              "skew": 10.0
+            },
+            "notes": {
+              "vrp": "VRP偏薄",
+              "iv_pctile": "IV分位偏低",
+              "term": "期限结构未知",
+              "rv_stable": "RV平稳",
+              "skew": "Skew平坦"
+            },
+            "metrics": {
+              "vrp_spread": 6.0,
+              "term_regime": "unknown",
+              "rv_accel": 1.02,
+              "skew": 0.0,
+              "iv": 50.5,
+              "hv20": 44.5,
+              "hv60": 43.8,
+              "iv_pctile": 37.3,
+              "near_iv": 50.5,
+              "far_iv": 3.1,
+              "atm_iv": 50.5,
+              "otm_put_iv": 50.5
+            },
+            "posture": "仅限定义风险",
+            "posture_en": "DEFINED_RISK"
+          },
+          "checklist": {
+            "checks": [
+              {
+                "ok": true,
+                "hard": true,
+                "code": "earnings",
+                "title": "财报窗口",
+                "detail": "距财报 76 天"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "liquidity",
+                "title": "期权流动性",
+                "detail": "OI=0 Vol=5"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "spread",
+                "title": "买卖价差",
+                "detail": "买卖价差 0.00"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "otm",
+                "title": "OTM安全垫",
+                "detail": "OTM 5.0%"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "dte",
+                "title": "到期日甜区",
+                "detail": "DTE 28"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "iv_rich",
+                "title": "IV相对HV",
+                "detail": "IV估中性"
+              },
+              {
+                "ok": true,
+                "hard": true,
+                "code": "vrp",
+                "title": "波动率溢价VRP",
+                "detail": "VRP 6.0"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "term",
+                "title": "波动率期限结构",
+                "detail": "期限结构未知"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "rv_accel",
+                "title": "已实现波动加速",
+                "detail": "HV20/HV60=1.02"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "rsi",
+                "title": "RSI非刀口",
+                "detail": "RSI 19.1"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "freefall",
+                "title": "非自由落体",
+                "detail": "5日 -12.46%"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "budget",
+                "title": "账户预算",
+                "detail": "CSP $5500.0"
+              },
+              {
+                "ok": true,
+                "hard": true,
+                "code": "posture",
+                "title": "Edge姿态",
+                "detail": "仅限定义风险"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "yield",
+                "title": "静态年化",
+                "detail": "44.1%"
+              }
+            ],
+            "passed": 11,
+            "total": 14,
+            "hard_fails": [
+              "liquidity"
+            ],
+            "soft_fails": [
+              "iv_rich",
+              "rsi"
+            ],
+            "blocked": true,
+            "verdict": "否决·先别开",
+            "severity": "block"
+          }
+        }
+      ]
     },
     {
       "id": "rates",
@@ -28814,13 +29089,694 @@
           "symbol": "TLT",
           "name": "20年美债 ETF",
           "kind": "etf",
-          "missing": true
+          "sector": "债券",
+          "price": 81.93,
+          "hv20": 10.8,
+          "hv60": 11.0,
+          "hv_pctile": 84.9,
+          "rsi14": 64.0,
+          "chg_1d": 0.21,
+          "chg_5d": 0.54,
+          "chg_21d": 6.2,
+          "vs_ma20_pct": 1.75,
+          "vs_ma60_pct": 1.56,
+          "put": {
+            "expiry": "2026-12-04",
+            "dte": 28,
+            "strike": 75.5,
+            "bid": 0.0,
+            "ask": 0.0,
+            "mid": 0.04,
+            "iv": 13.4,
+            "iv_source": "yahoo_atm",
+            "volume": 10,
+            "open_interest": 0,
+            "otm_pct": -7.8,
+            "premium_pct": 0.05,
+            "yield_ann_pct": 0.7,
+            "capital": 7550.0,
+            "atm_iv": 13.4,
+            "near_iv": 13.4,
+            "far_iv": 3.1,
+            "far_expiry": "2026-12-31",
+            "otm_put_iv": 13.4,
+            "chain": [
+              {
+                "strike": 82.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 1.44,
+                "iv": 0.0,
+                "volume": 178,
+                "open_interest": 0,
+                "otm_pct": 0.7,
+                "selected": false
+              },
+              {
+                "strike": 82.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 1.21,
+                "iv": 0.0,
+                "volume": 122,
+                "open_interest": 0,
+                "otm_pct": 0.1,
+                "selected": false
+              },
+              {
+                "strike": 81.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.95,
+                "iv": 0.8,
+                "volume": 2040,
+                "open_interest": 0,
+                "otm_pct": -0.5,
+                "selected": false
+              },
+              {
+                "strike": 81.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.74,
+                "iv": 1.6,
+                "volume": 237,
+                "open_interest": 0,
+                "otm_pct": -1.1,
+                "selected": false
+              },
+              {
+                "strike": 80.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.52,
+                "iv": 1.6,
+                "volume": 1135,
+                "open_interest": 0,
+                "otm_pct": -1.7,
+                "selected": false
+              },
+              {
+                "strike": 80.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.42,
+                "iv": 3.1,
+                "volume": 474,
+                "open_interest": 0,
+                "otm_pct": -2.4,
+                "selected": false
+              },
+              {
+                "strike": 79.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.31,
+                "iv": 3.1,
+                "volume": 134,
+                "open_interest": 0,
+                "otm_pct": -3.0,
+                "selected": false
+              },
+              {
+                "strike": 79.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.24,
+                "iv": 3.1,
+                "volume": 67,
+                "open_interest": 0,
+                "otm_pct": -3.6,
+                "selected": false
+              },
+              {
+                "strike": 78.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.15,
+                "iv": 3.1,
+                "volume": 67,
+                "open_interest": 0,
+                "otm_pct": -4.2,
+                "selected": false
+              },
+              {
+                "strike": 78.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.13,
+                "iv": 3.1,
+                "volume": 138,
+                "open_interest": 0,
+                "otm_pct": -4.8,
+                "selected": false
+              },
+              {
+                "strike": 77.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.1,
+                "iv": 6.3,
+                "volume": 45,
+                "open_interest": 0,
+                "otm_pct": -5.4,
+                "selected": false
+              },
+              {
+                "strike": 77.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.09,
+                "iv": 6.3,
+                "volume": 207,
+                "open_interest": 0,
+                "otm_pct": -6.0,
+                "selected": false
+              },
+              {
+                "strike": 76.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.06,
+                "iv": 6.3,
+                "volume": 9,
+                "open_interest": 0,
+                "otm_pct": -6.6,
+                "selected": false
+              },
+              {
+                "strike": 76.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.04,
+                "iv": 6.3,
+                "volume": 14,
+                "open_interest": 0,
+                "otm_pct": -7.2,
+                "selected": false
+              }
+            ]
+          },
+          "earnings": null,
+          "iv_hv_spread": 2.6,
+          "score": 7.6,
+          "bias_cn": "检查否决",
+          "action": "建议卖出 2026-12-04 $75.5 Put；权利金约 $0.04；静态年化约 0.7%；仅作研究参考，注意保证金与事件风险。",
+          "risk": {
+            "capital_per_contract": 7550.0,
+            "max_contracts_hint": 0,
+            "budget_usd": 50000.0,
+            "max_name_pct": 15.0,
+            "margin_note": "CSP按现金担保估算（行权价×100）；券商保证金规则可能更松或更严",
+            "iv_tag": "IV中性",
+            "iv_hv_spread": 2.6,
+            "earnings": null,
+            "flags": [
+              "单笔超预算",
+              "OI偏低"
+            ],
+            "level": "中高"
+          },
+          "edge": {
+            "edge": 62.5,
+            "parts": {
+              "vrp": 22.5,
+              "iv_pctile": 25.0,
+              "term": 0.0,
+              "rv_stable": 11.0,
+              "skew": 4.0
+            },
+            "weights": {
+              "vrp": 30.0,
+              "iv_pctile": 25.0,
+              "term": 20.0,
+              "rv_stable": 15.0,
+              "skew": 10.0
+            },
+            "notes": {
+              "vrp": "VRP偏厚",
+              "iv_pctile": "IV分位很高",
+              "term": "期限结构倒挂(危险)",
+              "rv_stable": "RV平稳",
+              "skew": "Skew平坦"
+            },
+            "metrics": {
+              "vrp_spread": 2.6,
+              "term_regime": "backwardation",
+              "rv_accel": 0.98,
+              "skew": 0.0,
+              "iv": 13.4,
+              "hv20": 10.8,
+              "hv60": 11.0,
+              "iv_pctile": 84.9,
+              "near_iv": 13.4,
+              "far_iv": 3.1,
+              "atm_iv": 13.4,
+              "otm_put_iv": 13.4
+            },
+            "posture": "回避",
+            "posture_en": "AVOID"
+          },
+          "checklist": {
+            "checks": [
+              {
+                "ok": true,
+                "hard": true,
+                "code": "earnings",
+                "title": "财报窗口",
+                "detail": "无近期财报/ETF"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "liquidity",
+                "title": "期权流动性",
+                "detail": "OI=0 Vol=10 · 偏薄"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "spread",
+                "title": "买卖价差",
+                "detail": "买卖价差 0.00"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "otm",
+                "title": "OTM安全垫",
+                "detail": "OTM 7.8%"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "dte",
+                "title": "到期日甜区",
+                "detail": "DTE 28"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "iv_rich",
+                "title": "IV相对HV",
+                "detail": "IV中性"
+              },
+              {
+                "ok": true,
+                "hard": true,
+                "code": "vrp",
+                "title": "波动率溢价VRP",
+                "detail": "VRP 2.6"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "term",
+                "title": "波动率期限结构",
+                "detail": "期限结构倒挂(危险)"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "rv_accel",
+                "title": "已实现波动加速",
+                "detail": "HV20/HV60=0.98"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "rsi",
+                "title": "RSI非刀口",
+                "detail": "RSI 64.0"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "freefall",
+                "title": "非自由落体",
+                "detail": "5日 0.54%"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "budget",
+                "title": "账户预算",
+                "detail": "CSP $7550.0"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "posture",
+                "title": "Edge姿态",
+                "detail": "回避"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "yield",
+                "title": "静态年化",
+                "detail": "0.7%"
+              }
+            ],
+            "passed": 9,
+            "total": 14,
+            "hard_fails": [
+              "term",
+              "posture"
+            ],
+            "soft_fails": [
+              "liquidity",
+              "budget",
+              "yield"
+            ],
+            "blocked": true,
+            "verdict": "否决·先别开",
+            "severity": "block"
+          }
         },
         {
           "symbol": "HYG",
           "name": "高收益债 ETF",
           "kind": "etf",
-          "missing": true
+          "sector": "债券",
+          "price": 77.28,
+          "hv20": 5.2,
+          "hv60": 4.2,
+          "hv_pctile": 90.1,
+          "rsi14": 58.5,
+          "chg_1d": -0.31,
+          "chg_5d": -0.39,
+          "chg_21d": 0.13,
+          "vs_ma20_pct": 0.15,
+          "vs_ma60_pct": -1.01,
+          "put": {
+            "expiry": "2026-12-04",
+            "dte": 28,
+            "strike": 72.0,
+            "bid": 0.0,
+            "ask": 0.0,
+            "mid": 0.06,
+            "iv": 6.3,
+            "iv_source": "yahoo",
+            "volume": 2,
+            "open_interest": 0,
+            "otm_pct": -6.8,
+            "premium_pct": 0.08,
+            "yield_ann_pct": 1.1,
+            "capital": 7200.0,
+            "atm_iv": 7.1,
+            "near_iv": 7.1,
+            "far_iv": 3.1,
+            "far_expiry": "2027-01-15",
+            "otm_put_iv": 6.3,
+            "chain": [
+              {
+                "strike": 78.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 1.73,
+                "iv": 0.0,
+                "volume": 3,
+                "open_interest": 0,
+                "otm_pct": 0.9,
+                "selected": false
+              },
+              {
+                "strike": 77.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.61,
+                "iv": 0.0,
+                "volume": 2,
+                "open_interest": 0,
+                "otm_pct": 0.3,
+                "selected": false
+              },
+              {
+                "strike": 77.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.48,
+                "iv": 0.4,
+                "volume": 28,
+                "open_interest": 0,
+                "otm_pct": -0.4,
+                "selected": false
+              },
+              {
+                "strike": 76.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.33,
+                "iv": 0.8,
+                "volume": 14,
+                "open_interest": 0,
+                "otm_pct": -1.0,
+                "selected": false
+              },
+              {
+                "strike": 76.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.25,
+                "iv": 1.6,
+                "volume": 14,
+                "open_interest": 0,
+                "otm_pct": -1.7,
+                "selected": false
+              },
+              {
+                "strike": 75.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.16,
+                "iv": 3.1,
+                "volume": 5,
+                "open_interest": 0,
+                "otm_pct": -2.3,
+                "selected": false
+              },
+              {
+                "strike": 75.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.13,
+                "iv": 3.1,
+                "volume": 5,
+                "open_interest": 0,
+                "otm_pct": -3.0,
+                "selected": false
+              },
+              {
+                "strike": 74.5,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.08,
+                "iv": 3.1,
+                "volume": 4,
+                "open_interest": 0,
+                "otm_pct": -3.6,
+                "selected": false
+              },
+              {
+                "strike": 74.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.06,
+                "iv": 3.1,
+                "volume": 2602,
+                "open_interest": 0,
+                "otm_pct": -4.2,
+                "selected": false
+              },
+              {
+                "strike": 72.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "mid": 0.06,
+                "iv": 6.3,
+                "volume": 2,
+                "open_interest": 0,
+                "otm_pct": -6.8,
+                "selected": true
+              }
+            ]
+          },
+          "earnings": null,
+          "iv_hv_spread": 1.1,
+          "score": 8.7,
+          "bias_cn": "检查否决",
+          "action": "建议卖出 2026-12-04 $72.0 Put；权利金约 $0.06；静态年化约 1.1%；仅作研究参考，注意保证金与事件风险。",
+          "risk": {
+            "capital_per_contract": 7200.0,
+            "max_contracts_hint": 1,
+            "budget_usd": 50000.0,
+            "max_name_pct": 15.0,
+            "margin_note": "CSP按现金担保估算（行权价×100）；券商保证金规则可能更松或更严",
+            "iv_tag": "IV中性",
+            "iv_hv_spread": 1.1,
+            "earnings": null,
+            "flags": [
+              "OI偏低"
+            ],
+            "level": "中高"
+          },
+          "edge": {
+            "edge": 49.5,
+            "parts": {
+              "vrp": 20.5,
+              "iv_pctile": 25.0,
+              "term": 0.0,
+              "rv_stable": 0.0,
+              "skew": 4.0
+            },
+            "weights": {
+              "vrp": 30.0,
+              "iv_pctile": 25.0,
+              "term": 20.0,
+              "rv_stable": 15.0,
+              "skew": 10.0
+            },
+            "notes": {
+              "vrp": "VRP偏厚",
+              "iv_pctile": "IV分位很高",
+              "term": "期限结构倒挂(危险)",
+              "rv_stable": "RV加速中(风暴)",
+              "skew": "Skew平坦"
+            },
+            "metrics": {
+              "vrp_spread": 1.1,
+              "term_regime": "backwardation",
+              "rv_accel": 1.24,
+              "skew": -0.8,
+              "iv": 6.3,
+              "hv20": 5.2,
+              "hv60": 4.2,
+              "iv_pctile": 90.1,
+              "near_iv": 7.1,
+              "far_iv": 3.1,
+              "atm_iv": 7.1,
+              "otm_put_iv": 6.3
+            },
+            "posture": "回避",
+            "posture_en": "AVOID"
+          },
+          "checklist": {
+            "checks": [
+              {
+                "ok": true,
+                "hard": true,
+                "code": "earnings",
+                "title": "财报窗口",
+                "detail": "无近期财报/ETF"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "liquidity",
+                "title": "期权流动性",
+                "detail": "OI=0 Vol=2"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "spread",
+                "title": "买卖价差",
+                "detail": "买卖价差 0.00"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "otm",
+                "title": "OTM安全垫",
+                "detail": "OTM 6.8%"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "dte",
+                "title": "到期日甜区",
+                "detail": "DTE 28"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "iv_rich",
+                "title": "IV相对HV",
+                "detail": "IV中性"
+              },
+              {
+                "ok": true,
+                "hard": true,
+                "code": "vrp",
+                "title": "波动率溢价VRP",
+                "detail": "VRP 1.1"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "term",
+                "title": "波动率期限结构",
+                "detail": "期限结构倒挂(危险)"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "rv_accel",
+                "title": "已实现波动加速",
+                "detail": "HV20/HV60=1.24 · 温和加速"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "rsi",
+                "title": "RSI非刀口",
+                "detail": "RSI 58.5"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "freefall",
+                "title": "非自由落体",
+                "detail": "5日 -0.39%"
+              },
+              {
+                "ok": true,
+                "hard": false,
+                "code": "budget",
+                "title": "账户预算",
+                "detail": "CSP $7200.0"
+              },
+              {
+                "ok": false,
+                "hard": true,
+                "code": "posture",
+                "title": "Edge姿态",
+                "detail": "回避"
+              },
+              {
+                "ok": false,
+                "hard": false,
+                "code": "yield",
+                "title": "静态年化",
+                "detail": "1.1%"
+              }
+            ],
+            "passed": 9,
+            "total": 14,
+            "hard_fails": [
+              "liquidity",
+              "term",
+              "posture"
+            ],
+            "soft_fails": [
+              "rv_accel",
+              "yield"
+            ],
+            "blocked": true,
+            "verdict": "否决·先别开",
+            "severity": "block"
+          }
         }
       ]
     },
