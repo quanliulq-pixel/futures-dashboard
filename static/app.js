@@ -261,6 +261,28 @@
       .join("");
   }
 
+  function putThemeForQuote(q) {
+    const themes = (state.putPayload && state.putPayload.themes) || [];
+    const blob = `${q.name || ""} ${q.symbol || ""} ${q.sector || ""} ${q.id || ""}`;
+    for (const th of themes) {
+      for (const kw of th.keywords || []) {
+        if (kw && blob.includes(kw)) return th;
+      }
+    }
+    // fallback keyword map without payload
+    const fallback = [
+      { id: "ng", label: "天然气", symbols: ["UNG"], keys: ["天然气", "NG"] },
+      { id: "oil", label: "原油", symbols: ["USO", "XLE"], keys: ["原油", "石油"] },
+      { id: "gold", label: "黄金", symbols: ["GLD", "GDX"], keys: ["黄金"] },
+      { id: "silver", label: "白银", symbols: ["SLV"], keys: ["白银"] },
+      { id: "copper", label: "铜", symbols: ["FCX"], keys: ["铜"] },
+    ];
+    for (const th of fallback) {
+      if (th.keys.some((k) => blob.includes(k))) return th;
+    }
+    return null;
+  }
+
   function renderExtremeCards(container, list, tone) {
     if (!list || !list.length) {
       container.innerHTML = `<div class="empty-card">暂无数据（历史不足或计算中）</div>`;
@@ -278,6 +300,10 @@
           r.primary_cost != null
             ? `${fmt(r.primary_cost)}${r.cost_unit ? " " + r.cost_unit : ""}`
             : "无成本锚";
+        const th = putThemeForQuote(r);
+        const putLink = th
+          ? `<div class="ext-put-link"><button type="button" class="btn btn-tiny btn-ext-put" data-theme="${th.id}" data-symbols="${(th.symbols || []).join(",")}">卖Put · ${th.label}</button></div>`
+          : "";
         return `<div class="xcard ${tone}-tone ${active}" data-id="${r.id}">
           <div class="xn">${r.name} ${deflBadge(r.deflation_tag)}</div>
           <div class="xs">${r.market === "cn" ? "国内" : "北美"} · ${r.exchange || r.sector} · ${r.symbol}</div>
@@ -295,6 +321,7 @@
               : "—"
           }</b></div>
           <div class="xtag ${cardTagClass(r.tag)}" title="${r.tag || ""}">${r.tag || ""}</div>
+          ${putLink}
         </div>`;
       })
       .join("");
@@ -1021,6 +1048,93 @@
         if (state.putPayload) renderShortPut(state.putPayload);
       });
     }
+    const putFilters = $("#put-filters");
+    if (putFilters) {
+      putFilters.addEventListener("change", () => {
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
+      putFilters.addEventListener("input", () => {
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
+    }
+    const btnReset = $("#btn-put-filter-reset");
+    if (btnReset) {
+      btnReset.addEventListener("click", () => {
+        state.putFilters = putFilterDefaults();
+        state.putKind = "all";
+        const map = {
+          "#put-f-hv": 50,
+          "#put-f-rsi-lo": 25,
+          "#put-f-rsi-hi": 65,
+          "#put-f-oi": 50,
+          "#put-f-yield": 0,
+          "#put-f-otm": 15,
+        };
+        Object.entries(map).forEach(([sel, v]) => {
+          const el = $(sel);
+          if (el) el.value = v;
+        });
+        if ($("#put-f-core")) $("#put-f-core").checked = false;
+        if ($("#put-f-noearn")) $("#put-f-noearn").checked = true;
+        if ($("#put-f-ivrich")) $("#put-f-ivrich").checked = false;
+        if (putKind) {
+          [...putKind.querySelectorAll("button")].forEach((b) =>
+            b.classList.toggle("active", b.dataset.kind === "all")
+          );
+        }
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
+    }
+    const themeBar = $("#put-theme-bar");
+    if (themeBar) {
+      themeBar.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-theme]");
+        if (!btn) return;
+        const id = btn.dataset.theme;
+        if (id === "all") {
+          state.putFilters = state.putFilters || putFilterDefaults();
+          state.putFilters.themeSymbols = null;
+          if (state.putPayload) renderShortPut(state.putPayload);
+          return;
+        }
+        const th = ((state.putPayload && state.putPayload.themes) || []).find((x) => x.id === id);
+        openPutTheme(id, th ? th.symbols : null);
+      });
+    }
+    document.addEventListener("click", (e) => {
+      const w = e.target.closest(".btn-put-watch");
+      if (w && w.dataset.symbol) {
+        addPutWatch(w.dataset.symbol);
+        return;
+      }
+      const c = e.target.closest(".btn-put-close");
+      if (c && c.dataset.id) {
+        closePutWatch(c.dataset.id);
+        return;
+      }
+      const d = e.target.closest(".btn-put-drop");
+      if (d && d.dataset.id) {
+        savePutWatch(loadPutWatch().filter((x) => x.id !== d.dataset.id));
+        renderPutWatch();
+        return;
+      }
+      if (e.target.id === "btn-ng-to-put" || e.target.closest("#btn-ng-to-put")) {
+        openPutTheme("ng", ["UNG"]);
+        return;
+      }
+      const ep = e.target.closest(".btn-ext-put");
+      if (ep) {
+        const syms = (ep.dataset.symbols || "").split(",").filter(Boolean);
+        openPutTheme(ep.dataset.theme || "theme", syms);
+      }
+    });
+    const btnPutWatchClear = $("#btn-put-watch-clear");
+    if (btnPutWatchClear) {
+      btnPutWatchClear.addEventListener("click", () => {
+        savePutWatch(loadPutWatch().filter((x) => x.status === "open"));
+        renderPutWatch();
+      });
+    }
     const newsFilter = $("#ng-news-filter");
     if (newsFilter) {
       newsFilter.addEventListener("click", (e) => {
@@ -1387,6 +1501,7 @@
     renderNgBanner(data);
     renderNgMeter(data);
     renderNgAdvice(data.advice, data.price);
+    renderNgPutLinks();
     renderNgEvents(data.events);
     renderNgCalculator(data);
     renderNgFactors(data.factors);
@@ -1983,6 +2098,80 @@
   }
 
 
+  const PUT_WATCH_KEY = "futures_put_watch_v1";
+
+  function loadPutWatch() {
+    try {
+      return JSON.parse(localStorage.getItem(PUT_WATCH_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function savePutWatch(list) {
+    localStorage.setItem(PUT_WATCH_KEY, JSON.stringify(list || []));
+  }
+
+  function putFilterDefaults() {
+    return {
+      kind: "all",
+      hv: 50,
+      rsiLo: 25,
+      rsiHi: 65,
+      oi: 50,
+      yieldMin: 0,
+      otmMax: 15,
+      coreOnly: false,
+      noEarn7: true,
+      ivRich: false,
+      themeSymbols: null,
+    };
+  }
+
+  function readPutFiltersFromDom() {
+    const f = state.putFilters || putFilterDefaults();
+    f.kind = state.putKind || f.kind || "all";
+    const num = (id, d) => {
+      const el = $(id);
+      if (!el || el.value === "") return d;
+      const v = Number(el.value);
+      return Number.isFinite(v) ? v : d;
+    };
+    f.hv = num("#put-f-hv", 50);
+    f.rsiLo = num("#put-f-rsi-lo", 25);
+    f.rsiHi = num("#put-f-rsi-hi", 65);
+    f.oi = num("#put-f-oi", 50);
+    f.yieldMin = num("#put-f-yield", 0);
+    f.otmMax = num("#put-f-otm", 15);
+    f.coreOnly = !!( $("#put-f-core") && $("#put-f-core").checked );
+    f.noEarn7 = !!( $("#put-f-noearn") && $("#put-f-noearn").checked );
+    f.ivRich = !!( $("#put-f-ivrich") && $("#put-f-ivrich").checked );
+    state.putFilters = f;
+    return f;
+  }
+
+  function applyPutFilters(rows) {
+    const f = readPutFiltersFromDom();
+    const core = new Set((state.putPayload && state.putPayload.core_symbols) || []);
+    return (rows || []).filter((r) => {
+      if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+      if (f.themeSymbols && f.themeSymbols.length && !f.themeSymbols.includes(r.symbol)) return false;
+      if (f.coreOnly && !core.has(r.symbol)) return false;
+      if ((r.hv_pctile == null ? 0 : r.hv_pctile) < f.hv) return false;
+      if (r.rsi14 != null && (r.rsi14 < f.rsiLo || r.rsi14 > f.rsiHi)) return false;
+      const put = r.put || {};
+      if ((put.open_interest || 0) < f.oi && put.strike != null) return false;
+      if ((put.yield_ann_pct || 0) < f.yieldMin) return false;
+      if (put.otm_pct != null && Math.abs(put.otm_pct) > f.otmMax) return false;
+      const earnDays = r.earnings && r.earnings.days;
+      if (f.noEarn7 && earnDays != null && earnDays <= 7) return false;
+      const ivTag = (r.risk && r.risk.iv_tag) || "";
+      if (f.ivRich && ivTag !== "IV偏贵") return false;
+      return true;
+    });
+  }
+
+
   async function loadShortPut(force = false) {
     if (state.putLoading) return;
     state.putLoading = true;
@@ -2002,7 +2191,7 @@
       const picks = $("#put-picks");
       if (picks) picks.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}</div>`;
       const body = $("#put-body");
-      if (body) body.innerHTML = `<tr><td colspan="14" class="empty">加载失败</td></tr>`;
+      if (body) body.innerHTML = `<tr><td colspan="18" class="empty">加载失败</td></tr>`;
     } finally {
       state.putLoading = false;
       if (btn) {
@@ -2012,23 +2201,32 @@
     }
   }
 
-  function putKindFilter(rows) {
-    const kind = state.putKind || "all";
-    if (kind === "all") return rows || [];
-    return (rows || []).filter((r) => (r.kind || "stock") === kind);
+  function openPutTheme(themeId, symbols) {
+    state.putFilters = state.putFilters || putFilterDefaults();
+    state.putFilters.themeSymbols = symbols || null;
+    switchView("put");
+    const bar = $("#put-theme-bar");
+    if (bar && themeId) {
+      [...bar.querySelectorAll("button[data-theme]")].forEach((b) =>
+        b.classList.toggle("active", b.dataset.theme === themeId)
+      );
+    }
+    if (state.putPayload) renderShortPut(state.putPayload);
+    else loadShortPut(false);
   }
 
   function renderShortPut(data) {
     if (!data) return;
     state.putPayload = data;
+    if (!state.putFilters) state.putFilters = putFilterDefaults();
     const meta = $("#put-meta");
     if (meta) {
       const n = (data.picks || []).length;
       const u = data.universe_size || 0;
-      meta.textContent = `更新 ${data.updated_at || "—"} · 扫描 ${u} 只高波动标的 · 推荐 ${n} 只`;
+      const acc = data.account_defaults || {};
+      meta.textContent = `更新 ${data.updated_at || "—"} · 扫描 ${u} 只 · 推荐 ${n} 只 · 默认账户 $${acc.budget_usd || 50000} / 单标的≤${acc.max_name_pct || 15}%`;
     }
     const pill = $("#put-count-pill");
-    if (pill) pill.textContent = `${(data.picks || []).length} 推荐`;
     const method = $("#put-method");
     if (method && data.method) {
       const m = data.method;
@@ -2041,23 +2239,54 @@
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
       ].filter(Boolean).join("<br/>");
     }
-    renderPutCards(putKindFilter(data.picks));
-    renderPutTable(putKindFilter(data.all || data.picks));
+    renderPutThemes(data.themes);
+    const filteredPicks = applyPutFilters(data.picks);
+    const filteredAll = applyPutFilters(data.all || data.picks);
+    if (pill) pill.textContent = `${filteredPicks.length} 推荐`;
+    renderPutCards(filteredPicks);
+    renderPutTable(filteredAll);
+    renderPutWatch();
+    renderNgPutLinks();
+  }
+
+  function renderPutThemes(themes) {
+    const bar = $("#put-theme-bar");
+    if (!bar) return;
+    const list = themes || [];
+    bar.innerHTML =
+      `<span class="put-theme-label">主题联动</span>` +
+      `<button type="button" data-theme="all" class="${!(state.putFilters && state.putFilters.themeSymbols) ? "active" : ""}">全部主题</button>` +
+      list
+        .map((th) => {
+          const active = state.putFilters && state.putFilters.themeSymbols && state.putFilters.themeSymbols.join() === (th.symbols || []).join();
+          return `<button type="button" data-theme="${esc(th.id)}" class="${active ? "active" : ""}">${esc(th.label)} <small>${(th.symbols || []).length}</small></button>`;
+        })
+        .join("");
+  }
+
+  function riskBadge(risk) {
+    if (!risk) return "";
+    const lvl = risk.level || "中";
+    const cls = lvl === "高" || lvl === "中高" ? "risk-hi" : lvl === "低" ? "risk-lo" : "risk-mid";
+    const flags = (risk.flags || []).join(" · ");
+    return `<span class="risk-badge ${cls}" title="${esc(flags)}">${esc(risk.iv_tag || "")} · 风险${esc(lvl)}</span>`;
   }
 
   function renderPutCards(picks) {
     const el = $("#put-picks");
     if (!el) return;
     if (!picks || !picks.length) {
-      el.innerHTML = `<div class="empty-card">当前筛选下暂无推荐（可切换股票/ETF，或稍后重扫）</div>`;
+      el.innerHTML = `<div class="empty-card">当前筛选下暂无推荐（放宽条件或切换主题）</div>`;
       return;
     }
     el.innerHTML = picks.slice(0, 12).map((r) => {
       const put = r.put || {};
+      const risk = r.risk || {};
       const chg = r.chg_5d;
       const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
       const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
-      return `<article class="put-card">
+      const earn = r.earnings ? `${r.earnings.days}天` : "—";
+      return `<article class="put-card" data-symbol="${esc(r.symbol)}">
         <div class="put-card-top">
           <div>
             <div class="put-sym">${esc(r.symbol)} <span class="tag-pill">${esc(r.kind === "etf" ? "ETF" : "股票")}</span></div>
@@ -2065,6 +2294,7 @@
           </div>
           <div class="put-score">${fmt(r.score, 1)}</div>
         </div>
+        ${riskBadge(risk)}
         <div class="put-metrics">
           <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
           <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
@@ -2077,7 +2307,16 @@
           <div class="put-metric"><span class="l">权利金</span><span class="v">${put.mid != null ? "$" + fmt(put.mid, 2) : "—"}</span></div>
           <div class="put-metric"><span class="l">年化</span><span class="v">${put.yield_ann_pct != null ? fmt(put.yield_ann_pct, 1) + "%" : "—"}</span></div>
         </div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">CSP占用</span><span class="v">${risk.capital_per_contract != null ? "$" + fmt(risk.capital_per_contract, 0) : "—"}</span></div>
+          <div class="put-metric"><span class="l">建议张数</span><span class="v">${risk.max_contracts_hint != null ? risk.max_contracts_hint : "—"}</span></div>
+          <div class="put-metric"><span class="l">财报</span><span class="v">${esc(earn)}</span></div>
+          <div class="put-metric"><span class="l">OI</span><span class="v">${put.open_interest != null ? put.open_interest : "—"}</span></div>
+        </div>
         <div class="put-action"><strong>${esc(r.bias_cn || "")}</strong> · ${esc(r.action || "")}</div>
+        <div class="put-card-actions">
+          <button type="button" class="btn btn-tiny btn-put-watch" data-symbol="${esc(r.symbol)}">加入观察</button>
+        </div>
       </article>`;
     }).join("");
   }
@@ -2086,17 +2325,17 @@
     const body = $("#put-body");
     if (!body) return;
     if (!rows || !rows.length) {
-      body.innerHTML = `<tr><td colspan="14" class="empty">暂无数据</td></tr>`;
+      body.innerHTML = `<tr><td colspan="18" class="empty">暂无数据</td></tr>`;
       return;
     }
     body.innerHTML = rows.map((r) => {
       const put = r.put || {};
-      const putTxt = put.strike != null
-        ? `$${fmt(put.strike, 2)} · ${esc(put.expiry || "")}`
-        : "—";
+      const risk = r.risk || {};
+      const putTxt = put.strike != null ? `$${fmt(put.strike, 2)} · ${esc(put.expiry || "")}` : "—";
       const chg = r.chg_5d;
       const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
       const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
+      const earn = r.earnings ? `${r.earnings.days}d` : "—";
       return `<tr>
         <td><strong>${esc(r.symbol)}</strong></td>
         <td>${esc(r.name || "")}</td>
@@ -2107,13 +2346,124 @@
         <td class="num">${fmt(r.rsi14, 1)}</td>
         <td class="num ${chgCls}">${chgTxt}</td>
         <td class="num"><strong>${fmt(r.score, 1)}</strong></td>
+        <td>${esc((risk.iv_tag || "").replace("IV", ""))}</td>
+        <td>${esc(risk.level || "—")}</td>
+        <td>${esc(earn)}</td>
         <td>${esc(r.bias_cn || "")}</td>
         <td>${putTxt}</td>
         <td class="num">${put.mid != null ? "$" + fmt(put.mid, 2) : "—"}</td>
-        <td class="num">${put.iv != null ? fmt(put.iv, 1) + "%" : "—"}</td>
         <td class="num">${put.yield_ann_pct != null ? fmt(put.yield_ann_pct, 1) + "%" : "—"}</td>
+        <td class="num">${risk.capital_per_contract != null ? "$" + fmt(risk.capital_per_contract, 0) : "—"}</td>
+        <td><button type="button" class="btn btn-tiny btn-put-watch" data-symbol="${esc(r.symbol)}">观察</button></td>
       </tr>`;
     }).join("");
+  }
+
+  function addPutWatch(symbol) {
+    const data = state.putPayload;
+    if (!data) return;
+    const row = (data.all || []).concat(data.picks || []).find((x) => x.symbol === symbol) ||
+      (data.picks || []).find((x) => x.symbol === symbol);
+    if (!row || !row.put) {
+      alert("该标的暂无期权报价，无法加入");
+      return;
+    }
+    const list = loadPutWatch();
+    if (list.some((x) => x.symbol === symbol && x.status === "open")) {
+      alert("观察池已有未平仓 " + symbol);
+      return;
+    }
+    const put = row.put;
+    list.unshift({
+      id: `${symbol}-${Date.now()}`,
+      symbol,
+      name: row.name,
+      status: "open",
+      opened_at: new Date().toISOString().slice(0, 10),
+      expiry: put.expiry,
+      strike: put.strike,
+      entry_mid: put.mid,
+      exit_mid: null,
+      closed_at: null,
+      contracts: Math.max(1, riskContracts(row)),
+      note: row.bias_cn || "",
+    });
+    savePutWatch(list);
+    renderPutWatch();
+  }
+
+  function riskContracts(row) {
+    const n = row.risk && row.risk.max_contracts_hint;
+    return n != null && n > 0 ? n : 1;
+  }
+
+  function closePutWatch(id, exitMid) {
+    const list = loadPutWatch();
+    const item = list.find((x) => x.id === id);
+    if (!item) return;
+    const mid = exitMid != null ? Number(exitMid) : prompt(`输入 ${item.symbol} 平仓权利金（买回价）`, "0.05");
+    if (mid == null || mid === "") return;
+    item.exit_mid = Number(mid);
+    item.status = "closed";
+    item.closed_at = new Date().toISOString().slice(0, 10);
+    savePutWatch(list);
+    renderPutWatch();
+  }
+
+  function renderPutWatch() {
+    const body = $("#put-watch-body");
+    const meta = $("#put-watch-meta");
+    if (!body) return;
+    const list = loadPutWatch();
+    const openN = list.filter((x) => x.status === "open").length;
+    const closed = list.filter((x) => x.status === "closed");
+    let pnl = 0;
+    closed.forEach((x) => {
+      const c = x.contracts || 1;
+      pnl += ((x.entry_mid || 0) - (x.exit_mid || 0)) * 100 * c;
+    });
+    if (meta) {
+      meta.textContent = `持仓 ${openN} · 已平 ${closed.length} · 已实现约 $${fmt(pnl, 0)}（卖Put：开仓权利金 − 平仓买回）`;
+    }
+    if (!list.length) {
+      body.innerHTML = `<tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>`;
+      return;
+    }
+    body.innerHTML = list.map((x) => {
+      const c = x.contracts || 1;
+      let mark = x.exit_mid;
+      if (mark == null && state.putPayload) {
+        const live = (state.putPayload.all || []).find((r) => r.symbol === x.symbol);
+        if (live && live.put) mark = live.put.mid;
+      }
+      const pnlOne = mark != null ? ((x.entry_mid || 0) - mark) * 100 * c : null;
+      const pct = mark != null && x.entry_mid ? ((x.entry_mid - mark) / x.entry_mid) * 100 : null;
+      const cls = pnlOne == null ? "" : pnlOne >= 0 ? "up" : "down";
+      const ops =
+        x.status === "open"
+          ? `<button type="button" class="btn btn-tiny btn-put-close" data-id="${esc(x.id)}">平仓</button>
+             <button type="button" class="btn btn-tiny btn-put-drop" data-id="${esc(x.id)}">删除</button>`
+          : `<button type="button" class="btn btn-tiny btn-put-drop" data-id="${esc(x.id)}">删除</button>`;
+      return `<tr>
+        <td><strong>${esc(x.symbol)}</strong></td>
+        <td>${esc(x.status === "open" ? "持仓" : "已平")}</td>
+        <td>${esc(x.opened_at || "")}</td>
+        <td>$${fmt(x.strike, 2)} · ${esc(x.expiry || "")}</td>
+        <td class="num">$${fmt(x.entry_mid, 2)}</td>
+        <td class="num">${mark != null ? "$" + fmt(mark, 2) : "—"}</td>
+        <td class="num">${c}</td>
+        <td class="num ${cls}">${pnlOne != null ? fmt(pnlOne, 0) : "—"}</td>
+        <td class="num ${cls}">${pct != null ? fmt(pct, 1) + "%" : "—"}</td>
+        <td>${ops}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderNgPutLinks() {
+    const el = $("#ng-put-links");
+    if (!el) return;
+    el.innerHTML = `<button type="button" class="btn btn-tiny" id="btn-ng-to-put">卖Put：天然气相关 UNG</button>
+      <span class="sub">从美气情绪跳到高波动 CSP 候选</span>`;
   }
 
   async function boot() {

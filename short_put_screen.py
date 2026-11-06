@@ -89,6 +89,27 @@ CORE_UNIVERSE: dict[str, dict[str, str]] = {
     "GDX": {"name": "金矿 ETF", "kind": "etf", "sector": "贵金属"},
 }
 
+# Futures / theme → related short-put ETFs & stocks
+THEME_LINKS: dict[str, dict] = {
+    "ng": {"label": "天然气", "symbols": ["UNG"], "keywords": ["天然气", "NG", "Henry", "HH"]},
+    "oil": {"label": "原油", "symbols": ["USO", "XLE", "XOM", "CVX"], "keywords": ["原油", "石油", "CL", "WTI", "Brent"]},
+    "gold": {"label": "黄金", "symbols": ["GLD", "GDX"], "keywords": ["黄金", "Gold", "AU"]},
+    "silver": {"label": "白银", "symbols": ["SLV"], "keywords": ["白银", "Silver", "AG"]},
+    "copper": {"label": "铜", "symbols": ["FCX"], "keywords": ["铜", "Copper", "CU"]},
+    "rates": {"label": "美债利率", "symbols": ["TLT", "HYG"], "keywords": ["国债", "美债", "利率", "TLT"]},
+    "china": {"label": "中概/中国", "symbols": ["KWEB", "FXI", "BABA", "PDD", "JD"], "keywords": ["中概", "中国", "A50"]},
+    "semi": {"label": "半导体", "symbols": ["SMH", "SOXX", "NVDA", "AMD", "AVGO", "MU"], "keywords": ["半导体", "芯片", "Silicon"]},
+    "crypto": {"label": "加密", "symbols": ["IBIT", "FBTC", "BITO", "COIN", "MSTR"], "keywords": ["比特币", "加密", "BTC"]},
+    "broad": {"label": "宽基", "symbols": ["SPY", "QQQ", "IWM"], "keywords": ["标普", "纳指", "罗素"]},
+}
+
+# Default CSP book assumptions (research UI only)
+ACCOUNT_DEFAULTS = {
+    "budget_usd": 50000,
+    "max_name_pct": 15,
+    "max_contracts_cap": 8,
+}
+
 
 def _r(x: Any, n: int = 2) -> Any:
     if x is None:
@@ -270,6 +291,129 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
         return None
 
 
+
+_earnings_cache: dict[str, dict | None] = {}
+
+
+def _next_earnings(symbol: str) -> dict | None:
+    """Return next earnings date info if available."""
+    if symbol in _earnings_cache:
+        return _earnings_cache[symbol]
+    out = None
+    try:
+        import yfinance as yf
+
+        t = yf.Ticker(symbol)
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        cal = None
+        try:
+            cal = t.calendar
+        except Exception:
+            cal = None
+        dates = []
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date")
+            if isinstance(ed, (list, tuple)):
+                dates.extend(ed)
+            elif ed is not None:
+                dates.append(ed)
+        try:
+            edf = t.get_earnings_dates(limit=8)
+            if edf is not None and not edf.empty:
+                for idx in edf.index:
+                    try:
+                        dates.append(idx.to_pydatetime().date() if hasattr(idx, "to_pydatetime") else idx.date())
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        future = []
+        for d in dates:
+            try:
+                if hasattr(d, "date") and not isinstance(d, type(today)):
+                    d = d.date()
+                d = d if isinstance(d, type(today)) else datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if d >= today:
+                future.append(d)
+        if future:
+            nxt = min(future)
+            days = (nxt - today).days
+            out = {"date": nxt.isoformat(), "days": days}
+    except Exception as exc:
+        logger.debug("earnings %s: %s", symbol, exc)
+        out = None
+    _earnings_cache[symbol] = out
+    return out
+
+
+def _iv_tag(spread: float | None) -> str:
+    if spread is None:
+        return "IV未知"
+    if spread >= 8:
+        return "IV偏贵"
+    if spread <= -5:
+        return "IV偏便宜"
+    return "IV中性"
+
+
+def _build_risk(row: dict, budget: float | None = None) -> dict:
+    put = row.get("put") or {}
+    budget = float(budget or ACCOUNT_DEFAULTS["budget_usd"])
+    max_pct = float(ACCOUNT_DEFAULTS["max_name_pct"])
+    cap = int(ACCOUNT_DEFAULTS["max_contracts_cap"])
+    capital = put.get("capital")  # cash per contract CSP
+    if capital is None and put.get("strike"):
+        capital = float(put["strike"]) * 100
+    max_by_budget = 0
+    if capital and capital > 0:
+        max_by_budget = int((budget * max_pct / 100) // capital)
+    max_contracts = max(0, min(cap, max_by_budget))
+    earn = row.get("earnings")
+    flags = []
+    if capital and capital > budget * max_pct / 100:
+        flags.append("单笔超预算")
+    if earn and earn.get("days") is not None:
+        d = earn["days"]
+        if d <= 7:
+            flags.append("财报≤7天")
+        elif d <= 14:
+            flags.append("财报≤14天")
+    hv = row.get("hv20") or 0
+    if hv >= 90:
+        flags.append("极高波动")
+    rsi = row.get("rsi14")
+    if rsi is not None and rsi < 28:
+        flags.append("超卖刀口")
+    if put.get("open_interest") is not None and put["open_interest"] < 100:
+        flags.append("OI偏低")
+    spread = row.get("iv_hv_spread")
+    iv_tag = _iv_tag(spread)
+    if iv_tag == "IV偏便宜":
+        flags.append("IV偏便宜")
+    # risk level
+    level = "中"
+    if any(x in flags for x in ("财报≤7天", "超卖刀口", "极高波动")):
+        level = "高"
+    elif not flags and iv_tag == "IV偏贵":
+        level = "低"
+    elif "财报≤14天" in flags or "OI偏低" in flags:
+        level = "中高"
+    return {
+        "capital_per_contract": _r(capital, 0),
+        "max_contracts_hint": max_contracts,
+        "budget_usd": budget,
+        "max_name_pct": max_pct,
+        "margin_note": "CSP按现金担保估算（行权价×100）；券商保证金规则可能更松或更严",
+        "iv_tag": iv_tag,
+        "iv_hv_spread": spread,
+        "earnings": earn,
+        "flags": flags,
+        "level": level,
+    }
+
+
 def _score_row(row: dict) -> float:
     """Higher = better short-put candidate among high-vol names."""
     hv = row.get("hv20") or 0
@@ -325,12 +469,31 @@ def _score_row(row: dict) -> float:
     # ETF slight liquidity bonus
     if row.get("kind") == "etf":
         score += 3
+    earn = row.get("earnings") or {}
+    days = earn.get("days")
+    if days is not None:
+        if days <= 5:
+            score -= 18
+        elif days <= 10:
+            score -= 10
+        elif days <= 14:
+            score -= 5
+    spread = None
+    if row.get("put") and row["put"].get("iv") is not None and row.get("hv20"):
+        spread = row["put"]["iv"] - row["hv20"]
+    if spread is not None and spread >= 8:
+        score += 6
+    if spread is not None and spread <= -8:
+        score -= 6
     return float(score)
 
 
 def _bias_cn(row: dict) -> str:
     s = row.get("score") or 0
     rsi = row.get("rsi14")
+    earn = row.get("earnings") or {}
+    if earn.get("days") is not None and earn["days"] <= 7:
+        return "财报回避"
     if s >= 55:
         return "优先关注"
     if s >= 40:
@@ -355,6 +518,9 @@ def _action(row: dict) -> str:
         parts.append(f"权利金约 ${mid}")
     if yld is not None:
         parts.append(f"静态年化约 {yld}%")
+    earn = row.get("earnings") or {}
+    if earn.get("days") is not None:
+        parts.append(f"距财报约 {earn['days']} 天({earn.get('date')})")
     parts.append("仅作研究参考，注意保证金与事件风险。")
     return "；".join(parts)
 
@@ -439,17 +605,45 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             except Exception:
                 continue
 
+    # earnings for option targets (and top HV rows without options stay None)
+    def earn_one(r: dict) -> None:
+        if r.get("kind") == "etf":
+            r["earnings"] = None  # ETFs generally no single earnings
+            return
+        r["earnings"] = _next_earnings(r["symbol"])
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(earn_one, targets))
+
     for r in rows:
+        if r.get("put") and r["put"].get("iv") is not None and r.get("hv20"):
+            r["iv_hv_spread"] = _r(r["put"]["iv"] - r["hv20"], 1)
         r["score"] = _r(_score_row(r), 1)
         r["bias_cn"] = _bias_cn(r)
         r["action"] = _action(r)
-        # IV premium vs HV
-        if r.get("put") and r["put"].get("iv") is not None and r.get("hv20"):
-            r["iv_hv_spread"] = _r(r["put"]["iv"] - r["hv20"], 1)
+        r["risk"] = _build_risk(r)
 
     ranked = sorted(rows, key=lambda r: r.get("score") or -1, reverse=True)
     picks = [r for r in ranked if (r.get("score") or 0) >= 28 and r.get("put")][:top_n]
     watch = [r for r in ranked if r not in picks][:15]
+
+    # theme link enrichment: attach live rows when present
+    all_by_sym = {r["symbol"]: r for r in ranked}
+    themes = []
+    for key, meta in THEME_LINKS.items():
+        items = []
+        for s in meta["symbols"]:
+            if s in all_by_sym:
+                items.append(all_by_sym[s])
+            elif s in CORE_UNIVERSE:
+                items.append({"symbol": s, "name": CORE_UNIVERSE[s]["name"], "kind": CORE_UNIVERSE[s]["kind"], "missing": True})
+        themes.append({
+            "id": key,
+            "label": meta["label"],
+            "symbols": meta["symbols"],
+            "keywords": meta.get("keywords") or [],
+            "items": items,
+        })
 
     payload = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
@@ -457,13 +651,17 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             "goal": "高波动美股/ETF 的现金担保卖出看跌（CSP / Short Put）候选",
             "vol": "HV20/HV60 为近20/60日收益年化波动；hv_pctile 为近一年分位",
             "option": "优先选取约 14–45 DTE、约 8% OTM 的看跌期权；权利金取买卖中间价",
-            "score": "综合：高波动溢价 + RSI 回调甜蜜区 + 非自由落体 + 权利金年化 + IV相对HV + 流动性",
-            "risk": "卖 Put 有被行权/亏损扩大风险；杠杆ETF已排除；财报/事件前后请降仓或回避",
+            "score": "综合：高波动溢价 + RSI 回调甜蜜区 + 非自由落体 + 权利金年化 + IV相对HV + 流动性 − 临近财报",
+            "risk": "风控层标注 IV贵贱、财报窗口、CSP占用、建议合约上限；杠杆ETF已排除",
+            "filters": "前端可按 HV分位/RSI/OI/年化/OTM/类型/仅核心池 过滤",
         },
+        "account_defaults": ACCOUNT_DEFAULTS,
         "universe_size": len(rows),
         "picks": picks,
         "watchlist": watch,
         "all": ranked[:60],
+        "themes": themes,
+        "core_symbols": sorted(CORE_UNIVERSE.keys()),
         "disclaimer": "研究用途，非投资建议。期权有杠杆与流动性风险，请独立判断。",
     }
     _cache = (time.time(), payload)

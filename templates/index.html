@@ -352,18 +352,39 @@
             </div>
           </div>
           <div class="put-method" id="put-method">加载方法说明…</div>
+          <div class="put-theme-bar" id="put-theme-bar"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>筛选器</h2>
+              <p class="sub">按波动、RSI、权利金与风险过滤</p>
+            </div>
+            <div class="seg" id="put-kind-filter">
+              <button type="button" data-kind="all" class="active">全部</button>
+              <button type="button" data-kind="stock">股票</button>
+              <button type="button" data-kind="etf">ETF</button>
+            </div>
+          </div>
+          <div class="put-filters" id="put-filters">
+            <label>HV分位≥ <input type="number" id="put-f-hv" value="50" min="0" max="100" step="5" /></label>
+            <label>RSI <input type="number" id="put-f-rsi-lo" value="25" min="0" max="100" step="1" />–<input type="number" id="put-f-rsi-hi" value="65" min="0" max="100" step="1" /></label>
+            <label>最低OI <input type="number" id="put-f-oi" value="50" min="0" step="50" /></label>
+            <label>年化%≥ <input type="number" id="put-f-yield" value="0" min="0" step="5" /></label>
+            <label>|OTM|%≤ <input type="number" id="put-f-otm" value="15" min="1" max="40" step="1" /></label>
+            <label class="chk"><input type="checkbox" id="put-f-core" /> 仅核心池</label>
+            <label class="chk"><input type="checkbox" id="put-f-noearn" checked /> 排除财报≤7天</label>
+            <label class="chk"><input type="checkbox" id="put-f-ivrich" /> 只要IV偏贵</label>
+            <button type="button" id="btn-put-filter-reset" class="btn btn-tiny">重置</button>
+          </div>
         </div>
 
         <div class="panel">
           <div class="panel-head">
             <div>
               <h2>优先推荐</h2>
-              <p class="sub">综合分靠前 · 已匹配期权链</p>
-            </div>
-            <div class="seg" id="put-kind-filter">
-              <button type="button" data-kind="all" class="active">全部</button>
-              <button type="button" data-kind="stock">股票</button>
-              <button type="button" data-kind="etf">ETF</button>
+              <p class="sub">综合分靠前 · 含风控标注 · 可加入观察池</p>
             </div>
           </div>
           <div class="put-card-grid" id="put-picks">
@@ -374,8 +395,39 @@
         <div class="panel">
           <div class="panel-head">
             <div>
+              <h2>我的观察池 / 复盘</h2>
+              <p class="sub" id="put-watch-meta">本地保存开仓权利金与平仓结果，计算静态收益</p>
+            </div>
+            <button type="button" id="btn-put-watch-clear" class="btn btn-tiny">清空已平仓</button>
+          </div>
+          <div class="table-wrap">
+            <table class="put-table" id="put-watch-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>状态</th>
+                  <th>开仓日</th>
+                  <th>合约</th>
+                  <th class="num">开仓权利金</th>
+                  <th class="num">平仓/现价</th>
+                  <th class="num">合约数</th>
+                  <th class="num">收益$</th>
+                  <th class="num">收益%</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="put-watch-body">
+                <tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
               <h2>完整扫描表</h2>
-              <p class="sub">HV / RSI / 涨跌 / 建议行权价与权利金</p>
+              <p class="sub">HV / RSI / IV贵贱 / 财报 / CSP占用</p>
             </div>
           </div>
           <div class="table-wrap">
@@ -391,15 +443,19 @@
                   <th class="num">RSI</th>
                   <th class="num">5日%</th>
                   <th class="num">综合分</th>
+                  <th>IV</th>
+                  <th>风险</th>
+                  <th>财报</th>
                   <th>倾向</th>
                   <th>建议 Put</th>
                   <th class="num">权利金</th>
-                  <th class="num">IV</th>
                   <th class="num">年化%</th>
+                  <th class="num">CSP$</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="put-body">
-                <tr><td colspan="14" class="empty">加载中…</td></tr>
+                <tr><td colspan="18" class="empty">加载中…</td></tr>
               </tbody>
             </table>
           </div>
@@ -475,6 +531,7 @@
             </div>
             <div class="advice-content">
               <div class="advice-summary-box" id="ng-advice-summary">加载建议中…</div>
+              <div class="ng-put-links" id="ng-put-links"></div>
               <div class="advice-levels-grid">
                 <div class="level-box entry">
                   <span class="l">建议入场区间</span>
