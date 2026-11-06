@@ -175,7 +175,14 @@ def main() -> None:
     try:
         from analysis import compute_futures_movers
 
-        dump(API / "futures_movers.json", compute_futures_movers(period="W", market="all", limit=20))
+        periods = {
+            p: compute_futures_movers(period=p, market="all", limit=20, force=True)
+            for p in ("W", "M", "Y")
+        }
+        flat = dict(periods["W"])
+        flat["periods"] = periods
+        flat["default_period"] = "W"
+        dump(API / "futures_movers.json", flat)
     except Exception as exc:
         print("futures movers failed:", exc)
         dump(
@@ -187,7 +194,14 @@ def main() -> None:
     try:
         from us_movers import compute_movers
 
-        dump(API / "us_movers.json", compute_movers(period="W", kind="all", limit=20, force=False))
+        periods = {
+            p: compute_movers(period=p, kind="all", limit=20, force=False)
+            for p in ("W", "M", "Y")
+        }
+        flat = dict(periods["W"])
+        flat["periods"] = periods
+        flat["default_period"] = "W"
+        dump(API / "us_movers.json", flat)
     except Exception as exc:
         print("us movers failed:", exc)
         dump(

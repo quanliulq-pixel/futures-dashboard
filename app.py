@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn4"
+    asset_v = "20261106dyn5"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -70,6 +70,26 @@ def universe_reload():
     us = sum(1 for x in items if x["market"] == "us")
     return jsonify({"ok": True, "total": len(items), "cn": cn, "us": us})
 
+
+
+def _movers_seed_for(name: str, period: str) -> dict | None:
+    """Pick W/M/Y snapshot from docs/api/{name}.json (supports periods map)."""
+    seed = _read_api_seed(name)
+    if not seed:
+        return None
+    period = (period or "W").upper()
+    periods = seed.get("periods") if isinstance(seed.get("periods"), dict) else None
+    if periods:
+        chosen = periods.get(period) or periods.get("W") or periods.get(seed.get("default_period") or "W")
+        if isinstance(chosen, dict) and (chosen.get("gainers") or chosen.get("losers")):
+            out = dict(chosen)
+            out["source"] = "seed"
+            return out
+    # Legacy flat seed
+    out = dict(seed)
+    out.pop("periods", None)
+    out["source"] = "seed"
+    return out
 
 def _read_api_seed(name: str) -> dict | None:
     from pathlib import Path
@@ -266,39 +286,51 @@ def futures_movers_api():
     limit = request.args.get("limit", default=20, type=int)
     force = request.args.get("force") == "1"
 
-    def _seed():
-        seed = _read_api_seed("futures_movers.json")
-        if not seed:
-            return None
-        seed = dict(seed)
-        seed["source"] = "seed"
-        return seed
-
     try:
         import os
         from analysis import _futures_movers_cache
 
-        cache_key = f"{(period or 'W').upper()}|{(market or 'all').lower()}|{max(5, min(int(limit or 20), 50))}"
+        period_u = (period or "W").upper()
+        market_l = (market or "all").lower()
+        lim = max(5, min(int(limit or 20), 50))
+        cache_key = f"{period_u}|{market_l}|{lim}"
         hit = _futures_movers_cache.get(cache_key)
         if hit and not force:
             return jsonify(hit[1])
 
-        seed = _seed()
-        if seed is not None and os.environ.get("RENDER"):
+        seed = _movers_seed_for("futures_movers.json", period_u)
+        # Seed is market=all; if caller asks cn/us only, filter lists.
+        if seed is not None and market_l in {"cn", "us"}:
+            seed = dict(seed)
+            seed["market"] = market_l
+            seed["gainers"] = [r for r in (seed.get("gainers") or []) if r.get("market") == market_l][:lim]
+            seed["losers"] = [r for r in (seed.get("losers") or []) if r.get("market") == market_l][:lim]
+
+        if seed is not None and os.environ.get("RENDER") and not force:
             def _bg():
                 try:
-                    compute_futures_movers(period=period, market=market, limit=limit or 20, force=True)
+                    compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True)
                 except Exception:
                     logger.exception("bg futures movers failed")
 
             threading.Thread(target=_bg, daemon=True).start()
             return jsonify(seed)
 
-        data = compute_futures_movers(period=period, market=market, limit=limit or 20, force=force or True)
+        if seed is not None and force and os.environ.get("RENDER"):
+            def _bg():
+                try:
+                    compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True)
+                except Exception:
+                    logger.exception("bg futures movers force failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            return jsonify(seed)
+
+        data = compute_futures_movers(period=period_u, market=market_l, limit=lim, force=force)
         return jsonify(data)
     except Exception as exc:
         logger.exception("futures movers failed; trying seed")
-        seed = _seed()
+        seed = _movers_seed_for("futures_movers.json", period)
         if seed:
             seed["note"] = (seed.get("note") or "") + " · 实时计算暂不可用，已回退快照"
             return jsonify(seed)
@@ -312,36 +344,37 @@ def us_movers_api():
     limit = request.args.get("limit", default=20, type=int)
     force = request.args.get("force") == "1"
 
-    def _seed():
-        seed = _read_api_seed("us_movers.json")
-        if not seed:
-            return None
-        seed = dict(seed)
-        seed["source"] = "seed"
-        return seed
-
     try:
+        import os
         from us_movers import compute_movers
 
-        seed = _seed()
-        # On Render / cold dyno, never block HTTP on 500+ Yahoo symbols.
-        import os
-        prefer_seed = bool(os.environ.get("RENDER") or seed)
-
-        if prefer_seed and seed is not None:
+        period_u = (period or "W").upper()
+        seed = _movers_seed_for("us_movers.json", period_u)
+        if seed is not None and os.environ.get("RENDER") and not force:
             def _bg():
                 try:
-                    compute_movers(period=period, kind=kind, limit=limit or 20, force=True)
+                    compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True)
                 except Exception:
                     logger.exception("bg us movers failed")
+
             threading.Thread(target=_bg, daemon=True).start()
             return jsonify(seed)
 
-        data = compute_movers(period=period, kind=kind, limit=limit or 20, force=force)
+        if seed is not None and force and os.environ.get("RENDER"):
+            def _bg():
+                try:
+                    compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True)
+                except Exception:
+                    logger.exception("bg us movers force failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            return jsonify(seed)
+
+        data = compute_movers(period=period_u, kind=kind, limit=limit or 20, force=force)
         return jsonify(data)
     except Exception as exc:
         logger.exception("us movers failed; trying seed")
-        seed = _seed()
+        seed = _movers_seed_for("us_movers.json", period)
         if seed:
             seed["note"] = (seed.get("note") or "") + " · 实时计算暂不可用，已回退快照"
             return jsonify(seed)

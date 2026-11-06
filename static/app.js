@@ -1294,6 +1294,17 @@
     return (Number(v) > 0 ? "+" : "") + fmt(v, 2) + "%";
   }
 
+  function pickMoversPeriod(data, period) {
+    if (!data) return data;
+    const p = (period || "W").toUpperCase();
+    const periods = data.periods;
+    if (periods && typeof periods === "object") {
+      const chosen = periods[p] || periods.W || periods[data.default_period] || data;
+      return chosen && typeof chosen === "object" ? chosen : data;
+    }
+    return data;
+  }
+
   function moverRows(list, mode) {
     if (!list || !list.length) {
       return `<tr><td colspan="5" class="empty">暂无数据</td></tr>`;
@@ -1359,7 +1370,7 @@
     const grid = document.querySelector(".movers-grid");
     if (grid) grid.classList.toggle("no-lev-col", state.usKind === "lev");
     if (data && data.error) {
-      const msg = `<tr><td colspan="6" class="empty">加载失败：${data.error}</td></tr>`;
+      const msg = `<tr><td colspan="4" class="empty">加载失败：${data.error}</td></tr>`;
       if (gain) gain.innerHTML = msg;
       if (lose) lose.innerHTML = msg;
       if (levG) levG.innerHTML = msg;
@@ -1390,7 +1401,7 @@
     const lMeta = $("#us-lose-meta");
     syncMoversToolbar();
     if (data && data.error) {
-      const msg = `<tr><td colspan="6" class="empty">加载失败：${data.error}</td></tr>`;
+      const msg = `<tr><td colspan="4" class="empty">加载失败：${data.error}</td></tr>`;
       if (gain) gain.innerHTML = msg;
       if (lose) lose.innerHTML = msg;
       if (meta) meta.textContent = "期货涨跌榜加载失败";
@@ -1414,7 +1425,7 @@
     const lose = $("#us-losers");
     const meta = $("#us-meta");
     const wait = "正在计算期货涨跌榜…";
-    const waitRow = `<tr><td colspan="6" class="empty">${wait}</td></tr>`;
+    const waitRow = `<tr><td colspan="4" class="empty">${wait}</td></tr>`;
     if (gain) gain.innerHTML = waitRow;
     if (lose) lose.innerHTML = waitRow;
     if (meta) meta.textContent = wait;
@@ -1426,10 +1437,12 @@
         limit: "20",
       });
       const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
-      const data = await res.json();
+      let data = await res.json();
+      if (!res.ok) throw new Error(data.error || "futures movers failed");
+      data = pickMoversPeriod(data, state.usPeriod);
       renderFutMovers(data);
     } catch (err) {
-      const msg = `<tr><td colspan="6" class="empty">加载失败：${err.message || err}</td></tr>`;
+      const msg = `<tr><td colspan="4" class="empty">加载失败：${err.message || err}</td></tr>`;
       if (gain) gain.innerHTML = msg;
       if (lose) lose.innerHTML = msg;
       if (meta) meta.textContent = "期货涨跌榜加载失败";
@@ -1445,7 +1458,7 @@
     const wait = force
       ? "正在重新从 Yahoo 拉取美股/ETF 行情…"
       : "正在计算涨跌榜（首次拉取约需 1–2 分钟）…";
-    const waitRow = `<tr><td colspan="6" class="empty">${wait}</td></tr>`;
+    const waitRow = `<tr><td colspan="4" class="empty">${wait}</td></tr>`;
     if (gain) gain.innerHTML = waitRow;
     if (lose) lose.innerHTML = waitRow;
     if (levG) levG.innerHTML = waitRow;
@@ -1460,10 +1473,12 @@
       });
       if (force) q.set("force", "1");
       const res = await fetch(apiUrl("/api/us-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
-      const data = await res.json();
+      let data = await res.json();
+      if (!res.ok) throw new Error(data.error || "us movers failed");
+      data = pickMoversPeriod(data, state.usPeriod);
       renderUsMovers(data);
     } catch (err) {
-      const msg = `<tr><td colspan="6" class="empty">加载失败：${err.message || err}</td></tr>`;
+      const msg = `<tr><td colspan="4" class="empty">加载失败：${err.message || err}</td></tr>`;
       if (gain) gain.innerHTML = msg;
       if (lose) lose.innerHTML = msg;
       if (levG) levG.innerHTML = msg;
@@ -1737,7 +1752,7 @@
     const body = $("#ng-factors-body");
     if (!body) return;
     if (!factors || !factors.length) {
-      body.innerHTML = `<tr><td colspan="6" class="empty">暂无因子数据</td></tr>`;
+      body.innerHTML = `<tr><td colspan="4" class="empty">暂无因子数据</td></tr>`;
       return;
     }
     body.innerHTML = factors
