@@ -264,11 +264,44 @@ def futures_movers_api():
     period = request.args.get("period", "W")
     market = request.args.get("market", "all")
     limit = request.args.get("limit", default=20, type=int)
+    force = request.args.get("force") == "1"
+
+    def _seed():
+        seed = _read_api_seed("futures_movers.json")
+        if not seed:
+            return None
+        seed = dict(seed)
+        seed["source"] = "seed"
+        return seed
+
     try:
-        data = compute_futures_movers(period=period, market=market, limit=limit or 20)
+        import os
+        from analysis import _futures_movers_cache
+
+        cache_key = f"{(period or 'W').upper()}|{(market or 'all').lower()}|{max(5, min(int(limit or 20), 50))}"
+        hit = _futures_movers_cache.get(cache_key)
+        if hit and not force:
+            return jsonify(hit[1])
+
+        seed = _seed()
+        if seed is not None and os.environ.get("RENDER"):
+            def _bg():
+                try:
+                    compute_futures_movers(period=period, market=market, limit=limit or 20, force=True)
+                except Exception:
+                    logger.exception("bg futures movers failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            return jsonify(seed)
+
+        data = compute_futures_movers(period=period, market=market, limit=limit or 20, force=force or True)
         return jsonify(data)
     except Exception as exc:
-        logger.exception("futures movers failed")
+        logger.exception("futures movers failed; trying seed")
+        seed = _seed()
+        if seed:
+            seed["note"] = (seed.get("note") or "") + " · 实时计算暂不可用，已回退快照"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -278,13 +311,40 @@ def us_movers_api():
     kind = request.args.get("kind", "all")
     limit = request.args.get("limit", default=20, type=int)
     force = request.args.get("force") == "1"
+
+    def _seed():
+        seed = _read_api_seed("us_movers.json")
+        if not seed:
+            return None
+        seed = dict(seed)
+        seed["source"] = "seed"
+        return seed
+
     try:
         from us_movers import compute_movers
+
+        seed = _seed()
+        # On Render / cold dyno, never block HTTP on 500+ Yahoo symbols.
+        import os
+        prefer_seed = bool(os.environ.get("RENDER") or seed)
+
+        if prefer_seed and seed is not None:
+            def _bg():
+                try:
+                    compute_movers(period=period, kind=kind, limit=limit or 20, force=True)
+                except Exception:
+                    logger.exception("bg us movers failed")
+            threading.Thread(target=_bg, daemon=True).start()
+            return jsonify(seed)
 
         data = compute_movers(period=period, kind=kind, limit=limit or 20, force=force)
         return jsonify(data)
     except Exception as exc:
-        logger.exception("us movers failed")
+        logger.exception("us movers failed; trying seed")
+        seed = _seed()
+        if seed:
+            seed["note"] = (seed.get("note") or "") + " · 实时计算暂不可用，已回退快照"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -292,12 +352,32 @@ def us_movers_api():
 def ng_dashboard_api():
     force = request.args.get("force") == "1"
     try:
+        import os
         import ng_dashboard
+
+        seed = _read_api_seed("ng_dashboard.json")
+        if seed is not None and os.environ.get("RENDER") and not force:
+            def _bg():
+                try:
+                    ng_dashboard.build_dashboard(force=True)
+                except Exception:
+                    logger.exception("bg ng dashboard failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
 
         data = ng_dashboard.build_dashboard(force=force)
         return jsonify(data)
     except Exception as exc:
         logger.exception("ng dashboard failed")
+        seed = _read_api_seed("ng_dashboard.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            seed["note"] = (seed.get("note") or "") + " · 已回退快照"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -389,11 +469,30 @@ def _ng_warmup():
 def short_put_high_vol_api():
     force = request.args.get("force") == "1"
     try:
+        import os
         from short_put_screen import build_short_put_screen
+
+        seed = _read_api_seed("short_put.json")
+        if seed is not None and os.environ.get("RENDER") and not force:
+            def _bg():
+                try:
+                    build_short_put_screen(force=True)
+                except Exception:
+                    logger.exception("bg short put failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
 
         return jsonify(build_short_put_screen(force=force))
     except Exception as exc:
         logger.exception("short put screen failed")
+        seed = _read_api_seed("short_put.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 

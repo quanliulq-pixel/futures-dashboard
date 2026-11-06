@@ -1419,7 +1419,7 @@
         market: state.fxMarket,
         limit: "20",
       });
-      const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()));
+      const res = await fetch(apiUrl("/api/futures-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
       const data = await res.json();
       renderFutMovers(data);
     } catch (err) {
@@ -1453,7 +1453,7 @@
         limit: "20",
       });
       if (force) q.set("force", "1");
-      const res = await fetch(apiUrl("/api/us-movers?" + q.toString()));
+      const res = await fetch(apiUrl("/api/us-movers?" + q.toString()), { signal: AbortSignal.timeout(20000) });
       const data = await res.json();
       renderUsMovers(data);
     } catch (err) {

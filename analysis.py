@@ -20,6 +20,7 @@ from universe import get_instrument, get_universe
 logger = logging.getLogger(__name__)
 
 _analysis_cache: tuple[float, dict] | None = None
+_futures_movers_cache: dict[str, tuple[float, dict]] = {}
 _analysis_refresh_lock = __import__("threading").Lock()
 _analysis_refresh_running = False
 
@@ -251,15 +252,21 @@ MOVER_PERIODS = {
 
 
 def compute_futures_movers(
-    period: str = "W", market: str = "all", limit: int = 20
+    period: str = "W", market: str = "all", limit: int = 20, force: bool = False
 ) -> dict[str, Any]:
     """Rank commodity futures by weekly / monthly / yearly return."""
+    global _futures_movers_cache
     period = (period or "W").upper()
     if period not in MOVER_PERIODS:
         period = "W"
     market = (market or "all").lower()
     days = MOVER_PERIODS[period]["days"]
     limit = max(5, min(int(limit or 20), 50))
+    cache_key = f"{period}|{market}|{limit}"
+    if not force and cache_key in _futures_movers_cache:
+        ts, payload = _futures_movers_cache[cache_key]
+        if time.time() - ts < ANALYSIS_CACHE_TTL:
+            return payload
 
     items, _ = get_universe()
     if market in {"cn", "us"}:
@@ -307,7 +314,7 @@ def compute_futures_movers(
     last_asof = None
     if rows:
         last_asof = max((r["asof"] for r in rows if r.get("asof")), default=None)
-    return {
+    payload = {
         "period": period,
         "period_label": MOVER_PERIODS[period]["label"],
         "market": market,
@@ -318,6 +325,8 @@ def compute_futures_movers(
         "losers": list(reversed(rows[-limit:])) if rows else [],
         "note": "期货涨跌按连续合约交易日估算：周=5日、月=21日、年=252日。换月可能有跳空。",
     }
+    _futures_movers_cache[cache_key] = (time.time(), payload)
+    return payload
 
 
 def _classify_tag(
