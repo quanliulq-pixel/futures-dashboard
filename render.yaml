@@ -12,3 +12,7 @@ services:
         value: "3.11.9"
       - key: TZ
         value: Asia/Shanghai
+      - key: RENDER
+        value: "true"
+      - key: SKIP_AKSHARE
+        value: "1"

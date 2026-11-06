@@ -197,6 +197,10 @@ AK_INDEX_MAP = {
 
 def _series_from_ak(symbol: str) -> pd.Series | None:
     """Yahoo often returns only the latest print for CN indices; use akshare history."""
+    import os
+    # East-Asia quote hosts often hang from US Render free dynos — never block the request path.
+    if os.environ.get("RENDER") or os.environ.get("SKIP_AKSHARE") == "1":
+        return None
     import akshare as ak
 
     df = ak.stock_zh_index_daily(symbol=symbol)
@@ -308,11 +312,22 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         if row:
             satellites.append(row)
 
+    if len(indices) < 3:
+        seed = _load_seed_snapshot()
+        if seed and seed.get("indices"):
+            # Keep seed index cards; refresh satellites if we got them.
+            if satellites:
+                seed = dict(seed)
+                seed["satellites"] = satellites
+                seed["note"] = (seed.get("note") or "") + " · 指数历史源超时，卡片沿用快照"
+            _cache = (time.time(), seed)
+            return seed
+
     payload = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "method": {
             "goal": "沪深300 / 上证50 / 中证1000 的指数波动与位置分析",
-            "source": "指数行情来自 Yahoo Finance（000300.SS / 000016.SS / 000852.SS）",
+            "source": "指数日线优先 akshare，Render 上改用快照/Yahoo；卫星 ETF 用 Yahoo",
             "options": "Yahoo 不提供这些指数或对应A股ETF的场内期权链，本页不展示卖Put/卖Call候选",
             "stats": "HV20/HV60、HV分位、RSI14、相对均线、近1/5/21日涨跌、距52周高低点",
             "futures": "若看板行情池含 IF0/IH0/IM0/IC0，则附加股指期货对照报价；当前大宗商品池通常不含股指",

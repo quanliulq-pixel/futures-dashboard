@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn11"
+    asset_v = "20261106dyn12"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -90,6 +90,31 @@ def _movers_seed_for(name: str, period: str) -> dict | None:
     out.pop("periods", None)
     out["source"] = "seed"
     return out
+
+
+_bg_refresh_lock = threading.Lock()
+_bg_refresh_last: dict[str, float] = {}
+
+
+def _spawn_bg_refresh(key: str, fn, min_interval: float = 600.0) -> None:
+    """At most one background rebuild per key every min_interval seconds."""
+    import time as _time
+
+    now = _time.time()
+    with _bg_refresh_lock:
+        last = _bg_refresh_last.get(key, 0)
+        if now - last < min_interval:
+            return
+        _bg_refresh_last[key] = now
+
+    def _run():
+        try:
+            fn()
+        except Exception:
+            logger.exception("bg refresh %s failed", key)
+
+    threading.Thread(target=_run, daemon=True).start()
+
 
 def _read_api_seed(name: str) -> dict | None:
     from pathlib import Path
@@ -390,13 +415,7 @@ def ng_dashboard_api():
 
         seed = _read_api_seed("ng_dashboard.json")
         if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    ng_dashboard.build_dashboard(force=True)
-                except Exception:
-                    logger.exception("bg ng dashboard failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            _spawn_bg_refresh("ng_dashboard", lambda: ng_dashboard.build_dashboard(force=True), min_interval=300.0)
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)
@@ -417,12 +436,25 @@ def ng_dashboard_api():
 @app.route("/api/ng/refresh")
 def ng_refresh_api():
     try:
+        import os
         import ng_dashboard
 
+        seed = _read_api_seed("ng_dashboard.json")
+        if seed is not None and os.environ.get("RENDER"):
+            _spawn_bg_refresh("ng_dashboard", lambda: ng_dashboard.build_dashboard(force=True), min_interval=300.0)
+            seed = dict(seed)
+            seed["source"] = "seed"
+            seed["note"] = (seed.get("note") or "") + " · 已排队后台全网抓取，先返回快照"
+            return jsonify(seed)
         data = ng_dashboard.build_dashboard(force=True)
         return jsonify(data)
     except Exception as exc:
         logger.exception("ng refresh failed")
+        seed = _read_api_seed("ng_dashboard.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -591,14 +623,9 @@ def cn_indices_api():
         from cn_index_analysis import build_cn_index_analysis
 
         seed = _read_api_seed("cn_indices.json")
-        if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    build_cn_index_analysis(force=True)
-                except Exception:
-                    logger.exception("bg cn indices failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+        if seed is not None and (os.environ.get("RENDER") or not force):
+            if os.environ.get("RENDER"):
+                _spawn_bg_refresh("cn_indices", lambda: build_cn_index_analysis(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)
@@ -617,11 +644,24 @@ def cn_indices_api():
 @app.route("/api/cn-indices/refresh")
 def cn_indices_refresh_api():
     try:
+        import os
         from cn_index_analysis import build_cn_index_analysis
 
+        seed = _read_api_seed("cn_indices.json")
+        if seed is not None and os.environ.get("RENDER"):
+            _spawn_bg_refresh("cn_indices", lambda: build_cn_index_analysis(force=True), min_interval=120.0)
+            seed = dict(seed)
+            seed["source"] = "seed"
+            seed["note"] = "已排队后台更新（美国节点拉 A 股源较慢），先返回快照"
+            return jsonify(seed)
         return jsonify(build_cn_index_analysis(force=True))
     except Exception as exc:
         logger.exception("cn indices refresh failed")
+        seed = _read_api_seed("cn_indices.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
