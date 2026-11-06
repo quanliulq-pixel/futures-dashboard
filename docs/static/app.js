@@ -14,6 +14,10 @@
       '/api/us-movers': './api/us_movers.json',
       '/api/short-put/high-vol': './api/short_put.json',
       '/api/short-put/refresh': './api/short_put.json',
+      '/api/short-call/high-vol': './api/short_call.json',
+      '/api/short-call/refresh': './api/short_call.json',
+      '/api/cn-indices': './api/cn_indices.json',
+      '/api/cn-indices/refresh': './api/cn_indices.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -813,6 +817,12 @@
     if (name === "put") {
       loadShortPut(false);
     }
+    if (name === "call") {
+      loadShortCall(false);
+    }
+    if (name === "cnidx") {
+      loadCnIndices(false);
+    }
   }
 
   function bindEvents() {
@@ -1136,6 +1146,28 @@
         openPutChain(ch.dataset.symbol);
         return;
       }
+
+      const cw = e.target.closest(".btn-call-watch");
+      if (cw && cw.dataset.symbol) {
+        addCallWatch(cw.dataset.symbol);
+        return;
+      }
+      const cc = e.target.closest(".btn-call-close");
+      if (cc && cc.dataset.id) {
+        closeCallWatch(cc.dataset.id);
+        return;
+      }
+      const cd = e.target.closest(".btn-call-drop");
+      if (cd && cd.dataset.id) {
+        saveCallWatch(loadCallWatch().filter((x) => x.id !== cd.dataset.id));
+        renderCallWatch();
+        return;
+      }
+      const cch = e.target.closest(".btn-call-chain");
+      if (cch && cch.dataset.symbol) {
+        openCallChain(cch.dataset.symbol);
+        return;
+      }
     });
     const btnPutWatchClear = $("#btn-put-watch-clear");
     if (btnPutWatchClear) {
@@ -1169,6 +1201,112 @@
     $("#put-chain-modal")?.addEventListener("click", (e) => {
       if (e.target.id === "put-chain-modal") closePutChain();
     });
+
+    const btnCallRefresh = $("#btn-call-refresh");
+    if (btnCallRefresh) {
+      btnCallRefresh.addEventListener("click", () => loadShortCall(true));
+    }
+    const callKind = $("#call-kind-filter");
+    if (callKind) {
+      callKind.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-kind]");
+        if (!btn) return;
+        state.callKind = btn.dataset.kind || "all";
+        [...callKind.querySelectorAll("button")].forEach((b) =>
+          b.classList.toggle("active", b === btn)
+        );
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+    }
+    const callFilters = $("#call-filters");
+    if (callFilters) {
+      callFilters.addEventListener("change", () => {
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+      callFilters.addEventListener("input", () => {
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+    }
+    const btnCallReset = $("#btn-call-filter-reset");
+    if (btnCallReset) {
+      btnCallReset.addEventListener("click", () => {
+        state.callFilters = callFilterDefaults();
+        state.callKind = "all";
+        const map = {
+          "#call-f-hv": 50,
+          "#call-f-rsi-lo": 35,
+          "#call-f-rsi-hi": 80,
+          "#call-f-oi": 50,
+          "#call-f-yield": 0,
+          "#call-f-otm": 15,
+        };
+        Object.entries(map).forEach(([sel, v]) => {
+          const el = $(sel);
+          if (el) el.value = v;
+        });
+        if ($("#call-f-core")) $("#call-f-core").checked = false;
+        if ($("#call-f-noearn")) $("#call-f-noearn").checked = true;
+        if ($("#call-f-ivrich")) $("#call-f-ivrich").checked = false;
+        if (callKind) {
+          [...callKind.querySelectorAll("button")].forEach((b) =>
+            b.classList.toggle("active", b.dataset.kind === "all")
+          );
+        }
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+    }
+    const callThemeBar = $("#call-theme-bar");
+    if (callThemeBar) {
+      callThemeBar.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-theme]");
+        if (!btn) return;
+        const id = btn.dataset.theme;
+        if (id === "all") {
+          state.callFilters = state.callFilters || callFilterDefaults();
+          state.callFilters.themeSymbols = null;
+          if (state.callPayload) renderShortCall(state.callPayload);
+          return;
+        }
+        const th = ((state.callPayload && state.callPayload.themes) || []).find((x) => x.id === id);
+        openCallTheme(id, th ? th.symbols : null);
+      });
+    }
+    const callWeights = $("#call-weights");
+    if (callWeights) {
+      callWeights.addEventListener("input", () => {
+        readCallEdgeWeights();
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+    }
+    const btnCWReset = $("#btn-call-weights-reset");
+    if (btnCWReset) {
+      btnCWReset.addEventListener("click", () => {
+        const def = defaultEdgeWeights();
+        const box = $("#call-weights");
+        if (box) {
+          box.querySelectorAll("input[data-w]").forEach((inp) => {
+            inp.value = def[inp.dataset.w];
+          });
+        }
+        readCallEdgeWeights();
+        if (state.callPayload) renderShortCall(state.callPayload);
+      });
+    }
+    $("#btn-call-chain-close")?.addEventListener("click", closeCallChain);
+    $("#call-chain-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "call-chain-modal") closeCallChain();
+    });
+    const btnCallWatchClear = $("#btn-call-watch-clear");
+    if (btnCallWatchClear) {
+      btnCallWatchClear.addEventListener("click", () => {
+        saveCallWatch(loadCallWatch().filter((x) => x.status === "open"));
+        renderCallWatch();
+      });
+    }
+    const btnCnidxRefresh = $("#btn-cnidx-refresh");
+    if (btnCnidxRefresh) {
+      btnCnidxRefresh.addEventListener("click", () => loadCnIndices(true));
+    }
 
     const newsFilter = $("#ng-news-filter");
     if (newsFilter) {
@@ -2745,6 +2883,545 @@
     el.innerHTML = `<button type="button" class="btn btn-tiny" id="btn-ng-to-put">卖Put：天然气相关 UNG</button>
       <span class="sub">从美气情绪跳到高波动 CSP 候选</span>`;
   }
+
+
+  const CALL_WATCH_KEY = "fd_call_watch_v1";
+
+  function loadCallWatch() {
+    try {
+      return JSON.parse(localStorage.getItem(CALL_WATCH_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveCallWatch(list) {
+    localStorage.setItem(CALL_WATCH_KEY, JSON.stringify(list || []));
+  }
+  function callFilterDefaults() {
+    return {
+      kind: "all",
+      hv: 50,
+      rsiLo: 35,
+      rsiHi: 80,
+      oi: 50,
+      yieldMin: 0,
+      otmMax: 15,
+      coreOnly: false,
+      noEarn7: true,
+      ivRich: false,
+      themeSymbols: null,
+    };
+  }
+  function readCallFiltersFromDom() {
+    const f = state.callFilters || callFilterDefaults();
+    f.kind = state.callKind || f.kind || "all";
+    const num = (id, d) => {
+      const el = $(id);
+      if (!el || el.value === "") return d;
+      const v = Number(el.value);
+      return Number.isFinite(v) ? v : d;
+    };
+    f.hv = num("#call-f-hv", 50);
+    f.rsiLo = num("#call-f-rsi-lo", 35);
+    f.rsiHi = num("#call-f-rsi-hi", 80);
+    f.oi = num("#call-f-oi", 50);
+    f.yieldMin = num("#call-f-yield", 0);
+    f.otmMax = num("#call-f-otm", 15);
+    f.coreOnly = !!( $("#call-f-core") && $("#call-f-core").checked );
+    f.noEarn7 = !!( $("#call-f-noearn") && $("#call-f-noearn").checked );
+    f.ivRich = !!( $("#call-f-ivrich") && $("#call-f-ivrich").checked );
+    state.callFilters = f;
+    return f;
+  }
+  function applyCallFilters(rows) {
+    const f = readCallFiltersFromDom();
+    const core = new Set((state.callPayload && state.callPayload.core_symbols) || []);
+    return (rows || []).filter((r) => {
+      if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+      if (f.themeSymbols && f.themeSymbols.length && !f.themeSymbols.includes(r.symbol)) return false;
+      if (f.coreOnly && !core.has(r.symbol)) return false;
+      if ((r.hv_pctile == null ? 0 : r.hv_pctile) < f.hv) return false;
+      if (r.rsi14 != null && (r.rsi14 < f.rsiLo || r.rsi14 > f.rsiHi)) return false;
+      const call = r.call || {};
+      if ((call.open_interest || 0) < f.oi && call.strike != null) return false;
+      if ((call.yield_ann_pct || 0) < f.yieldMin) return false;
+      if (call.otm_pct != null && Math.abs(call.otm_pct) > f.otmMax) return false;
+      const earnDays = r.earnings && r.earnings.days;
+      if (f.noEarn7 && earnDays != null && earnDays <= 7) return false;
+      const ivTag = (r.risk && r.risk.iv_tag) || "";
+      if (f.ivRich && !ivTag.includes("偏贵")) return false;
+      return true;
+    });
+  }
+  function readCallEdgeWeights() {
+    const box = $("#call-weights");
+    const w = defaultEdgeWeights();
+    if (!box) return w;
+    box.querySelectorAll("input[data-w]").forEach((inp) => {
+      w[inp.dataset.w] = Number(inp.value) || 0;
+      const sp = box.querySelector(`[data-wv="${inp.dataset.w}"]`);
+      if (sp) sp.textContent = String(inp.value);
+    });
+    state.callWeights = w;
+    return w;
+  }
+  function openCallChain(symbol) {
+    const data = state.callPayload;
+    if (!data) return;
+    const row = [...(data.picks || []), ...(data.all || [])].find((x) => x.symbol === symbol);
+    if (!row) return;
+    const weights = readCallEdgeWeights();
+    const edge = row.edge && row.edge.metrics ? recomputeEdgeClient(row, weights) : row.edge;
+    const call = row.call || {};
+    const modal = $("#call-chain-modal");
+    const title = $("#call-chain-title");
+    const sub = $("#call-chain-sub");
+    const edgeEl = $("#call-chain-edge");
+    const checkEl = $("#call-chain-check");
+    const body = $("#call-chain-body");
+    if (title) title.textContent = `${row.symbol} · 看涨期权链`;
+    if (sub) sub.textContent = `${row.name || ""} · 到期 ${call.expiry || "—"} · 建议 K=${call.strike != null ? "$"+call.strike : "—"}`;
+    if (edgeEl && edge) {
+      const p = edge.parts || {};
+      edgeEl.innerHTML = `${edgePill(edge)}
+        <div style="margin-top:6px;">VRP ${p.vrp} · IV分位 ${p.iv_pctile} · 期限 ${p.term} · RV ${p.rv_stable} · Skew ${p.skew}</div>
+        <div class="put-check-mini">${esc((edge.notes && edge.notes.vrp) || "")} · ${esc((edge.notes && edge.notes.term) || "")} · ${esc((edge.notes && edge.notes.rv_stable) || "")}</div>`;
+    }
+    if (checkEl && row.checklist) {
+      const ch = row.checklist;
+      checkEl.innerHTML = `<div><strong>${esc(ch.verdict)}</strong> (${ch.passed}/${ch.total})</div>
+        <div class="put-check-list">${(ch.checks || []).map((c) => {
+          const cls = c.ok ? "ok" : c.hard ? "fail" : "soft";
+          return `<div class="put-check-item ${cls}"><strong>${esc(c.title)}</strong><div class="put-check-mini">${esc(c.detail)}</div></div>`;
+        }).join("")}</div>`;
+    }
+    if (body) {
+      const rows = call.chain || [];
+      if (!rows.length) body.innerHTML = `<tr><td colspan="8" class="empty">暂无链数据</td></tr>`;
+      else body.innerHTML = rows.map((c) => `<tr class="${c.selected ? "selected" : ""}">
+        <td>$${fmt(c.strike, 2)}</td>
+        <td class="num">${fmt(c.otm_pct, 1)}%</td>
+        <td class="num">${fmt(c.bid, 2)}</td>
+        <td class="num">${fmt(c.ask, 2)}</td>
+        <td class="num">${fmt(c.mid, 2)}</td>
+        <td class="num">${fmt(c.iv, 1)}%</td>
+        <td class="num">${c.open_interest ?? "—"}</td>
+        <td class="num">${c.volume ?? "—"}</td>
+      </tr>`).join("");
+    }
+    if (modal) modal.classList.remove("hidden");
+  }
+  function closeCallChain() {
+    const modal = $("#call-chain-modal");
+    if (modal) modal.classList.add("hidden");
+  }
+  async function loadShortCall(force = false) {
+    if (state.callLoading) return;
+    state.callLoading = true;
+    const btn = $("#btn-call-refresh");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = force ? "扫描期权中…" : "加载中…";
+    }
+    try {
+      const url = force ? "/api/short-call/refresh" : "/api/short-call/high-vol";
+      const res = await fetch(apiUrl(url));
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "short call failed");
+      renderShortCall(data);
+    } catch (err) {
+      console.error("loadShortCall error:", err);
+      const picks = $("#call-picks");
+      if (picks) picks.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}</div>`;
+      const body = $("#call-body");
+      if (body) body.innerHTML = `<tr><td colspan="18" class="empty">加载失败</td></tr>`;
+    } finally {
+      state.callLoading = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "重新扫描期权";
+      }
+    }
+  }
+  function openCallTheme(themeId, symbols) {
+    state.callFilters = state.callFilters || callFilterDefaults();
+    state.callFilters.themeSymbols = symbols || null;
+    switchView("call");
+    const bar = $("#call-theme-bar");
+    if (bar && themeId) {
+      [...bar.querySelectorAll("button[data-theme]")].forEach((b) =>
+        b.classList.toggle("active", b.dataset.theme === themeId)
+      );
+    }
+    if (state.callPayload) renderShortCall(state.callPayload);
+    else loadShortCall(false);
+  }
+  function renderShortCall(data) {
+    if (!data) return;
+    state.callPayload = data;
+    if (!state.callFilters) state.callFilters = callFilterDefaults();
+    const meta = $("#call-meta");
+    if (meta) {
+      const n = (data.picks || []).length;
+      const u = data.universe_size || 0;
+      const acc = data.account_defaults || {};
+      meta.textContent = `更新 ${data.updated_at || "—"} · 扫描 ${u} 只 · 推荐 ${n} 只 · 默认账户 $${acc.budget_usd || 50000} / 单标的≤${acc.max_name_pct || 15}%`;
+    }
+    const pill = $("#call-count-pill");
+    const method = $("#call-method");
+    if (method && data.method) {
+      const m = data.method;
+      method.innerHTML = [
+        `<strong>目标</strong>：${esc(m.goal || "")}`,
+        `<strong>波动</strong>：${esc(m.vol || "")}`,
+        `<strong>期权</strong>：${esc(m.option || "")}`,
+        `<strong>打分</strong>：${esc(m.score || "")}`,
+        `<strong>风险</strong>：${esc(m.risk || "")}`,
+        data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
+      ].filter(Boolean).join("<br/>");
+    }
+    renderCallThemes(data.themes);
+    const weights = readCallEdgeWeights();
+    const enrich = (rows) => (rows || []).map((r) => {
+      const copy = { ...r };
+      if (r.edge && r.edge.metrics) copy.edge = recomputeEdgeClient(r, weights);
+      return copy;
+    });
+    const themeSyms = state.callFilters && state.callFilters.themeSymbols;
+    let filteredPicks;
+    let filteredAll;
+    if (themeSyms && themeSyms.length) {
+      const themeRows = enrich(themeRowsFromPayload(data, themeSyms));
+      filteredPicks = themeRows;
+      filteredAll = themeRows;
+      if (pill) pill.textContent = `主题 ${themeRows.length} 只`;
+      const note = $("#call-theme-note");
+      if (note) {
+        note.hidden = false;
+        note.textContent = "当前为主题成分明细（含未过推荐门槛的标的）。";
+      }
+    } else {
+      filteredPicks = applyCallFilters(enrich(data.picks));
+      filteredAll = applyCallFilters(enrich(data.all || data.picks));
+      if (pill) pill.textContent = `${filteredPicks.length} 推荐`;
+      const note = $("#call-theme-note");
+      if (note) {
+        note.hidden = true;
+        note.textContent = "";
+      }
+    }
+    renderCallCards(filteredPicks);
+    renderCallTable(filteredAll);
+    renderCallWatch();
+  }
+  function renderCallThemes(themes) {
+    const bar = $("#call-theme-bar");
+    if (!bar) return;
+    const list = themes || [];
+    bar.innerHTML =
+      `<span class="put-theme-label">主题联动</span>` +
+      `<button type="button" data-theme="all" class="${!(state.callFilters && state.callFilters.themeSymbols) ? "active" : ""}">全部主题</button>` +
+      list
+        .map((th) => {
+          const active = state.callFilters && state.callFilters.themeSymbols && state.callFilters.themeSymbols.join() === (th.symbols || []).join();
+          return `<button type="button" data-theme="${esc(th.id)}" class="${active ? "active" : ""}">${esc(th.label)} <small>${(th.symbols || []).length}</small></button>`;
+        })
+        .join("");
+  }
+  function renderCallCards(picks) {
+    const el = $("#call-picks");
+    if (!el) return;
+    if (!picks || !picks.length) {
+      el.innerHTML = `<div class="empty-card">${
+        state.callFilters && state.callFilters.themeSymbols
+          ? "该主题暂无成分明细（数据里没有对应标的）"
+          : "当前筛选下暂无推荐（放宽条件或切换主题）"
+      }</div>`;
+      return;
+    }
+    el.innerHTML = picks.slice(0, 12).map((r) => {
+      const call = r.call || {};
+      const risk = r.risk || {};
+      const chg = r.chg_5d;
+      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+      const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
+      const earn = r.earnings ? `${r.earnings.days}天` : "—";
+      return `<article class="put-card" data-symbol="${esc(r.symbol)}">
+        <div class="put-card-top">
+          <div>
+            <div class="put-sym">${esc(r.symbol)} <span class="tag-pill">${esc(r.kind === "etf" ? "ETF" : "股票")}</span></div>
+            <div class="put-name">${esc(r.name || "")} · ${esc(r.sector || "")}</div>
+          </div>
+          <div class="put-score">${fmt(r.score, 1)}</div>
+        </div>
+        <div class="put-edge-bar">${edgePill(r.edge)} ${checklistMini(r.checklist)} ${riskBadge(risk)}</div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
+          <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
+          <div class="put-metric"><span class="l">RSI</span><span class="v">${fmt(r.rsi14, 1)}</span></div>
+          <div class="put-metric"><span class="l">5日</span><span class="v ${chgCls}">${chgTxt}</span></div>
+        </div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">行权价</span><span class="v">${call.strike != null ? "$" + fmt(call.strike, 2) : "—"}</span></div>
+          <div class="put-metric"><span class="l">到期</span><span class="v">${esc(call.expiry || "—")} (${call.dte != null ? call.dte + "d" : "—"})</span></div>
+          <div class="put-metric"><span class="l">权利金</span><span class="v">${call.mid != null ? "$" + fmt(call.mid, 2) : "—"}</span></div>
+          <div class="put-metric"><span class="l">年化</span><span class="v">${call.yield_ann_pct != null ? fmt(call.yield_ann_pct, 1) + "%" : "—"}</span></div>
+        </div>
+        <div class="put-metrics">
+          <div class="put-metric"><span class="l">备兑占用</span><span class="v">${risk.capital_per_contract != null ? "$" + fmt(risk.capital_per_contract, 0) : "—"}</span></div>
+          <div class="put-metric"><span class="l">建议张数</span><span class="v">${risk.max_contracts_hint != null ? risk.max_contracts_hint : "—"}</span></div>
+          <div class="put-metric"><span class="l">财报</span><span class="v">${esc(earn)}</span></div>
+          <div class="put-metric"><span class="l">OI</span><span class="v">${call.open_interest != null ? call.open_interest : "—"}</span></div>
+        </div>
+        <div class="put-action"><strong>${esc(r.bias_cn || "")}</strong> · ${esc(r.action || "")}</div>
+        <div class="put-card-actions">
+          <button type="button" class="btn btn-tiny btn-call-watch" data-symbol="${esc(r.symbol)}">加入观察</button>
+          <button type="button" class="btn btn-tiny btn-call-chain" data-symbol="${esc(r.symbol)}">期权链/检查</button>
+        </div>
+      </article>`;
+    }).join("");
+  }
+  function renderCallTable(rows) {
+    const body = $("#call-body");
+    if (!body) return;
+    if (!rows || !rows.length) {
+      body.innerHTML = `<tr><td colspan="18" class="empty">暂无数据</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((r) => {
+      const call = r.call || {};
+      const risk = r.risk || {};
+      const callTxt = call.strike != null ? `$${fmt(call.strike, 2)} · ${esc(call.expiry || "")}` : "—";
+      const chg = r.chg_5d;
+      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+      const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 1)}%`;
+      const earn = r.earnings ? `${r.earnings.days}d` : "—";
+      return `<tr>
+        <td><strong>${esc(r.symbol)}</strong></td>
+        <td>${esc(r.name || "")}</td>
+        <td>${esc(r.kind === "etf" ? "ETF" : "股票")}</td>
+        <td class="num">$${fmt(r.price, 2)}</td>
+        <td class="num">${fmt(r.hv20, 1)}%</td>
+        <td class="num">${fmt(r.hv_pctile, 0)}</td>
+        <td class="num">${fmt(r.rsi14, 1)}</td>
+        <td class="num ${chgCls}">${chgTxt}</td>
+        <td class="num"><strong>${fmt(r.score, 1)}</strong></td>
+        <td>${esc((risk.iv_tag || "").replace("IV", ""))}</td>
+        <td>${esc(risk.level || "—")}</td>
+        <td>${esc(earn)}</td>
+        <td>${esc(r.bias_cn || "")}</td>
+        <td>${callTxt}</td>
+        <td class="num">${call.mid != null ? "$" + fmt(call.mid, 2) : "—"}</td>
+        <td class="num">${call.yield_ann_pct != null ? fmt(call.yield_ann_pct, 1) + "%" : "—"}</td>
+        <td class="num">${risk.capital_per_contract != null ? "$" + fmt(risk.capital_per_contract, 0) : "—"}</td>
+        <td>
+          <button type="button" class="btn btn-tiny btn-call-watch" data-symbol="${esc(r.symbol)}">观察</button>
+          <button type="button" class="btn btn-tiny btn-call-chain" data-symbol="${esc(r.symbol)}">链</button>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+  function addCallWatch(symbol) {
+    const data = state.callPayload;
+    if (!data) return;
+    const row = (data.all || []).concat(data.picks || []).find((x) => x.symbol === symbol) ||
+      (data.picks || []).find((x) => x.symbol === symbol);
+    if (!row || !row.call) {
+      alert("该标的暂无期权报价，无法加入");
+      return;
+    }
+    const list = loadCallWatch();
+    if (list.some((x) => x.symbol === symbol && x.status === "open")) {
+      alert("观察池已有未平仓 " + symbol);
+      return;
+    }
+    const call = row.call;
+    list.unshift({
+      id: `${symbol}-${Date.now()}`,
+      symbol,
+      name: row.name,
+      status: "open",
+      opened_at: new Date().toISOString().slice(0, 10),
+      expiry: call.expiry,
+      strike: call.strike,
+      entry_mid: call.mid,
+      exit_mid: null,
+      closed_at: null,
+      contracts: Math.max(1, riskContracts(row)),
+      note: row.bias_cn || "",
+    });
+    saveCallWatch(list);
+    renderCallWatch();
+  }
+  function closeCallWatch(id, exitMid) {
+    const list = loadCallWatch();
+    const item = list.find((x) => x.id === id);
+    if (!item) return;
+    const mid = exitMid != null ? Number(exitMid) : prompt(`输入 ${item.symbol} 平仓权利金（买回价）`, "0.05");
+    if (mid == null || mid === "") return;
+    item.exit_mid = Number(mid);
+    item.status = "closed";
+    item.closed_at = new Date().toISOString().slice(0, 10);
+    saveCallWatch(list);
+    renderCallWatch();
+  }
+  function renderCallWatch() {
+    const body = $("#call-watch-body");
+    const meta = $("#call-watch-meta");
+    if (!body) return;
+    const list = loadCallWatch();
+    const openN = list.filter((x) => x.status === "open").length;
+    const closed = list.filter((x) => x.status === "closed");
+    let pnl = 0;
+    closed.forEach((x) => {
+      const c = x.contracts || 1;
+      pnl += ((x.entry_mid || 0) - (x.exit_mid || 0)) * 100 * c;
+    });
+    if (meta) {
+      meta.textContent = `持仓 ${openN} · 已平 ${closed.length} · 已实现约 $${fmt(pnl, 0)}（卖Call：开仓权利金 − 平仓买回）`;
+    }
+    if (!list.length) {
+      body.innerHTML = `<tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>`;
+      return;
+    }
+    body.innerHTML = list.map((x) => {
+      const c = x.contracts || 1;
+      let mark = x.exit_mid;
+      if (mark == null && state.callPayload) {
+        const live = (state.callPayload.all || []).find((r) => r.symbol === x.symbol);
+        if (live && live.call) mark = live.call.mid;
+      }
+      const pnlOne = mark != null ? ((x.entry_mid || 0) - mark) * 100 * c : null;
+      const pct = mark != null && x.entry_mid ? ((x.entry_mid - mark) / x.entry_mid) * 100 : null;
+      const cls = pnlOne == null ? "" : pnlOne >= 0 ? "up" : "down";
+      const ops =
+        x.status === "open"
+          ? `<button type="button" class="btn btn-tiny btn-call-close" data-id="${esc(x.id)}">平仓</button>
+             <button type="button" class="btn btn-tiny btn-call-drop" data-id="${esc(x.id)}">删除</button>`
+          : `<button type="button" class="btn btn-tiny btn-call-drop" data-id="${esc(x.id)}">删除</button>`;
+      return `<tr>
+        <td><strong>${esc(x.symbol)}</strong></td>
+        <td>${esc(x.status === "open" ? "持仓" : "已平")}</td>
+        <td>${esc(x.opened_at || "")}</td>
+        <td>$${fmt(x.strike, 2)} · ${esc(x.expiry || "")}</td>
+        <td class="num">$${fmt(x.entry_mid, 2)}</td>
+        <td class="num">${mark != null ? "$" + fmt(mark, 2) : "—"}</td>
+        <td class="num">${c}</td>
+        <td class="num ${cls}">${pnlOne != null ? fmt(pnlOne, 0) : "—"}</td>
+        <td class="num ${cls}">${pct != null ? fmt(pct, 1) + "%" : "—"}</td>
+        <td>${ops}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadCnIndices(force = false) {
+    if (state.cnidxLoading) return;
+    state.cnidxLoading = true;
+    const btn = $("#btn-cnidx-refresh");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = force ? "拉取中…" : "加载中…";
+    }
+    try {
+      const url = force ? "/api/cn-indices/refresh" : "/api/cn-indices";
+      const res = await fetch(apiUrl(url));
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "cn indices failed");
+      renderCnIndices(data);
+    } catch (err) {
+      console.error("loadCnIndices error:", err);
+      const el = $("#cnidx-cards");
+      if (el) el.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}</div>`;
+    } finally {
+      state.cnidxLoading = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "重新拉取指数";
+      }
+    }
+  }
+  function renderCnIndices(data) {
+    if (!data) return;
+    state.cnidxPayload = data;
+    const meta = $("#cnidx-meta");
+    if (meta) meta.textContent = `更新 ${data.updated_at || "—"} · 场内期权不经 Yahoo，本页是指数波动与位置分析`;
+    const method = $("#cnidx-method");
+    if (method && data.method) {
+      const m = data.method;
+      method.innerHTML = [
+        `<strong>目标</strong>：${esc(m.goal || "")}`,
+        `<strong>数据</strong>：${esc(m.source || "")}`,
+        `<strong>期权</strong>：${esc(m.options || "")}`,
+        `<strong>指标</strong>：${esc(m.stats || "")}`,
+        data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
+      ].filter(Boolean).join("<br/>");
+    }
+    const el = $("#cnidx-cards");
+    const rows = data.indices || [];
+    if (el) {
+      if (!rows.length) el.innerHTML = `<div class="empty-card">暂无指数数据</div>`;
+      else el.innerHTML = rows.map((r) => {
+        const chg = r.chg_1d;
+        const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+        const chgTxt = chg == null ? "—" : `${chg > 0 ? "+" : ""}${fmt(chg, 2)}%`;
+        const fut = r.futures;
+        const futTxt = fut && fut.price != null
+          ? `${esc(fut.name || fut.id)} 约 ${fmt(fut.price, 2)}${fut.change_pct != null ? "（" + fmt(fut.change_pct, 2) + "%）" : ""}`
+          : `${esc(r.futures_name || r.futures_id || "股指期货")}：当前看板商品池未纳入报价`;
+        return `<article class="put-card">
+          <div class="put-card-top">
+            <div>
+              <div class="put-sym">${esc(r.name)} <span class="tag-pill">${esc(r.short || "")}</span></div>
+              <div class="put-name">${esc(r.yahoo || "")}</div>
+            </div>
+            <div class="put-score">${esc(r.bias_cn || "中性")}</div>
+          </div>
+          <div class="put-metrics">
+            <div class="put-metric"><span class="l">现价</span><span class="v">${fmt(r.price, 2)}</span></div>
+            <div class="put-metric"><span class="l">今日</span><span class="v ${chgCls}">${chgTxt}</span></div>
+            <div class="put-metric"><span class="l">5日</span><span class="v">${r.chg_5d == null ? "—" : fmt(r.chg_5d, 2) + "%"}</span></div>
+            <div class="put-metric"><span class="l">21日</span><span class="v">${r.chg_21d == null ? "—" : fmt(r.chg_21d, 2) + "%"}</span></div>
+          </div>
+          <div class="put-metrics">
+            <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
+            <div class="put-metric"><span class="l">HV60</span><span class="v">${fmt(r.hv60, 1)}%</span></div>
+            <div class="put-metric"><span class="l">HV分位</span><span class="v">${fmt(r.hv_pctile, 0)}</span></div>
+            <div class="put-metric"><span class="l">RSI14</span><span class="v">${fmt(r.rsi14, 1)}</span></div>
+          </div>
+          <div class="put-metrics">
+            <div class="put-metric"><span class="l">相对MA20</span><span class="v">${r.vs_ma20_pct == null ? "—" : fmt(r.vs_ma20_pct, 2) + "%"}</span></div>
+            <div class="put-metric"><span class="l">相对MA60</span><span class="v">${r.vs_ma60_pct == null ? "—" : fmt(r.vs_ma60_pct, 2) + "%"}</span></div>
+            <div class="put-metric"><span class="l">距52周高</span><span class="v">${r.from_52w_high_pct == null ? "—" : fmt(r.from_52w_high_pct, 2) + "%"}</span></div>
+            <div class="put-metric"><span class="l">距52周低</span><span class="v">${r.from_52w_low_pct == null ? "—" : fmt(r.from_52w_low_pct, 2) + "%"}</span></div>
+          </div>
+          <div class="cnidx-fut">${futTxt}</div>
+          <div class="put-action">${esc(r.options_note || "")}</div>
+        </article>`;
+      }).join("");
+    }
+    const satBody = $("#cnidx-sat-body");
+    if (satBody) {
+      const sats = data.satellites || [];
+      if (!sats.length) satBody.innerHTML = `<tr><td colspan="10" class="empty">暂无对照 ETF</td></tr>`;
+      else satBody.innerHTML = sats.map((r) => {
+        const chg = r.chg_1d;
+        const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+        return `<tr>
+          <td><strong>${esc(r.symbol)}</strong></td>
+          <td>${esc(r.name || "")}</td>
+          <td class="num">${fmt(r.price, 2)}</td>
+          <td class="num ${chgCls}">${chg == null ? "—" : fmt(chg, 2) + "%"}</td>
+          <td class="num">${r.chg_5d == null ? "—" : fmt(r.chg_5d, 2) + "%"}</td>
+          <td class="num">${r.chg_21d == null ? "—" : fmt(r.chg_21d, 2) + "%"}</td>
+          <td class="num">${fmt(r.hv20, 1)}%</td>
+          <td class="num">${fmt(r.hv60, 1)}%</td>
+          <td class="num">${fmt(r.rsi14, 1)}</td>
+          <td class="num">${r.vs_ma20_pct == null ? "—" : fmt(r.vs_ma20_pct, 2) + "%"}</td>
+        </tr>`;
+      }).join("");
+    }
+  }
+
 
   async function boot() {
     bindEvents();

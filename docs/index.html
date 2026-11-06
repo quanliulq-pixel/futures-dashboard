@@ -16,7 +16,7 @@
         <span class="logo">◆</span>
         <div>
           <h1>期货本地看板</h1>
-          <p class="sub">大宗商品 · 高低位 · 高波动卖Put</p>
+          <p class="sub">大宗商品 · 高低位 · 卖Put / 卖Call · A股指数</p>
         </div>
       </div>
       <nav class="view-tabs" id="view-tabs">
@@ -25,6 +25,8 @@
         <button type="button" data-view="supply">产业周报</button>
         <button type="button" data-view="movers">涨跌榜</button>
         <button type="button" data-view="put" class="tab-put">卖Put推荐</button>
+        <button type="button" data-view="call" class="tab-call">卖Call推荐</button>
+        <button type="button" data-view="cnidx" class="tab-cnidx">A股指数</button>
         <button type="button" data-view="ng" class="tab-ng">美气 NG</button>
       </nav>
       <div class="top-actions">
@@ -479,6 +481,202 @@
       </div>
     </section>
 
+
+    <!-- 高波动美股/ETF 卖 Call 推荐 -->
+    <section class="view view-call" id="view-call">
+      <div class="put-layout">
+        <div class="panel put-hero">
+          <div class="panel-head">
+            <div>
+              <h2>高波动股票 / ETF · 卖出看涨（备兑 Call）推荐</h2>
+              <p class="sub" id="call-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Call 候选</p>
+            </div>
+            <div class="put-hero-actions">
+              <span class="tag-pill" id="call-count-pill">—</span>
+              <button type="button" id="btn-call-refresh" class="btn btn-tiny">重新扫描期权</button>
+            </div>
+          </div>
+          <div class="put-method" id="call-method">加载方法说明…</div>
+          <div class="put-theme-bar" id="call-theme-bar"></div>
+          <p class="put-theme-note" id="call-theme-note" hidden></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Edge 五信号权重</h2>
+              <p class="sub">与卖Put相同框架：VRP / IV分位 / 期限结构 / RV稳定性 / Skew</p>
+            </div>
+            <button type="button" id="btn-call-weights-reset" class="btn btn-tiny">恢复默认</button>
+          </div>
+          <div class="put-weights" id="call-weights">
+            <label>VRP <input type="range" min="0" max="50" value="30" data-w="vrp" /><span data-wv="vrp">30</span></label>
+            <label>IV分位 <input type="range" min="0" max="50" value="25" data-w="iv_pctile" /><span data-wv="iv_pctile">25</span></label>
+            <label>期限结构 <input type="range" min="0" max="40" value="20" data-w="term" /><span data-wv="term">20</span></label>
+            <label>RV稳定 <input type="range" min="0" max="30" value="15" data-w="rv_stable" /><span data-wv="rv_stable">15</span></label>
+            <label>Skew <input type="range" min="0" max="25" value="10" data-w="skew" /><span data-wv="skew">10</span></label>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>筛选器</h2>
+              <p class="sub">按波动、RSI、权利金与风险过滤 · 默认放宽超买区间</p>
+            </div>
+            <div class="seg" id="call-kind-filter">
+              <button type="button" data-kind="all" class="active">全部</button>
+              <button type="button" data-kind="stock">股票</button>
+              <button type="button" data-kind="etf">ETF</button>
+            </div>
+          </div>
+          <div class="put-filters" id="call-filters">
+            <label>HV分位≥ <input type="number" id="call-f-hv" value="50" min="0" max="100" step="5" /></label>
+            <label>RSI <input type="number" id="call-f-rsi-lo" value="35" min="0" max="100" step="1" />–<input type="number" id="call-f-rsi-hi" value="80" min="0" max="100" step="1" /></label>
+            <label>最低OI <input type="number" id="call-f-oi" value="50" min="0" step="50" /></label>
+            <label>年化%≥ <input type="number" id="call-f-yield" value="0" min="0" step="5" /></label>
+            <label>|OTM|%≤ <input type="number" id="call-f-otm" value="15" min="1" max="40" step="1" /></label>
+            <label class="chk"><input type="checkbox" id="call-f-core" /> 仅核心池</label>
+            <label class="chk"><input type="checkbox" id="call-f-noearn" checked /> 排除财报≤7天</label>
+            <label class="chk"><input type="checkbox" id="call-f-ivrich" /> 只要IV偏贵</label>
+            <button type="button" id="btn-call-filter-reset" class="btn btn-tiny">重置</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>优先推荐</h2>
+              <p class="sub">综合分靠前 · 含风控标注 · 可加入观察池</p>
+            </div>
+          </div>
+          <div class="put-card-grid" id="call-picks">
+            <div class="empty-card">正在计算高波动卖Call候选…</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>我的观察池 / 复盘</h2>
+              <p class="sub" id="call-watch-meta">本地保存开仓权利金与平仓结果，计算静态收益</p>
+            </div>
+            <button type="button" id="btn-call-watch-clear" class="btn btn-tiny">清空已平仓</button>
+          </div>
+          <div class="table-wrap">
+            <table class="put-table" id="call-watch-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>状态</th>
+                  <th>开仓日</th>
+                  <th>合约</th>
+                  <th class="num">开仓权利金</th>
+                  <th class="num">平仓/现价</th>
+                  <th class="num">合约数</th>
+                  <th class="num">收益$</th>
+                  <th class="num">收益%</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="call-watch-body">
+                <tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>完整扫描表</h2>
+              <p class="sub">HV / RSI / IV贵贱 / 财报 / 备兑占用</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="put-table" id="call-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th class="num">现价</th>
+                  <th class="num">HV20</th>
+                  <th class="num">波动分位</th>
+                  <th class="num">RSI</th>
+                  <th class="num">5日%</th>
+                  <th class="num">综合分</th>
+                  <th>IV</th>
+                  <th>风险</th>
+                  <th>财报</th>
+                  <th>倾向</th>
+                  <th>建议 Call</th>
+                  <th class="num">权利金</th>
+                  <th class="num">年化%</th>
+                  <th class="num">备兑$</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="call-body">
+                <tr><td colspan="18" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- A股指数波动/位置 -->
+    <section class="view view-cnidx" id="view-cnidx">
+      <div class="put-layout">
+        <div class="panel put-hero">
+          <div class="panel-head">
+            <div>
+              <h2>A股指数分析 · 沪深300 / 上证50 / 中证1000</h2>
+              <p class="sub" id="cnidx-meta">场内期权不经 Yahoo，本页是指数波动与位置分析</p>
+            </div>
+            <div class="put-hero-actions">
+              <button type="button" id="btn-cnidx-refresh" class="btn btn-tiny">重新拉取指数</button>
+              <button type="button" class="btn btn-tiny btn-ext-put" data-theme="china" data-symbols="KWEB,FXI,BABA,PDD,JD">卖Put主题 · 中概/中国</button>
+            </div>
+          </div>
+          <div class="put-method" id="cnidx-method">加载说明…</div>
+        </div>
+        <div class="put-card-grid" id="cnidx-cards">
+          <div class="empty-card">正在加载沪深300、上证50、中证1000…</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>对照：美股上市中国相关 ETF</h2>
+              <p class="sub">FXI / KWEB 不是指数本身，仅作海外情绪对照</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="put-table" id="cnidx-sat-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th class="num">现价</th>
+                  <th class="num">1日%</th>
+                  <th class="num">5日%</th>
+                  <th class="num">21日%</th>
+                  <th class="num">HV20</th>
+                  <th class="num">HV60</th>
+                  <th class="num">RSI</th>
+                  <th class="num">相对MA20</th>
+                </tr>
+              </thead>
+              <tbody id="cnidx-sat-body">
+                <tr><td colspan="10" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 美气 NG 专属看板 -->
     <section class="view view-ng" id="view-ng">
       <div class="ng-layout">
@@ -755,6 +953,38 @@
               </tr>
             </thead>
             <tbody id="put-chain-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  
+    <div class="put-modal hidden" id="call-chain-modal" role="dialog" aria-modal="true">
+      <div class="put-modal-card">
+        <div class="put-modal-head">
+          <div>
+            <h3 id="call-chain-title">期权链下钻</h3>
+            <p class="sub" id="call-chain-sub">—</p>
+          </div>
+          <button type="button" class="btn btn-tiny" id="btn-call-chain-close">关闭</button>
+        </div>
+        <div id="call-chain-edge" class="put-chain-edge"></div>
+        <div id="call-chain-check" class="put-chain-check"></div>
+        <div class="table-wrap">
+          <table class="put-table" id="call-chain-table">
+            <thead>
+              <tr>
+                <th>行权价</th>
+                <th class="num">OTM%</th>
+                <th class="num">Bid</th>
+                <th class="num">Ask</th>
+                <th class="num">Mid</th>
+                <th class="num">IV</th>
+                <th class="num">OI</th>
+                <th class="num">Vol</th>
+              </tr>
+            </thead>
+            <tbody id="call-chain-body"></tbody>
           </table>
         </div>
       </div>
