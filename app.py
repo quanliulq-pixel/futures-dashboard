@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn9"
+    asset_v = "20261106dyn10"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -539,6 +539,92 @@ def short_put_refresh_api():
         logger.exception("short put refresh failed")
         return jsonify({"error": str(exc)}), 500
 
+
+
+@app.route("/api/short-call/high-vol")
+def short_call_high_vol_api():
+    force = request.args.get("force") == "1"
+    try:
+        import os
+        from short_call_screen import build_short_call_screen
+
+        seed = _read_api_seed("short_call.json")
+        if seed is not None and os.environ.get("RENDER") and not force:
+            def _bg():
+                try:
+                    build_short_call_screen(force=True)
+                except Exception:
+                    logger.exception("bg short call failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
+
+        return jsonify(build_short_call_screen(force=force))
+    except Exception as exc:
+        logger.exception("short call screen failed")
+        seed = _read_api_seed("short_call.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/short-call/refresh")
+def short_call_refresh_api():
+    try:
+        from short_call_screen import build_short_call_screen
+
+        return jsonify(build_short_call_screen(force=True))
+    except Exception as exc:
+        logger.exception("short call refresh failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/cn-indices")
+def cn_indices_api():
+    force = request.args.get("force") == "1"
+    try:
+        import os
+        from cn_index_analysis import build_cn_index_analysis
+
+        seed = _read_api_seed("cn_indices.json")
+        if seed is not None and os.environ.get("RENDER") and not force:
+            def _bg():
+                try:
+                    build_cn_index_analysis(force=True)
+                except Exception:
+                    logger.exception("bg cn indices failed")
+
+            threading.Thread(target=_bg, daemon=True).start()
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
+
+        return jsonify(build_cn_index_analysis(force=force))
+    except Exception as exc:
+        logger.exception("cn indices failed")
+        seed = _read_api_seed("cn_indices.json")
+        if seed:
+            seed = dict(seed)
+            seed["source"] = "seed"
+            return jsonify(seed)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/cn-indices/refresh")
+def cn_indices_refresh_api():
+    try:
+        from cn_index_analysis import build_cn_index_analysis
+
+        return jsonify(build_cn_index_analysis(force=True))
+    except Exception as exc:
+        logger.exception("cn indices refresh failed")
+        return jsonify({"error": str(exc)}), 500
+
+
 def _start_background_jobs() -> None:
     """Warm caches in the background (local + gunicorn/Render)."""
     import os
@@ -568,6 +654,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
     print(f"  期货看板  http://{host}:{port}")
-    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美气NG · 卖Put")
+    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美气NG · 卖Put · 卖Call · A股指数")
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)

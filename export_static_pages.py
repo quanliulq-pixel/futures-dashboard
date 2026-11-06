@@ -223,6 +223,33 @@ def main() -> None:
             {"picks": [], "all": [], "watchlist": [], "updated_at": now, "error": str(exc)},
         )
 
+
+    print("short call high-vol screen...")
+    try:
+        from short_call_screen import build_short_call_screen
+
+        dump(API / "short_call.json", build_short_call_screen(force=True, top_n=20, option_n=28))
+    except Exception as exc:
+        print("short call failed:", exc)
+        traceback.print_exc()
+        dump(
+            API / "short_call.json",
+            {"picks": [], "all": [], "watchlist": [], "updated_at": now, "error": str(exc)},
+        )
+
+    print("cn indices analysis...")
+    try:
+        from cn_index_analysis import build_cn_index_analysis
+
+        dump(API / "cn_indices.json", build_cn_index_analysis(force=True))
+    except Exception as exc:
+        print("cn indices failed:", exc)
+        traceback.print_exc()
+        dump(
+            API / "cn_indices.json",
+            {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)},
+        )
+
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})
     dump(API / "analysis_one_empty.json", {"analysis": None, "note": "静态站请看高低位总表"})
     print("DONE", now)

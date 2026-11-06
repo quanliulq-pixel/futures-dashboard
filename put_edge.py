@@ -347,6 +347,95 @@ def build_checklist(row: dict) -> dict:
     }
 
 
+
+
+def build_call_checklist(row: dict) -> dict:
+    """Covered / short-call checklist; language adapted from CSP version."""
+    call = row.get("call") or row.get("put") or {}
+    # Temporarily reuse put checklist machinery with call option payload.
+    tmp = dict(row)
+    tmp["put"] = call
+    risk = dict(tmp.get("risk") or {})
+    iv_tag = risk.get("iv_tag") or ""
+    if iv_tag.startswith("IV估"):
+        # treat 估 as the same qualitative bucket
+        base = iv_tag.replace("IV估", "IV", 1)
+        risk["iv_tag"] = base if base in ("IV偏贵", "IV中性", "IV偏便宜", "IV未知") else iv_tag
+        tmp["risk"] = risk
+    out = build_checklist(tmp)
+    # Rewrite a few titles for 备兑/卖Call
+    remap = {
+        "budget": ("账户预算", f"备兑约 ${risk.get('capital_per_contract') or (tmp.get('risk') or {}).get('capital_per_contract')}"),
+        "yield": None,
+        "otm": None,
+        "rsi": None,
+        "freefall": None,
+    }
+    checks = []
+    for c in out.get("checks") or []:
+        c = dict(c)
+        if c.get("code") == "budget":
+            c["title"] = "账户预算"
+            cap = (row.get("risk") or {}).get("capital_per_contract")
+            c["detail"] = f"备兑 ${cap}" if cap is not None else "备兑占用"
+            flags = (row.get("risk") or {}).get("flags") or []
+            c["ok"] = "单笔超预算" not in flags
+        elif c.get("code") == "rsi":
+            rsi = row.get("rsi14")
+            c["title"] = "RSI非急跌"
+            c["detail"] = f"RSI {rsi}"
+            c["ok"] = rsi is None or rsi >= 32
+            c["hard"] = False
+        elif c.get("code") == "freefall":
+            chg5 = row.get("chg_5d")
+            vs20 = row.get("vs_ma20_pct")
+            weak = (chg5 is not None and chg5 <= -15) or (vs20 is not None and vs20 <= -12)
+            crash = (chg5 is not None and chg5 <= -25) or (vs20 is not None and vs20 <= -18)
+            c["title"] = "非自由落体"
+            bits = []
+            if chg5 is not None:
+                bits.append(f"5日 {chg5}%")
+            if vs20 is not None:
+                bits.append(f"相对MA20 {vs20}%")
+            c["detail"] = " · ".join(bits) or "—"
+            if crash:
+                c["ok"] = False
+                c["hard"] = True
+            elif weak:
+                c["ok"] = False
+                c["hard"] = False
+                c["detail"] += " · 偏弱"
+            else:
+                c["ok"] = True
+                c["hard"] = False
+        elif c.get("code") == "iv_rich":
+            tag = (row.get("risk") or {}).get("iv_tag") or ""
+            c["ok"] = ("偏贵" in tag) or ("中性" in tag)
+            c["detail"] = tag or "未知"
+        checks.append(c)
+    hard_fail = [c for c in checks if c["hard"] and not c["ok"]]
+    soft_fail = [c for c in checks if (not c["hard"]) and not c["ok"]]
+    passed = sum(1 for c in checks if c["ok"])
+    blocked = len(hard_fail) > 0
+    if blocked:
+        verdict, severity = "否决·先别开", "block"
+    elif len(soft_fail) >= 3:
+        verdict, severity = "谨慎·多项警告", "warn"
+    elif soft_fail:
+        verdict, severity = "可考虑·留意警告", "caution"
+    else:
+        verdict, severity = "通过·条件较好", "pass"
+    out["checks"] = checks
+    out["passed"] = passed
+    out["total"] = len(checks)
+    out["hard_fails"] = [c["code"] for c in hard_fail]
+    out["soft_fails"] = [c["code"] for c in soft_fail]
+    out["blocked"] = blocked
+    out["verdict"] = verdict
+    out["severity"] = severity
+    return out
+
+
 def reweight_edge(edge: dict, weights: dict) -> dict:
     """Recompute edge total from stored raw-ish parts using new weights (approx)."""
     if not edge:
