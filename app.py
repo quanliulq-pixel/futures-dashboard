@@ -175,6 +175,11 @@ def analysis_all():
 
         def slim(r: dict) -> dict:
             c = r.get("cost") or {}
+            def pick(*vals):
+                for v in vals:
+                    if v is not None:
+                        return v
+                return None
             return {
                 "id": r["id"],
                 "name": r["name"],
@@ -194,13 +199,13 @@ def analysis_all():
                 "from_max_pct": r["from_max_pct"],
                 "from_min_pct": r["from_min_pct"],
                 "ret_1y": r["ret_1y"],
-                "primary_cost": c.get("primary_cost"),
-                "cash_cost": c.get("cash_cost"),
-                "comfort_high": c.get("comfort_high"),
-                "cost_unit": c.get("unit"),
-                "vs_primary_pct": c.get("vs_primary_pct"),
-                "vs_cash_pct": c.get("vs_cash_pct"),
-                "cost_band": c.get("position_vs_band"),
+                "primary_cost": pick(c.get("primary_cost"), r.get("primary_cost")),
+                "cash_cost": pick(c.get("cash_cost"), r.get("cash_cost")),
+                "comfort_high": pick(c.get("comfort_high"), r.get("comfort_high")),
+                "cost_unit": pick(c.get("unit"), r.get("cost_unit")),
+                "vs_primary_pct": pick(c.get("vs_primary_pct"), r.get("vs_primary_pct")),
+                "vs_cash_pct": pick(c.get("vs_cash_pct"), r.get("vs_cash_pct")),
+                "cost_band": pick(c.get("position_vs_band"), r.get("cost_band")),
                 "cost": c if c else None,
                 "analysis": r.get("analysis"),
             }
@@ -217,7 +222,13 @@ def analysis_all():
             }
         )
     except Exception as exc:
-        logger.exception("analysis all failed")
+        logger.exception("analysis all failed; trying seed")
+        seed = _read_api_seed("analysis_all.json")
+        if seed and (seed.get("lows") or seed.get("highs") or seed.get("all")):
+            seed = dict(seed)
+            seed["source"] = "seed"
+            seed["note"] = (seed.get("note") or "") + " · 实时重算暂不可用，已回退快照"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 

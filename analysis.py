@@ -20,6 +20,54 @@ from universe import get_instrument, get_universe
 logger = logging.getLogger(__name__)
 
 _analysis_cache: tuple[float, dict] | None = None
+_analysis_refresh_lock = __import__("threading").Lock()
+_analysis_refresh_running = False
+
+
+
+def _load_analysis_seed() -> dict | None:
+    """Cold-start fallback from exported Pages snapshot (already API-slimmed)."""
+    from pathlib import Path
+    import json
+
+    path = Path(__file__).resolve().parent / "docs" / "api" / "analysis_all.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and (data.get("lows") or data.get("highs") or data.get("all")):
+            return data
+    except Exception:
+        logger.debug("analysis seed load failed", exc_info=True)
+    return None
+
+
+def _schedule_analysis_refresh() -> None:
+    global _analysis_refresh_running
+    if not _analysis_refresh_lock.acquire(blocking=False):
+        return
+    if _analysis_refresh_running:
+        _analysis_refresh_lock.release()
+        return
+    _analysis_refresh_running = True
+    _analysis_refresh_lock.release()
+
+    import threading
+
+    def _bg():
+        global _analysis_refresh_running, _analysis_cache
+        try:
+            payload = _compute_full_analysis()
+            if payload and (payload.get("all") or payload.get("lows") or payload.get("highs")):
+                _analysis_cache = (time.time(), payload)
+        except Exception:
+            logger.exception("background analysis refresh failed")
+        finally:
+            with _analysis_refresh_lock:
+                _analysis_refresh_running = False
+
+    threading.Thread(target=_bg, daemon=True).start()
+
 
 # Exclude pure financials from "commodity cost" narrative emphasis
 NO_COST_SECTORS = {"股指", "外汇", "利率", "波动率", "加密", "航运"}
@@ -427,9 +475,36 @@ def build_analysis_text(meta: dict, price: float, st: dict, cost: dict | None) -
 
 
 def build_full_analysis(force: bool = False) -> dict:
+    """Return extremes analysis fast. Heavy history pulls never block HTTP.
+
+    force=True only schedules a background recompute; callers get cache or
+    docs/api/analysis_all.json seed immediately.
+    """
     global _analysis_cache
+
     if not force and _analysis_cache and time.time() - _analysis_cache[0] < ANALYSIS_CACHE_TTL:
         return _analysis_cache[1]
+
+    snapshot = None
+    if _analysis_cache is not None:
+        snapshot = _analysis_cache[1]
+    else:
+        seed = _load_analysis_seed()
+        if seed is not None:
+            # Seed is already slimmed API shape; good enough for UI.
+            _analysis_cache = (time.time(), seed)
+            snapshot = seed
+
+    if snapshot is not None:
+        _schedule_analysis_refresh()
+        return snapshot
+
+    # No seed — last resort sync compute (local/dev).
+    return _compute_full_analysis()
+
+
+def _compute_full_analysis() -> dict:
+    global _analysis_cache
 
     _, by_id = get_universe()
     ids = list(by_id.keys())

@@ -439,7 +439,7 @@
   async function loadExtremes(force = false) {
     try {
       const url = apiUrl(force ? "/api/analysis/all?force=1" : "/api/analysis/all");
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "extremes failed");
 
