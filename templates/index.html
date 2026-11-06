@@ -358,6 +358,23 @@
         <div class="panel">
           <div class="panel-head">
             <div>
+              <h2>Edge 五信号权重</h2>
+              <p class="sub">借鉴 Theta Harvest：VRP / IV分位 / 期限结构 / RV稳定性 / Skew · 合计自动归一到 100</p>
+            </div>
+            <button type="button" id="btn-put-weights-reset" class="btn btn-tiny">恢复默认</button>
+          </div>
+          <div class="put-weights" id="put-weights">
+            <label>VRP <input type="range" min="0" max="50" value="30" data-w="vrp" /><span data-wv="vrp">30</span></label>
+            <label>IV分位 <input type="range" min="0" max="50" value="25" data-w="iv_pctile" /><span data-wv="iv_pctile">25</span></label>
+            <label>期限结构 <input type="range" min="0" max="40" value="20" data-w="term" /><span data-wv="term">20</span></label>
+            <label>RV稳定 <input type="range" min="0" max="30" value="15" data-w="rv_stable" /><span data-wv="rv_stable">15</span></label>
+            <label>Skew <input type="range" min="0" max="25" value="10" data-w="skew" /><span data-wv="skew">10</span></label>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
               <h2>筛选器</h2>
               <p class="sub">按波动、RSI、权利金与风险过滤</p>
             </div>
@@ -712,6 +729,38 @@
   <script>
     window.APP_CONFIG = { refreshSec: {{ refresh_sec }} };
   </script>
+
+    <div class="put-modal hidden" id="put-chain-modal" role="dialog" aria-modal="true">
+      <div class="put-modal-card">
+        <div class="put-modal-head">
+          <div>
+            <h3 id="put-chain-title">期权链下钻</h3>
+            <p class="sub" id="put-chain-sub">—</p>
+          </div>
+          <button type="button" class="btn btn-tiny" id="btn-put-chain-close">关闭</button>
+        </div>
+        <div id="put-chain-edge" class="put-chain-edge"></div>
+        <div id="put-chain-check" class="put-chain-check"></div>
+        <div class="table-wrap">
+          <table class="put-table" id="put-chain-table">
+            <thead>
+              <tr>
+                <th>行权价</th>
+                <th class="num">OTM%</th>
+                <th class="num">Bid</th>
+                <th class="num">Ask</th>
+                <th class="num">Mid</th>
+                <th class="num">IV</th>
+                <th class="num">OI</th>
+                <th class="num">Vol</th>
+              </tr>
+            </thead>
+            <tbody id="put-chain-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   <script src="/static/app.js?v={{ asset_v }}"></script>
 </body>
 </html>

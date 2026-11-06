@@ -1397,3 +1397,86 @@ tbody tr.active {
   margin-top: 6px;
   font-size: 0.72rem;
 }
+
+.put-weights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 14px;
+  padding: 0 14px 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.put-weights label {
+  display: grid;
+  grid-template-columns: 64px 1fr 28px;
+  gap: 6px;
+  align-items: center;
+}
+.put-weights input[type="range"] { width: 100%; }
+.put-edge-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.put-edge-pill {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+}
+.put-edge-pill.agg { background: rgba(34,197,94,0.15); color: #86efac; }
+.put-edge-pill.avoid { background: rgba(239,68,68,0.15); color: #fca5a5; }
+.put-edge-pill.warn { background: rgba(245,158,11,0.15); color: #fde68a; }
+.put-check-mini {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.put-modal.hidden { display: none; }
+.put-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.put-modal-card {
+  width: min(920px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: #0f1620;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.put-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.put-chain-edge, .put-chain-check {
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.put-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+.put-check-item {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #121a24;
+  border-left: 3px solid #64748b;
+}
+.put-check-item.ok { border-left-color: #22c55e; }
+.put-check-item.fail { border-left-color: #ef4444; }
+.put-check-item.soft { border-left-color: #f59e0b; }
+.put-chain-table tr.selected td { background: rgba(245,158,11,0.08); }

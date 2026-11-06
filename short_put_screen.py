@@ -111,6 +111,21 @@ ACCOUNT_DEFAULTS = {
 }
 
 
+def _sane_iv(iv: float | None, hv20: float | None = None) -> float | None:
+    """Drop clearly broken Yahoo IV quotes (often ~0 or absurdly below HV)."""
+    if iv is None:
+        return None
+    try:
+        v = float(iv)
+    except Exception:
+        return None
+    if v <= 1.0 or v > 400:
+        return None
+    if hv20 and hv20 >= 20 and v < hv20 * 0.25:
+        return None
+    return v
+
+
 def _r(x: Any, n: int = 2) -> Any:
     if x is None:
         return None
@@ -229,48 +244,162 @@ def _pick_expiry(options: tuple[str, ...] | list[str], min_dte: int = 14, max_dt
 
 
 def _option_put_idea(symbol: str, spot: float) -> dict | None:
-    """Pick an OTM short-put candidate (~5–12% OTM) on ~30 DTE."""
+    """Pick an OTM short-put candidate (~5–12% OTM) on ~30 DTE + vol structure + chain slice."""
     try:
         import yfinance as yf
 
         t = yf.Ticker(symbol)
-        options = t.options or ()
-        exp = _pick_expiry(options)
-        if not exp or spot <= 0:
+        options = list(t.options or ())
+        if spot <= 0:
             return None
-        chain = t.option_chain(exp)
-        puts = chain.puts.copy()
-        if puts.empty:
+        # try several candidate expiries until we get a liquid chain
+        candidates = []
+        primary = _pick_expiry(options)
+        if primary:
+            candidates.append(primary)
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        for e in options:
+            try:
+                dte = (datetime.strptime(e, "%Y-%m-%d").date() - today).days
+            except Exception:
+                continue
+            if 14 <= dte <= 60 and e not in candidates:
+                candidates.append(e)
+            if len(candidates) >= 5:
+                break
+        exp = None
+        puts = None
+        chain = None
+        for cand in candidates:
+            try:
+                chain = t.option_chain(cand)
+                ptmp = chain.puts.copy()
+                if ptmp.empty:
+                    continue
+                ivs = ptmp["impliedVolatility"].fillna(0).astype(float)
+                bids = ptmp["bid"].fillna(0).astype(float)
+                asks = ptmp["ask"].fillna(0).astype(float)
+                if ((ivs > 0.03) & (bids + asks > 0)).sum() >= 3:
+                    exp, puts = cand, ptmp
+                    break
+                if puts is None:
+                    exp, puts = cand, ptmp
+            except Exception:
+                continue
+        if not exp or puts is None or puts.empty:
             return None
         # target 8% OTM (cash-secured put zone)
         target = spot * 0.92
         puts["dist"] = (puts["strike"] - target).abs()
-        # prefer OTM with some OI/volume
         otm = puts[puts["strike"] < spot * 0.995].copy()
         if otm.empty:
             otm = puts
-        otm = otm.sort_values(["dist", "openInterest"], ascending=[True, False])
+        # prefer quotes with real bid/ask and non-zero IV
+        otm = otm.copy()
+        otm["_iv"] = otm["impliedVolatility"].fillna(0).astype(float)
+        otm["_bid"] = otm["bid"].fillna(0).astype(float)
+        otm["_ask"] = otm["ask"].fillna(0).astype(float)
+        otm["_liq"] = (otm["_bid"] + otm["_ask"] > 0).astype(int) * 2 + (otm["_iv"] > 0.03).astype(int)
+        otm = otm.sort_values(["_liq", "dist", "openInterest"], ascending=[False, True, False])
         row = otm.iloc[0]
         bid = float(row.get("bid") or 0)
         ask = float(row.get("ask") or 0)
         mid = (bid + ask) / 2 if bid or ask else float(row.get("lastPrice") or 0)
         strike = float(row["strike"])
-        iv = float(row.get("impliedVolatility") or 0) * 100
+        iv_raw = float(row.get("impliedVolatility") or 0)
+        iv = iv_raw * 100 if iv_raw <= 5 else iv_raw  # if already percent-like keep
         dte = (datetime.strptime(exp, "%Y-%m-%d").date() - datetime.now(timezone.utc).replace(tzinfo=None).date()).days
         otm_pct = (strike / spot - 1) * 100
-        # annualized yield approx on cash secured: mid/strike * 365/dte
         yield_ann = (mid / strike * 365 / max(dte, 1) * 100) if strike > 0 and mid > 0 else None
         premium_pct = mid / spot * 100 if spot else None
         if mid <= 0 or strike <= 0:
             return None
         if strike >= spot or strike < spot * 0.70:
-            return None  # keep practical CSP zone
+            return None
         if mid >= strike * 0.45:
             return None
         if yield_ann is not None and yield_ann > 250:
             yield_ann = 250.0
         if iv > 400:
             iv = 400.0
+
+        # ATM IV + skew from same expiry
+        atm_iv = None
+        try:
+            puts2 = puts.copy()
+            puts2["adist"] = (puts2["strike"] - spot).abs()
+            puts2["_iv"] = puts2["impliedVolatility"].fillna(0).astype(float)
+            puts2["_bid"] = puts2["bid"].fillna(0).astype(float)
+            puts2["_ask"] = puts2["ask"].fillna(0).astype(float)
+            puts2["_ok"] = ((puts2["_iv"] > 0.03) & (puts2["_bid"] + puts2["_ask"] > 0)).astype(int)
+            atm_row = puts2.sort_values(["_ok", "adist"], ascending=[False, True]).iloc[0]
+            iv_raw = float(atm_row.get("impliedVolatility") or 0)
+            atm_iv = iv_raw * 100 if iv_raw <= 5 else iv_raw
+            if atm_iv > 400:
+                atm_iv = 400.0
+            if atm_iv <= 1:
+                atm_iv = iv
+        except Exception:
+            atm_iv = iv
+
+        # farther expiry for term structure (~60 DTE)
+        far_iv = None
+        far_exp = None
+        try:
+            today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+            far_candidates = []
+            for e in options:
+                try:
+                    d = datetime.strptime(e, "%Y-%m-%d").date()
+                    dd = (d - today).days
+                    if 45 <= dd <= 90:
+                        far_candidates.append((abs(dd - 60), e))
+                except Exception:
+                    continue
+            if far_candidates:
+                far_exp = sorted(far_candidates)[0][1]
+                fchain = t.option_chain(far_exp)
+                fputs = fchain.puts.copy()
+                if not fputs.empty:
+                    fputs["adist"] = (fputs["strike"] - spot).abs()
+                    fputs["_iv"] = fputs["impliedVolatility"].fillna(0).astype(float)
+                    fputs["_ok"] = (fputs["_iv"] > 0.03).astype(int)
+                    iv_raw = float(fputs.sort_values(["_ok", "adist"], ascending=[False, True]).iloc[0].get("impliedVolatility") or 0)
+                    far_iv = iv_raw * 100 if iv_raw <= 5 else iv_raw
+                    if far_iv > 400:
+                        far_iv = 400.0
+                    if far_iv <= 1:
+                        far_iv = None
+        except Exception:
+            far_iv = None
+
+        # chain slice for drill-down: strikes from ~85% to 100% spot
+        chain_slice = []
+        try:
+            band = puts[(puts["strike"] >= spot * 0.82) & (puts["strike"] <= spot * 1.01)].copy()
+            band = band.sort_values("strike", ascending=False).head(14)
+            for _, rr in band.iterrows():
+                b = float(rr.get("bid") or 0)
+                a = float(rr.get("ask") or 0)
+                m = (b + a) / 2 if b or a else float(rr.get("lastPrice") or 0)
+                k = float(rr["strike"])
+                civ = float(rr.get("impliedVolatility") or 0) * 100
+                chain_slice.append(
+                    {
+                        "strike": _r(k, 2),
+                        "bid": _r(b, 2),
+                        "ask": _r(a, 2),
+                        "mid": _r(m, 2),
+                        "iv": _r(min(civ, 400), 1),
+                        "volume": int(rr.get("volume") or 0),
+                        "open_interest": int(rr.get("openInterest") or 0),
+                        "otm_pct": _r((k / spot - 1) * 100, 1),
+                        "selected": abs(k - strike) < 1e-6,
+                    }
+                )
+        except Exception:
+            chain_slice = []
+
         return {
             "expiry": exp,
             "dte": dte,
@@ -284,11 +413,18 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
             "otm_pct": _r(otm_pct, 1),
             "premium_pct": _r(premium_pct, 2),
             "yield_ann_pct": _r(yield_ann, 1),
-            "capital": _r(strike * 100, 0),  # CSP cash per contract
+            "capital": _r(strike * 100, 0),
+            "atm_iv": _r(atm_iv, 1),
+            "near_iv": _r(atm_iv if atm_iv is not None else iv, 1),
+            "far_iv": _r(far_iv, 1),
+            "far_expiry": far_exp,
+            "otm_put_iv": _r(iv, 1),
+            "chain": chain_slice,
         }
     except Exception as exc:
         logger.debug("option idea %s failed: %s", symbol, exc)
         return None
+
 
 
 
@@ -305,12 +441,11 @@ def _next_earnings(symbol: str) -> dict | None:
 
         t = yf.Ticker(symbol)
         today = datetime.now(timezone.utc).replace(tzinfo=None).date()
-        cal = None
+        dates = []
         try:
             cal = t.calendar
         except Exception:
             cal = None
-        dates = []
         if isinstance(cal, dict):
             ed = cal.get("Earnings Date")
             if isinstance(ed, (list, tuple)):
@@ -339,8 +474,7 @@ def _next_earnings(symbol: str) -> dict | None:
                 future.append(d)
         if future:
             nxt = min(future)
-            days = (nxt - today).days
-            out = {"date": nxt.isoformat(), "days": days}
+            out = {"date": nxt.isoformat(), "days": (nxt - today).days}
     except Exception as exc:
         logger.debug("earnings %s: %s", symbol, exc)
         out = None
@@ -363,7 +497,7 @@ def _build_risk(row: dict, budget: float | None = None) -> dict:
     budget = float(budget or ACCOUNT_DEFAULTS["budget_usd"])
     max_pct = float(ACCOUNT_DEFAULTS["max_name_pct"])
     cap = int(ACCOUNT_DEFAULTS["max_contracts_cap"])
-    capital = put.get("capital")  # cash per contract CSP
+    capital = put.get("capital")
     if capital is None and put.get("strike"):
         capital = float(put["strike"]) * 100
     max_by_budget = 0
@@ -392,7 +526,6 @@ def _build_risk(row: dict, budget: float | None = None) -> dict:
     iv_tag = _iv_tag(spread)
     if iv_tag == "IV偏便宜":
         flags.append("IV偏便宜")
-    # risk level
     level = "中"
     if any(x in flags for x in ("财报≤7天", "超卖刀口", "极高波动")):
         level = "高"
@@ -622,9 +755,52 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
         r["bias_cn"] = _bias_cn(r)
         r["action"] = _action(r)
         r["risk"] = _build_risk(r)
+        put = r.get("put") or {}
+        try:
+            from put_edge import compute_edge, build_checklist
+
+            hv20 = r.get("hv20")
+            iv = _sane_iv(put.get("iv"), hv20)
+            atm = _sane_iv(put.get("atm_iv"), hv20) or iv
+            near = _sane_iv(put.get("near_iv"), hv20) or atm or iv
+            far = _sane_iv(put.get("far_iv"), hv20)
+            otm_iv = _sane_iv(put.get("otm_put_iv"), hv20) or iv
+            r["edge"] = compute_edge(
+                iv=iv or atm,
+                hv20=hv20,
+                hv60=r.get("hv60"),
+                hv_pctile=r.get("hv_pctile"),
+                near_iv=near,
+                far_iv=far,
+                atm_iv=atm,
+                otm_put_iv=otm_iv,
+            )
+            # stash structure metrics for client reweight
+            if r["edge"].get("metrics") is not None:
+                r["edge"]["metrics"]["near_iv"] = put.get("near_iv")
+                r["edge"]["metrics"]["far_iv"] = put.get("far_iv")
+                r["edge"]["metrics"]["atm_iv"] = put.get("atm_iv")
+                r["edge"]["metrics"]["otm_put_iv"] = put.get("otm_put_iv")
+            r["checklist"] = build_checklist(r)
+            # soft boost / penalty on score
+            eg = r["edge"].get("edge") or 0
+            if r["checklist"].get("blocked"):
+                r["score"] = _r(max(0, (r.get("score") or 0) - 15), 1)
+            else:
+                r["score"] = _r((r.get("score") or 0) + max(-5, min(12, (eg - 50) * 0.15)), 1)
+            r["bias_cn"] = _bias_cn(r)
+            if r["checklist"].get("blocked"):
+                r["bias_cn"] = "检查否决"
+            r["action"] = _action(r)
+        except Exception:
+            logger.debug("edge/checklist failed for %s", r.get("symbol"), exc_info=True)
+            r["edge"] = None
+            r["checklist"] = None
 
     ranked = sorted(rows, key=lambda r: r.get("score") or -1, reverse=True)
-    picks = [r for r in ranked if (r.get("score") or 0) >= 28 and r.get("put")][:top_n]
+    eligible = [r for r in ranked if (r.get("score") or 0) >= 22 and r.get("put")]
+    openable = [r for r in eligible if not ((r.get("checklist") or {}).get("blocked"))]
+    picks = (openable + [r for r in eligible if r not in openable])[:top_n]
     watch = [r for r in ranked if r not in picks][:15]
 
     # theme link enrichment: attach live rows when present
@@ -654,8 +830,17 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             "score": "综合：高波动溢价 + RSI 回调甜蜜区 + 非自由落体 + 权利金年化 + IV相对HV + 流动性 − 临近财报",
             "risk": "风控层标注 IV贵贱、财报窗口、CSP占用、建议合约上限；杠杆ETF已排除",
             "filters": "前端可按 HV分位/RSI/OI/年化/OTM/类型/仅核心池 过滤",
+            "edge": "Edge分=VRP+IV分位+期限结构+RV稳定性+Skew；检查清单含硬否决(财报/倒挂/RV加速/自由落体等)",
+            "chain": "卡片可下钻同到期看跌链，权重滑条可重算Edge",
         },
         "account_defaults": ACCOUNT_DEFAULTS,
+        "edge_weights_default": {
+            "vrp": 30,
+            "iv_pctile": 25,
+            "term": 20,
+            "rv_stable": 15,
+            "skew": 10,
+        },
         "universe_size": len(rows),
         "picks": picks,
         "watchlist": watch,

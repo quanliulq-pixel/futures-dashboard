@@ -1126,6 +1126,12 @@
       if (ep) {
         const syms = (ep.dataset.symbols || "").split(",").filter(Boolean);
         openPutTheme(ep.dataset.theme || "theme", syms);
+        return;
+      }
+      const ch = e.target.closest(".btn-put-chain");
+      if (ch && ch.dataset.symbol) {
+        openPutChain(ch.dataset.symbol);
+        return;
       }
     });
     const btnPutWatchClear = $("#btn-put-watch-clear");
@@ -1135,6 +1141,32 @@
         renderPutWatch();
       });
     }
+    const putWeights = $("#put-weights");
+    if (putWeights) {
+      putWeights.addEventListener("input", () => {
+        readEdgeWeights();
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
+    }
+    const btnWReset = $("#btn-put-weights-reset");
+    if (btnWReset) {
+      btnWReset.addEventListener("click", () => {
+        const def = defaultEdgeWeights();
+        const box = $("#put-weights");
+        if (box) {
+          box.querySelectorAll("input[data-w]").forEach((inp) => {
+            inp.value = def[inp.dataset.w];
+          });
+        }
+        readEdgeWeights();
+        if (state.putPayload) renderShortPut(state.putPayload);
+      });
+    }
+    $("#btn-put-chain-close")?.addEventListener("click", closePutChain);
+    $("#put-chain-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "put-chain-modal") closePutChain();
+    });
+
     const newsFilter = $("#ng-news-filter");
     if (newsFilter) {
       newsFilter.addEventListener("click", (e) => {
@@ -2172,6 +2204,176 @@
   }
 
 
+
+  function defaultEdgeWeights() {
+    return { vrp: 30, iv_pctile: 25, term: 20, rv_stable: 15, skew: 10 };
+  }
+
+  function readEdgeWeights() {
+    const box = $("#put-weights");
+    const w = defaultEdgeWeights();
+    if (!box) return w;
+    box.querySelectorAll("input[data-w]").forEach((inp) => {
+      w[inp.dataset.w] = Number(inp.value) || 0;
+      const sp = box.querySelector(`[data-wv="${inp.dataset.w}"]`);
+      if (sp) sp.textContent = String(inp.value);
+    });
+    state.putWeights = w;
+    return w;
+  }
+
+  function recomputeEdgeClient(row, weights) {
+    const m = (row.edge && row.edge.metrics) || {};
+    const iv = m.iv, hv20 = m.hv20, hv60 = m.hv60;
+    const ivp = m.iv_pctile;
+    const near = m.near_iv != null ? m.near_iv : iv;
+    const far = m.far_iv;
+    const atm = m.atm_iv != null ? m.atm_iv : iv;
+    const otmIv = m.otm_put_iv != null ? m.otm_put_iv : iv;
+    const wraw = weights || readEdgeWeights();
+    const sum = Object.values(wraw).reduce((a, b) => a + Math.max(0, b), 0) || 100;
+    const wn = {};
+    Object.keys(wraw).forEach((k) => (wn[k] = (Math.max(0, wraw[k]) / sum) * 100));
+
+    // VRP 0-30
+    let vrpPts = 0, vrpNote = "VRP未知", vrpSpread = null;
+    if (iv != null && hv20 != null && hv20 > 0) {
+      vrpSpread = iv - hv20;
+      const ratio = iv / hv20;
+      if (vrpSpread <= 0 || ratio < 1) { vrpPts = Math.max(0, 8 + vrpSpread); vrpNote = "负VRP"; }
+      else if (ratio < 1.15) { vrpPts = Math.min(30, 10 + Math.min(8, vrpSpread * 0.7)); vrpNote = "VRP偏薄"; }
+      else { vrpPts = Math.min(30, 18 + Math.min(12, vrpSpread * 0.85 + (ratio - 1.15) * 25)); vrpNote = "VRP偏厚"; }
+    }
+    // IV pctile 0-25
+    let ivpPts = 0, ivpNote = "IV分位未知";
+    if (ivp != null) {
+      if (ivp >= 80) { ivpPts = 25; ivpNote = "IV分位很高"; }
+      else if (ivp >= 60) { ivpPts = 18 + (ivp - 60) * 0.35; ivpNote = "IV分位偏高"; }
+      else if (ivp >= 40) { ivpPts = 10 + (ivp - 40) * 0.3; ivpNote = "IV分位中性"; }
+      else { ivpPts = Math.max(0, ivp * 0.2); ivpNote = "IV分位偏低"; }
+    }
+    // term 0-20
+    let termPts = 8, termNote = "期限结构未知", termReg = "unknown";
+    if (near != null && far != null && near > 0) {
+      const slope = ((far - near) / near) * 100;
+      if (slope >= 5) { termPts = 20; termNote = "期限结构contango"; termReg = "contango"; }
+      else if (slope >= 0) { termPts = 14; termNote = "期限结构温和contango"; termReg = "contango"; }
+      else if (slope > -8) { termPts = 6; termNote = "期限结构偏平/轻倒挂"; termReg = "flat"; }
+      else { termPts = 0; termNote = "期限结构倒挂(危险)"; termReg = "backwardation"; }
+    }
+    // rv 0-15
+    let rvPts = 7, rvNote = "RV稳定性未知", accel = null;
+    if (hv20 != null && hv60 != null && hv60 > 0) {
+      accel = hv20 / hv60;
+      if (accel <= 0.9) { rvPts = 15; rvNote = "RV在回落"; }
+      else if (accel <= 1.05) { rvPts = 11; rvNote = "RV平稳"; }
+      else if (accel <= 1.25) { rvPts = 5; rvNote = "RV温和加速"; }
+      else if (accel <= 1.35) { rvPts = 2; rvNote = "RV偏快加速"; }
+      else { rvPts = 0; rvNote = "RV加速中(风暴)"; }
+    }
+    // skew 0-10
+    let skPts = 4, skNote = "Skew未知", skew = null;
+    if (atm != null && otmIv != null && atm > 0) {
+      skew = otmIv - atm;
+      if (skew >= 4) { skPts = 10; skNote = "Put偏斜丰厚"; }
+      else if (skew >= 1) { skPts = 7; skNote = "Put偏斜正常"; }
+      else if (skew >= -1) { skPts = 4; skNote = "Skew平坦"; }
+      else { skPts = 1; skNote = "Skew反向"; }
+    }
+    const parts = {
+      vrp: +((vrpPts / 30) * wn.vrp).toFixed(1),
+      iv_pctile: +((ivpPts / 25) * wn.iv_pctile).toFixed(1),
+      term: +((termPts / 20) * wn.term).toFixed(1),
+      rv_stable: +((rvPts / 15) * wn.rv_stable).toFixed(1),
+      skew: +((skPts / 10) * wn.skew).toFixed(1),
+    };
+    let edge = +(Object.values(parts).reduce((a, b) => a + b, 0).toFixed(1));
+    let posture = "观望", posture_en = "WATCH";
+    if (termReg === "backwardation" || (accel != null && accel > 1.35)) {
+      posture = "回避"; posture_en = "AVOID";
+    } else if (vrpSpread != null && vrpSpread < 0) {
+      posture = "观望"; posture_en = "WATCH"; edge = Math.min(edge, 54);
+    } else if (edge >= 70) { posture = "积极收租"; posture_en = "AGGRESSIVE"; }
+    else if (edge >= 55) { posture = "可做"; posture_en = "NORMAL"; }
+    else if (edge >= 40) { posture = "仅限定义风险"; posture_en = "DEFINED_RISK"; }
+
+    return {
+      edge,
+      parts,
+      weights: wn,
+      notes: { vrp: vrpNote, iv_pctile: ivpNote, term: termNote, rv_stable: rvNote, skew: skNote },
+      metrics: { ...(m || {}), vrp_spread: vrpSpread, term_regime: termReg, rv_accel: accel, skew },
+      posture,
+      posture_en,
+    };
+  }
+
+  function edgePill(edge) {
+    if (!edge) return "";
+    const en = edge.posture_en || "";
+    const cls = en === "AGGRESSIVE" || en === "NORMAL" ? "agg" : en === "AVOID" ? "avoid" : "warn";
+    return `<span class="put-edge-pill ${cls}">Edge ${fmt(edge.edge, 1)} · ${esc(edge.posture || "")}</span>`;
+  }
+
+  function checklistMini(ch) {
+    if (!ch) return "";
+    const cls = ch.severity === "pass" ? "agg" : ch.severity === "block" ? "avoid" : "warn";
+    return `<span class="put-edge-pill ${cls}">检查 ${ch.passed}/${ch.total} · ${esc(ch.verdict || "")}</span>`;
+  }
+
+
+  function openPutChain(symbol) {
+    const data = state.putPayload;
+    if (!data) return;
+    const row = [...(data.picks || []), ...(data.all || [])].find((x) => x.symbol === symbol);
+    if (!row) return;
+    const weights = readEdgeWeights();
+    const edge = row.edge && row.edge.metrics ? recomputeEdgeClient(row, weights) : row.edge;
+    const put = row.put || {};
+    const modal = $("#put-chain-modal");
+    const title = $("#put-chain-title");
+    const sub = $("#put-chain-sub");
+    const edgeEl = $("#put-chain-edge");
+    const checkEl = $("#put-chain-check");
+    const body = $("#put-chain-body");
+    if (title) title.textContent = `${row.symbol} · 期权链下钻`;
+    if (sub) sub.textContent = `${row.name || ""} · 到期 ${put.expiry || "—"} · 建议 K=${put.strike != null ? "$"+put.strike : "—"}`;
+    if (edgeEl && edge) {
+      const p = edge.parts || {};
+      edgeEl.innerHTML = `${edgePill(edge)}
+        <div style="margin-top:6px;">VRP ${p.vrp} · IV分位 ${p.iv_pctile} · 期限 ${p.term} · RV ${p.rv_stable} · Skew ${p.skew}</div>
+        <div class="put-check-mini">${esc((edge.notes && edge.notes.vrp) || "")} · ${esc((edge.notes && edge.notes.term) || "")} · ${esc((edge.notes && edge.notes.rv_stable) || "")}</div>`;
+    }
+    if (checkEl && row.checklist) {
+      const ch = row.checklist;
+      checkEl.innerHTML = `<div><strong>${esc(ch.verdict)}</strong> (${ch.passed}/${ch.total})</div>
+        <div class="put-check-list">${(ch.checks || []).map((c) => {
+          const cls = c.ok ? "ok" : c.hard ? "fail" : "soft";
+          return `<div class="put-check-item ${cls}"><strong>${esc(c.title)}</strong><div class="put-check-mini">${esc(c.detail)}</div></div>`;
+        }).join("")}</div>`;
+    }
+    if (body) {
+      const rows = put.chain || [];
+      if (!rows.length) body.innerHTML = `<tr><td colspan="8" class="empty">暂无链数据</td></tr>`;
+      else body.innerHTML = rows.map((c) => `<tr class="${c.selected ? "selected" : ""}">
+        <td>$${fmt(c.strike, 2)}</td>
+        <td class="num">${fmt(c.otm_pct, 1)}%</td>
+        <td class="num">${fmt(c.bid, 2)}</td>
+        <td class="num">${fmt(c.ask, 2)}</td>
+        <td class="num">${fmt(c.mid, 2)}</td>
+        <td class="num">${fmt(c.iv, 1)}%</td>
+        <td class="num">${c.open_interest ?? "—"}</td>
+        <td class="num">${c.volume ?? "—"}</td>
+      </tr>`).join("");
+    }
+    if (modal) modal.classList.remove("hidden");
+  }
+
+  function closePutChain() {
+    const modal = $("#put-chain-modal");
+    if (modal) modal.classList.add("hidden");
+  }
+
   async function loadShortPut(force = false) {
     if (state.putLoading) return;
     state.putLoading = true;
@@ -2240,8 +2442,14 @@
       ].filter(Boolean).join("<br/>");
     }
     renderPutThemes(data.themes);
-    const filteredPicks = applyPutFilters(data.picks);
-    const filteredAll = applyPutFilters(data.all || data.picks);
+    const weights = readEdgeWeights();
+    const enrich = (rows) => (rows || []).map((r) => {
+      const copy = { ...r };
+      if (r.edge && r.edge.metrics) copy.edge = recomputeEdgeClient(r, weights);
+      return copy;
+    });
+    const filteredPicks = applyPutFilters(enrich(data.picks));
+    const filteredAll = applyPutFilters(enrich(data.all || data.picks));
     if (pill) pill.textContent = `${filteredPicks.length} 推荐`;
     renderPutCards(filteredPicks);
     renderPutTable(filteredAll);
@@ -2294,7 +2502,7 @@
           </div>
           <div class="put-score">${fmt(r.score, 1)}</div>
         </div>
-        ${riskBadge(risk)}
+        <div class="put-edge-bar">${edgePill(r.edge)} ${checklistMini(r.checklist)} ${riskBadge(risk)}</div>
         <div class="put-metrics">
           <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
           <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
@@ -2316,6 +2524,7 @@
         <div class="put-action"><strong>${esc(r.bias_cn || "")}</strong> · ${esc(r.action || "")}</div>
         <div class="put-card-actions">
           <button type="button" class="btn btn-tiny btn-put-watch" data-symbol="${esc(r.symbol)}">加入观察</button>
+          <button type="button" class="btn btn-tiny btn-put-chain" data-symbol="${esc(r.symbol)}">期权链/检查</button>
         </div>
       </article>`;
     }).join("");
@@ -2354,7 +2563,10 @@
         <td class="num">${put.mid != null ? "$" + fmt(put.mid, 2) : "—"}</td>
         <td class="num">${put.yield_ann_pct != null ? fmt(put.yield_ann_pct, 1) + "%" : "—"}</td>
         <td class="num">${risk.capital_per_contract != null ? "$" + fmt(risk.capital_per_contract, 0) : "—"}</td>
-        <td><button type="button" class="btn btn-tiny btn-put-watch" data-symbol="${esc(r.symbol)}">观察</button></td>
+        <td>
+          <button type="button" class="btn btn-tiny btn-put-watch" data-symbol="${esc(r.symbol)}">观察</button>
+          <button type="button" class="btn btn-tiny btn-put-chain" data-symbol="${esc(r.symbol)}">链</button>
+        </td>
       </tr>`;
     }).join("");
   }
