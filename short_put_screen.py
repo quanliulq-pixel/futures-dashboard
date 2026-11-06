@@ -247,6 +247,54 @@ def _pick_expiry(options: tuple[str, ...] | list[str], min_dte: int = 14, max_dt
     return options[0] if options else None
 
 
+
+def _estimate_iv_pct(spot: float, strike: float, mid: float, dte: int) -> float | None:
+    """Rough IV% from option mid when Yahoo impliedVolatility is missing/junk.
+
+    Brenner–Subrahmanyam style ATM approximation, with a light OTM haircut.
+    Good enough for IV贵贱 tagging; not a pricing engine.
+    """
+    try:
+        if spot <= 0 or mid <= 0 or dte is None or dte <= 0:
+            return None
+        T = max(dte, 1) / 365.0
+        # ATM-ish premium ratio
+        prem = mid / spot
+        iv = (2.0 * math.pi / T) ** 0.5 * prem * 100.0
+        # OTM puts are cheaper → lift a bit so we don't systematically understate
+        moneyness = strike / spot
+        if moneyness < 0.97:
+            iv *= 1.0 + min(0.35, (0.97 - moneyness) * 2.5)
+        if iv < 3 or iv > 400:
+            return None
+        return float(iv)
+    except Exception:
+        return None
+
+
+def _normalize_iv_pct(iv_raw: float, spot: float, strike: float, mid: float, dte: int) -> tuple[float | None, str | None]:
+    """Convert Yahoo IV to percent; replace junk with estimate from mid.
+
+    Returns (iv_pct, source) where source is yahoo|est|None.
+    """
+    try:
+        iv_raw = float(iv_raw or 0)
+    except Exception:
+        iv_raw = 0.0
+    iv = iv_raw * 100 if 0 < iv_raw <= 5 else iv_raw
+    if iv <= 1 or iv > 400:
+        iv = None
+    est = _estimate_iv_pct(spot, strike, mid, dte)
+    # Yahoo often parks near-zero IV on ETF puts that still have a last/mid.
+    if iv is None and est is not None:
+        return est, "est"
+    if iv is not None and est is not None and iv < max(8.0, est * 0.45):
+        return est, "est"
+    if iv is not None:
+        return iv, "yahoo"
+    return None, None
+
+
 def _option_put_idea(symbol: str, spot: float) -> dict | None:
     """Pick an OTM short-put candidate (~5–12% OTM) on ~30 DTE + vol structure + chain slice."""
     try:
@@ -283,10 +331,13 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
                 ivs = ptmp["impliedVolatility"].fillna(0).astype(float)
                 bids = ptmp["bid"].fillna(0).astype(float)
                 asks = ptmp["ask"].fillna(0).astype(float)
-                if ((ivs > 0.03) & (bids + asks > 0)).sum() >= 3:
+                # Yahoo often returns ~0 IV for liquid ETF puts; treat bid/ask as liquidity signal.
+                liquid = (bids + asks > 0).sum()
+                usable_iv = (ivs > 0.03).sum()
+                if liquid >= 3 or usable_iv >= 3:
                     exp, puts = cand, ptmp
                     break
-                if puts is None:
+                if puts is None and (liquid > 0 or not ptmp.empty):
                     exp, puts = cand, ptmp
             except Exception:
                 continue
@@ -310,8 +361,6 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
         ask = float(row.get("ask") or 0)
         mid = (bid + ask) / 2 if bid or ask else float(row.get("lastPrice") or 0)
         strike = float(row["strike"])
-        iv_raw = float(row.get("impliedVolatility") or 0)
-        iv = iv_raw * 100 if iv_raw <= 5 else iv_raw  # if already percent-like keep
         dte = (datetime.strptime(exp, "%Y-%m-%d").date() - datetime.now(timezone.utc).replace(tzinfo=None).date()).days
         otm_pct = (strike / spot - 1) * 100
         yield_ann = (mid / strike * 365 / max(dte, 1) * 100) if strike > 0 and mid > 0 else None
@@ -324,8 +373,7 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
             return None
         if yield_ann is not None and yield_ann > 250:
             yield_ann = 250.0
-        if iv > 400:
-            iv = 400.0
+        iv, iv_source = _normalize_iv_pct(float(row.get("impliedVolatility") or 0), spot, strike, mid, dte)
 
         # ATM IV + skew from same expiry
         atm_iv = None
@@ -337,14 +385,26 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
             puts2["_ask"] = puts2["ask"].fillna(0).astype(float)
             puts2["_ok"] = ((puts2["_iv"] > 0.03) & (puts2["_bid"] + puts2["_ask"] > 0)).astype(int)
             atm_row = puts2.sort_values(["_ok", "adist"], ascending=[False, True]).iloc[0]
-            iv_raw = float(atm_row.get("impliedVolatility") or 0)
-            atm_iv = iv_raw * 100 if iv_raw <= 5 else iv_raw
-            if atm_iv > 400:
-                atm_iv = 400.0
-            if atm_iv <= 1:
-                atm_iv = iv
+            atm_mid = float(atm_row.get("bid") or 0) + float(atm_row.get("ask") or 0)
+            atm_mid = atm_mid / 2 if atm_mid else float(atm_row.get("lastPrice") or 0)
+            atm_iv, _atm_src = _normalize_iv_pct(
+                float(atm_row.get("impliedVolatility") or 0),
+                spot,
+                float(atm_row.get("strike") or strike),
+                atm_mid or mid,
+                dte,
+            )
+            atm_iv = atm_iv or iv
         except Exception:
             atm_iv = iv
+
+        # Prefer ATM IV when Yahoo marks the OTM strike with junk near-zero IV.
+        if atm_iv is not None and (iv is None or iv < atm_iv * 0.85):
+            iv = atm_iv
+            iv_source = (iv_source or "yahoo") if iv_source == "est" else "yahoo_atm"
+        if iv is None and atm_iv is not None:
+            iv = atm_iv
+            iv_source = "yahoo_atm"
 
         # farther expiry for term structure (~60 DTE)
         far_iv = None
@@ -412,6 +472,7 @@ def _option_put_idea(symbol: str, spot: float) -> dict | None:
             "ask": _r(ask, 2),
             "mid": _r(mid, 2),
             "iv": _r(iv, 1),
+            "iv_source": iv_source or ("est" if iv is not None else None),
             "volume": int(row.get("volume") or 0),
             "open_interest": int(row.get("openInterest") or 0),
             "otm_pct": _r(otm_pct, 1),
@@ -528,12 +589,22 @@ def _build_risk(row: dict, budget: float | None = None) -> dict:
         flags.append("OI偏低")
     spread = row.get("iv_hv_spread")
     iv_tag = _iv_tag(spread)
-    if iv_tag == "IV偏便宜":
+    put = row.get("put") or {}
+    if iv_tag != "IV未知" and put.get("iv_source") == "est":
+        iv_tag = iv_tag.replace("IV", "IV估")
+    elif iv_tag == "IV未知" and put.get("iv") is not None and row.get("hv20"):
+        # recompute if put has iv but spread missing
+        spread = _r(float(put["iv"]) - float(row["hv20"]), 1)
+        row["iv_hv_spread"] = spread
+        iv_tag = _iv_tag(spread)
+        if put.get("iv_source") == "est":
+            iv_tag = iv_tag.replace("IV", "IV估")
+    if "偏便宜" in iv_tag:
         flags.append("IV偏便宜")
     level = "中"
     if any(x in flags for x in ("财报≤7天", "超卖刀口", "极高波动")):
         level = "高"
-    elif not flags and iv_tag == "IV偏贵":
+    elif not flags and "偏贵" in iv_tag:
         level = "低"
     elif "财报≤14天" in flags or "OI偏低" in flags:
         level = "中高"
@@ -755,10 +826,56 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
 
     # rank by HV first, fetch options for top option_n
     rows.sort(key=lambda r: (r.get("hv_pctile") or 0) * 0.5 + (r.get("hv20") or 0) * 0.5, reverse=True)
-    targets = rows[:option_n]
+    # Always include theme-linked names (GLD/UNG/…) even if HV rank is lower.
+    theme_syms = []
+    for meta in THEME_LINKS.values():
+        theme_syms.extend(meta.get("symbols") or [])
+    by_sym = {r["symbol"]: r for r in rows}
+    targets = []
+    seen = set()
+    for s in theme_syms:
+        if s in by_sym and s not in seen:
+            targets.append(by_sym[s])
+            seen.add(s)
+    for r in rows:
+        if r["symbol"] in seen:
+            continue
+        targets.append(r)
+        seen.add(r["symbol"])
+        if len(targets) >= max(option_n, len(seen & set(theme_syms)) + option_n):
+            # keep theme + top option_n others
+            break
+    # Cap: themes + option_n
+    theme_set = set(theme_syms)
+    tops = [r for r in rows if r["symbol"] not in theme_set][:option_n]
+    targets = []
+    seen = set()
+    for r in [by_sym[s] for s in theme_syms if s in by_sym] + tops:
+        if r["symbol"] in seen:
+            continue
+        targets.append(r)
+        seen.add(r["symbol"])
+
+    # Seed fallback map (previous successful option ideas)
+    seed_puts: dict[str, dict] = {}
+    try:
+        seed = _load_seed_snapshot() or {}
+        for bucket in ("picks", "watchlist", "all"):
+            for rr in seed.get(bucket) or []:
+                if rr.get("symbol") and rr.get("put"):
+                    seed_puts[rr["symbol"]] = rr["put"]
+        for th in seed.get("themes") or []:
+            for rr in th.get("items") or []:
+                if rr.get("symbol") and rr.get("put"):
+                    seed_puts[rr["symbol"]] = rr["put"]
+    except Exception:
+        seed_puts = {}
 
     def fetch(r: dict) -> dict:
         idea = _option_put_idea(r["symbol"], r["price"] or 0)
+        if idea is None and r["symbol"] in seed_puts:
+            idea = dict(seed_puts[r["symbol"]])
+            idea["from_seed"] = True
         r["put"] = idea
         return r
 
