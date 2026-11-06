@@ -406,7 +406,7 @@
     try {
       setStatus(true, "刷新中…");
       const url = apiUrl(force ? "/api/quotes?force=1" : "/api/quotes");
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "quotes failed");
       state.quotes = data.items || [];
@@ -428,8 +428,11 @@
       }
     } catch (err) {
       console.error(err);
-      setStatus(false, "刷新失败");
-      quoteMeta.textContent = String(err.message || err);
+      const timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
+      setStatus(false, timedOut ? "刷新超时，请再试" : "刷新失败");
+      quoteMeta.textContent = timedOut
+        ? "行情接口超时（冷启动/Yahoo 限流），请点「立即刷新」或稍后再试"
+        : String(err.message || err);
     }
   }
 

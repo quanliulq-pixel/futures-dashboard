@@ -2,6 +2,9 @@
 """Data layer: full CN (AKShare) + North America (yfinance)."""
 from __future__ import annotations
 
+from pathlib import Path
+
+import json
 import logging
 import time
 import warnings
@@ -416,6 +419,21 @@ def _batch_us_quotes() -> dict[str, dict]:
     return out
 
 
+def _load_quotes_seed() -> list[dict] | None:
+    """Cold-start fallback from exported Pages snapshot."""
+    path = Path(__file__).resolve().parent / "docs" / "api" / "quotes.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        items = data.get("items") if isinstance(data, dict) else None
+        if isinstance(items, list) and items:
+            return items
+    except Exception:
+        logger.debug("quotes seed load failed", exc_info=True)
+    return None
+
+
 def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
     global _quote_bundle_cache
 
@@ -424,6 +442,24 @@ def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
         if market in ("cn", "us"):
             return [q for q in quotes if q["market"] == market]
         return quotes
+
+    # Fresh dyno / empty cache: serve last export immediately, refresh in background.
+    if not force and _quote_bundle_cache is None:
+        seed = _load_quotes_seed()
+        if seed is not None:
+            _quote_bundle_cache = (_now(), seed)
+            import threading
+
+            def _bg_refresh():
+                try:
+                    get_quotes(force=True)
+                except Exception:
+                    logger.exception("background quotes refresh failed")
+
+            threading.Thread(target=_bg_refresh, daemon=True).start()
+            if market in ("cn", "us"):
+                return [q for q in seed if q.get("market") == market]
+            return seed
 
     items, _ = get_universe()
     quotes: list[dict] = []
