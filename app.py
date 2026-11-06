@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn12"
+    asset_v = "20261106dyn13"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -415,7 +415,8 @@ def ng_dashboard_api():
 
         seed = _read_api_seed("ng_dashboard.json")
         if seed is not None and os.environ.get("RENDER") and not force:
-            _spawn_bg_refresh("ng_dashboard", lambda: ng_dashboard.build_dashboard(force=True), min_interval=300.0)
+            # Do not auto-kick full-web NG rebuild here: it saturates the free dyno
+            # and leaves the mobile tab stuck on "加载中". Refresh button queues it.
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)
@@ -624,8 +625,6 @@ def cn_indices_api():
 
         seed = _read_api_seed("cn_indices.json")
         if seed is not None and (os.environ.get("RENDER") or not force):
-            if os.environ.get("RENDER"):
-                _spawn_bg_refresh("cn_indices", lambda: build_cn_index_analysis(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)

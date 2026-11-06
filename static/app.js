@@ -810,6 +810,7 @@
       loadMoversBoard(false);
     }
     if (name === "ng") {
+      state.ngLoading = false;
       loadNgDashboard(false);
       setTimeout(resizeNgCharts, 60);
       setTimeout(resizeNgCharts, 250);
@@ -821,6 +822,7 @@
       loadShortCall(false);
     }
     if (name === "cnidx") {
+      state.cnidxLoading = false;
       loadCnIndices(false);
     }
   }
@@ -1663,23 +1665,35 @@
   }
 
   async function loadNgDashboard(force = false) {
-    if (state.ngLoading) return;
+    if (state.ngLoading && !force) return;
     state.ngLoading = true;
     const btn = $("#btn-ng-refresh");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = force ? "全网抓取中…" : "加载中…";
+      btn.textContent = force ? "排队更新…" : "加载中…";
     }
-    try {
-      const url = force ? "/api/ng/refresh" : "/api/ng/dashboard";
-      const res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(60000) });
+    const tryOnce = async (url, ms) => {
+      const res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(ms) });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "NG dashboard failed");
+      return data;
+    };
+    try {
+      // Prefer lightweight seed endpoint; refresh only queues bg work on Render.
+      let data;
+      try {
+        data = await tryOnce(force ? "/api/ng/refresh" : "/api/ng/dashboard", force ? 45000 : 25000);
+      } catch (err1) {
+        console.warn("ng first fetch failed, retry dashboard", err1);
+        data = await tryOnce("/api/ng/dashboard", 25000);
+      }
       renderNgDashboard(data);
     } catch (err) {
       console.error("loadNgDashboard error:", err);
       const sum = $("#ng-advice-summary");
-      if (sum) sum.textContent = `加载失败：${err.message || err}`;
+      if (sum) sum.textContent = `加载失败：${err.message || err}（可强刷页面或稍后再试）`;
+      const elScore = $("#ng-composite-score");
+      if (elScore && elScore.textContent === "0") elScore.textContent = "—";
     } finally {
       state.ngLoading = false;
       if (btn) {
@@ -3315,23 +3329,28 @@
   }
 
   async function loadCnIndices(force = false) {
-    if (state.cnidxLoading) return;
+    if (state.cnidxLoading && !force) return;
     state.cnidxLoading = true;
     const btn = $("#btn-cnidx-refresh");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = force ? "拉取中…" : "加载中…";
+      btn.textContent = force ? "排队更新…" : "加载中…";
     }
     try {
       const url = force ? "/api/cn-indices/refresh" : "/api/cn-indices";
-      const res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(60000) });
+      let res;
+      try {
+        res = await fetch(apiUrl(url), { signal: AbortSignal.timeout(force ? 45000 : 25000) });
+      } catch (e1) {
+        res = await fetch(apiUrl("/api/cn-indices"), { signal: AbortSignal.timeout(25000) });
+      }
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "cn indices failed");
       renderCnIndices(data);
     } catch (err) {
       console.error("loadCnIndices error:", err);
       const el = $("#cnidx-cards");
-      if (el) el.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}</div>`;
+      if (el) el.innerHTML = `<div class="empty-card">加载失败：${esc(err.message || String(err))}（请强刷后再试）</div>`;
     } finally {
       state.cnidxLoading = false;
       if (btn) {
