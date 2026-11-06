@@ -5,7 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -b 0.0.0.0:$PORT -w 1 -k gthread --threads 8 --timeout 180 --graceful-timeout 30 app:app
+    startCommand: gunicorn -b 0.0.0.0:$PORT -w 1 -k gthread --threads 4 --timeout 120 --graceful-timeout 20 --keep-alive 5 app:app
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION

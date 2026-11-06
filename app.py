@@ -38,7 +38,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn2"
+    asset_v = "20261106dyn3"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -71,25 +71,53 @@ def universe_reload():
     return jsonify({"ok": True, "total": len(items), "cn": cn, "us": us})
 
 
+def _read_api_seed(name: str) -> dict | None:
+    from pathlib import Path
+    import json
+
+    path = Path(__file__).resolve().parent / "docs" / "api" / name
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        logger.debug("seed read failed: %s", name, exc_info=True)
+        return None
+
+
 @app.route("/api/quotes")
 def quotes():
     market = request.args.get("market")
     force = request.args.get("force") == "1"
     try:
         data = get_quotes(market=market, force=force)
-        # progressive fill for missing prices
-        threading.Thread(target=fill_missing_quote_history, kwargs={"limit": 30}, daemon=True).start()
+        note = "国内=新浪全部主力连续；北美=Yahoo 可获取的 CME/CBOT/NYMEX/COMEX/CFE/ICE 连续合约。免费源有延迟。"
+        # Only backfill history when explicitly refreshed — avoids Yahoo stampede.
+        if force:
+            threading.Thread(target=fill_missing_quote_history, kwargs={"limit": 30}, daemon=True).start()
         return jsonify(
             {
                 "items": data,
                 "count": len(data),
                 "with_price": sum(1 for x in data if x.get("price") is not None),
                 "updated_at": datetime.now().isoformat(timespec="seconds"),
-                "note": "国内=新浪全部主力连续；北美=Yahoo 可获取的 CME/CBOT/NYMEX/COMEX/CFE/ICE 连续合约。免费源有延迟。",
+                "note": note,
             }
         )
     except Exception as exc:
-        logger.exception("quotes failed")
+        logger.exception("quotes failed; trying seed")
+        seed = _read_api_seed("quotes.json")
+        if seed and seed.get("items"):
+            items = seed["items"]
+            if market in ("cn", "us"):
+                items = [q for q in items if q.get("market") == market]
+            seed = dict(seed)
+            seed["items"] = items
+            seed["count"] = len(items)
+            seed["note"] = (seed.get("note") or "") + " · 实时源暂不可用，已回退快照"
+            seed["source"] = "seed"
+            return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -370,6 +398,14 @@ def short_put_refresh_api():
 
 def _start_background_jobs() -> None:
     """Warm caches in the background (local + gunicorn/Render)."""
+    import os
+
+    # Render free dynos choke if we Yahoo-scan hundreds of symbols at boot.
+    # Serve exported snapshots first; refresh lazily on demand.
+    if os.environ.get("RENDER") or os.environ.get("SKIP_BG_WARMUP") == "1":
+        logger.info("Skipping heavy boot warmups on Render; using seed snapshots.")
+        return
+
     threading.Thread(target=_bg_warmup, daemon=True).start()
     threading.Thread(target=_weekly_supply_loop, daemon=True).start()
     threading.Thread(target=_us_movers_warmup, daemon=True).start()
