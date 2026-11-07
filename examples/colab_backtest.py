@@ -9,6 +9,7 @@
 # %%
 from pathlib import Path
 import hashlib
+import csv
 import importlib
 import json
 import os
@@ -100,6 +101,22 @@ def bootstrap(source_dir, source_ref='main'):
     return info
 
 
+def export_result(result, output):
+    """Own simulated ledger/events, not licensed input quote rows."""
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2, allow_nan=False))
+    for key in ('ledger', 'events', 'gaps'):
+        rows = result[key]
+        names = list(dict.fromkeys(k for row in rows for k in row)) or ['session_date']
+        path = output.with_name(output.stem + '_' + key + '.csv')
+        with path.open('w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=names)
+            writer.writeheader()
+            writer.writerows(rows)
+    return output
+
+
 # %%
 def main():
     SOURCE_REF = 'main'  # Change to published branch/tag/commit; commit recorded below.
@@ -122,7 +139,7 @@ def main():
     result['source_checkout'] = source  # audit metadata, not a manufactured dataset timestamp
     print(result['status'], result['gaps'])
     print(result['metrics'])  # None on incomplete; no fabricated whole-period return.
-    (WORK / 'run.json').write_text(json.dumps(result, indent=2))
+    export_result(result, WORK / 'run.json')
     return result
 
 

@@ -98,3 +98,17 @@ def test_notebook_has_bootstrap_before_import_and_cells_compile():
     for i, cell in enumerate(nb['cells']):
         if cell['cell_type'] == 'code':
             compile(cell['source'], f'notebook-cell-{i}', 'exec')
+
+
+
+def test_notebook_exports_simulated_result_not_input_rows(tmp_path):
+    # SYNTHETIC TEST ONLY; no actual dataset rows or historical return claim.
+    result = {'status': 'INCOMPLETE', 'metrics': None,
+              'source_checkout': {'resolved_commit': 'TEST_ONLY'},
+              'ledger': [{'session_date': '2024-01-02', 'equity': 100000}],
+              'events': [], 'gaps': [{'session_date': '2024-01-03', 'reason': 'TEST_ONLY'}]}
+    out = m.export_result(result, tmp_path / 'run.json')
+    assert json.loads(out.read_text()) == result
+    assert (tmp_path / 'run_ledger.csv').read_text().splitlines() == ['session_date,equity', '2024-01-02,100000']
+    assert (tmp_path / 'run_events.csv').read_text().strip() == 'session_date'
+    assert 'TEST_ONLY' in (tmp_path / 'run_gaps.csv').read_text()
