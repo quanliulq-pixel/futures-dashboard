@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261108ngopt1"
+    asset_v = "20261108etf1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -414,17 +414,20 @@ def us_movers_api():
 
     try:
         import os
-        from us_movers import compute_movers
+        from us_movers import US_KINDS, compute_movers, snapshot_view
 
         period_u = (period or "W").upper()
+        kind = (kind or "all").lower()
+        if kind not in US_KINDS:
+            kind = "all"
         seed = _movers_seed_for("us_movers.json", period_u)
         if seed is not None and os.environ.get("RENDER") and not force:
             bg_tasks.submit(f"us-movers|{period_u}|{kind}|{limit or 20}", lambda: compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True))
-            return jsonify(seed)
+            return jsonify(snapshot_view(seed, kind, limit))
 
         if seed is not None and force and os.environ.get("RENDER"):
             bg_tasks.submit(f"us-movers|{period_u}|{kind}|{limit or 20}", lambda: compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True), force=True)
-            return jsonify(seed)
+            return jsonify(snapshot_view(seed, kind, limit))
 
         data = compute_movers(period=period_u, kind=kind, limit=limit or 20, force=force)
         return jsonify(data)
@@ -432,8 +435,11 @@ def us_movers_api():
         logger.exception("us movers failed; trying seed")
         seed = _movers_seed_for("us_movers.json", period)
         if seed:
-            seed["note"] = (seed.get("note") or "") + " · 实时计算暂不可用，已回退快照"
-            return jsonify(seed)
+            from us_movers import snapshot_view
+
+            view = snapshot_view(seed, kind, limit)
+            view["note"] = (view.get("note") or "") + " · 实时计算暂不可用，已回退快照"
+            return jsonify(view)
         return jsonify({"error": str(exc)}), 500
 
 
