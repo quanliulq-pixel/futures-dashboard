@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import net_limits
 
+import calendar
 import io
 import json
 import logging
@@ -42,6 +43,8 @@ LAST_PAYLOAD = DATA_DIR / "last_dashboard.json"
 SCORE_HISTORY = DATA_DIR / "score_history.jsonl"
 WEATHER_SNAPS = DATA_DIR / "weather_snapshots.json"
 STORAGE_XLS = DATA_DIR / "storage_hist.xls"
+MONTHLY_LAST = DATA_DIR / "monthly_supply_last.json"  # last successful live fetch (gitignored)
+MONTHLY_SEED = DATA_DIR / "monthly_supply_seed.json"  # committed, built from official EIA XLS
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
 
@@ -105,7 +108,7 @@ FACTOR_META = {
         "why": "LNG 装置停机、产量冻停、管道事故、政策与地缘事件会突发改变供需，新闻流是对结构化数据的补充与预警。",
     },
     "lng": {
-        "name": "LNG 出口套利（TTF−HH）",
+        "name": "跨大西洋价格套利代理（TTF−HH）",
         "why": "美国 LNG 出口约占需求的 15%+。欧亚气价相对 Henry Hub 的价差决定出口经济性：价差收窄到运费+液化费以下会引发取消货、需求下降。",
     },
     "technical": {
@@ -134,6 +137,273 @@ _cache: dict[str, tuple[float, Any]] = {}
 _cache_lock = threading.Lock()
 _compute_lock = threading.Lock()
 _dashboard: tuple[float, dict] | None = None
+
+
+# ------------------------------------------------- EIA monthly supply (phase 1)
+# Official, key-free EIA XLS. Values are monthly totals in MMcf; Bcf/d is
+# derived with the actual number of days in each month. Monthly data lag the
+# calendar by ~2 months; that lag is normal and is NOT reported as "stale".
+EIA_MONTHLY_SERIES: dict[str, dict] = {
+    "dry_production": {
+        "name": "美国干气产量",
+        "series": "N9070US2",
+        "title": "U.S. Dry Natural Gas Production (MMcf)",
+        "url": "https://www.eia.gov/dnav/ng/hist_xls/N9070US2m.xls",
+        "page_url": "https://www.eia.gov/dnav/ng/hist/n9070us2m.htm",
+        "scope": "Dry production（非 marketed production）",
+    },
+    "lng_exports": {
+        "name": "美国 LNG 出口量",
+        "series": "N9133US2",
+        "title": "Liquefied U.S. Natural Gas Exports (MMcf)",
+        "url": "https://www.eia.gov/dnav/ng/hist_xls/N9133US2m.xls",
+        "page_url": "https://www.eia.gov/dnav/ng/hist/n9133us2m.htm",
+        "scope": "LNG 出口（非总出口、非 feedgas）",
+    },
+}
+MONTHLY_WINDOW = 36
+MONTHLY_TTL = 24 * 3600
+EIA_CONNECT_TIMEOUT = 5.0
+EIA_READ_TIMEOUT = 10.0  # bound on each socket read
+EIA_TOTAL_DEADLINE = 30.0  # checked between chunks; not a hard thread kill
+EIA_MAX_BYTES = 2 * 1024 * 1024
+_monthly_state: dict[str, dict] = {}
+_monthly_state_lock = threading.Lock()
+_monthly_fetch_locks = {k: threading.Lock() for k in EIA_MONTHLY_SERIES}
+_eia_download_slot = threading.BoundedSemaphore(1)  # at most one EIA download process-wide
+_monthly_persist_lock = threading.Lock()
+
+
+def _eia_download(url: str) -> bytes:
+    """Single bounded EIA request: connect/read timeouts, streamed with a size
+    cap and an overall deadline checked between chunks. Does not affect other
+    sources' _http_get. A read can still block up to EIA_READ_TIMEOUT once."""
+    import requests
+
+    t0 = time.monotonic()
+    with requests.get(url, headers=UA, timeout=(EIA_CONNECT_TIMEOUT, EIA_READ_TIMEOUT), stream=True) as r:
+        r.raise_for_status()
+        clen = r.headers.get("Content-Length")
+        if clen and clen.isdigit() and int(clen) > EIA_MAX_BYTES:
+            raise ValueError(f"EIA response too large: {clen} bytes")
+        buf = bytearray()
+        for chunk in r.iter_content(chunk_size=64 * 1024):
+            if chunk:
+                buf.extend(chunk)
+            if len(buf) > EIA_MAX_BYTES:
+                raise ValueError("EIA response exceeds size cap")
+            if time.monotonic() - t0 > EIA_TOTAL_DEADLINE:
+                raise TimeoutError("EIA download exceeded overall deadline")
+        return bytes(buf)
+
+
+def _ts_from_iso(s: str | None) -> float | None:
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(s))
+        if dt.tzinfo is None:
+            return None  # refuse zone-less timestamps
+        return dt.timestamp()
+    except Exception:
+        return None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def mmcf_to_bcfd(mmcf: float, year: int, month: int) -> float:
+    days = calendar.monthrange(year, month)[1]
+    return mmcf / days / 1000.0
+
+
+def parse_eia_monthly_xls(content: bytes, spec: dict, window: int = MONTHLY_WINDOW) -> list[dict]:
+    """Parse an EIA dnav monthly XLS. Rejects files whose sourcekey or title
+    (which carries the unit) do not match. NA/W/blank cells are skipped, never 0."""
+    df = pd.read_excel(io.BytesIO(content), sheet_name="Data 1", header=None)
+    if df.shape[0] < 4 or df.shape[1] < 2:
+        raise ValueError("EIA XLS too short")
+    key = str(df.iat[1, 1]).strip()
+    title = str(df.iat[2, 1]).strip()
+    if key != spec["series"] or title != spec["title"]:
+        raise ValueError(f"EIA XLS mismatch: series={key!r} title={title!r}")
+    points: list[dict] = []
+    for raw_d, raw_v in zip(df.iloc[3:, 0], df.iloc[3:, 1]):
+        d = pd.to_datetime(raw_d, errors="coerce")
+        if pd.isna(d):
+            continue
+        v = pd.to_numeric(raw_v, errors="coerce")
+        if pd.isna(v) or not math.isfinite(float(v)) or float(v) < 0:
+            continue
+        mmcf = float(v)
+        points.append({
+            "month": f"{d.year:04d}-{d.month:02d}",
+            "days": calendar.monthrange(d.year, d.month)[1],
+            "mmcf": int(round(mmcf)),
+            "bcfd": round(mmcf_to_bcfd(mmcf, d.year, d.month), 3),
+        })
+    points.sort(key=lambda p: p["month"])
+    if not points:
+        raise ValueError("EIA XLS has no numeric rows")
+    return points[-window:]
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _monthly_initial_state(key: str) -> dict | None:
+    """Last successful live fetch from disk, else the committed seed. No network."""
+    last = (_read_json(MONTHLY_LAST) or {}).get(key)
+    if last and last.get("points"):
+        return dict(last, data_source="last_success", fetched_ts=_ts_from_iso(last.get("fetched_at")))
+    seed = (_read_json(MONTHLY_SEED) or {}).get(key)
+    if seed and seed.get("points"):
+        return dict(seed, data_source="seed")
+    return None
+
+
+def _monthly_block(key: str, state: dict | None, *, error: str | None = None) -> dict:
+    spec = EIA_MONTHLY_SERIES[key]
+    pts = (state or {}).get("points") or []
+    if not pts:
+        status = "unavailable"
+    elif error or (state or {}).get("last_error"):
+        status = "stale"  # latest download failed; showing previous success
+    elif (state or {}).get("data_source") == "seed":
+        status = "seed"
+    else:
+        status = "ok"
+    ts = (state or {}).get("fetched_ts") or _ts_from_iso((state or {}).get("fetched_at"))
+    age = int(time.time() - ts) if ts else None
+    return {
+        "key": key,
+        "name": spec["name"],
+        "series": spec["series"],
+        "scope": spec["scope"],
+        "source_url": spec["url"],
+        "page_url": spec["page_url"],
+        "unit": "MMcf/月",
+        "derived_unit": "Bcf/d（按当月实际天数）",
+        "frequency": "monthly",
+        "status": status,
+        "data_source": (state or {}).get("data_source"),
+        "seed": (state or {}).get("data_source") == "seed",
+        "cache_age_sec": age,
+        # older than the 24h cache window but no failed attempt recorded
+        "cache_expired": bool(pts) and age is not None and age > MONTHLY_TTL,
+        "asof": pts[-1]["month"] if pts else None,
+        "fetched_at": (state or {}).get("fetched_at"),
+        "last_attempt_at": (state or {}).get("last_attempt_at"),
+        "error": error or (state or {}).get("last_error"),
+        "release_date": None,
+        "next_release_date": None,
+        "lag_note": "EIA 月度数据通常滞后约 2 个月，非实时",
+        "latest": pts[-1] if pts else None,
+        "points": pts,
+    }
+
+
+def _persist_monthly_last(key: str, state: dict) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        with _monthly_persist_lock:  # serialise read-modify-write; no lost update
+            allst = _read_json(MONTHLY_LAST) or {}
+            allst[key] = {k: state[k] for k in ("points", "fetched_at", "series") if k in state}
+            tmp = MONTHLY_LAST.with_name(f"{MONTHLY_LAST.name}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(allst, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(MONTHLY_LAST)
+    except Exception:
+        logger.debug("monthly supply persist failed", exc_info=True)
+
+
+def _monthly_current(key: str) -> dict | None:
+    with _monthly_state_lock:
+        st = _monthly_state.get(key)
+        if st is None:
+            st = _monthly_initial_state(key)
+            if st is not None:
+                _monthly_state[key] = st
+        return dict(st) if st else None
+
+
+def fetch_monthly_series(key: str, force: bool = False) -> dict:
+    spec = EIA_MONTHLY_SERIES[key]
+    st = _monthly_current(key)
+    fresh = (
+        st is not None and st.get("data_source") in ("live", "last_success") and not st.get("last_error")
+        and st.get("fetched_ts") is not None and time.time() - float(st["fetched_ts"]) < MONTHLY_TTL
+    )
+    if fresh and not force:
+        return _monthly_block(key, st)
+    lock = _monthly_fetch_locks[key]
+    if not lock.acquire(blocking=False):
+        return _monthly_block(key, st)  # another download in flight: no duplicate
+    if not _eia_download_slot.acquire(blocking=False):
+        lock.release()
+        return _monthly_block(key, st)  # global EIA limit (1) busy: serve current
+    try:
+        try:
+            pts = parse_eia_monthly_xls(_eia_download(spec["url"]), spec)
+        except Exception as exc:
+            err = f"{type(exc).__name__}: {exc}"[:200]
+            logger.warning("EIA monthly %s failed: %s", key, err)
+            with _monthly_state_lock:
+                cur = dict(_monthly_state.get(key) or {})
+                if cur:
+                    cur["last_error"] = err
+                    cur["last_attempt_at"] = _utc_now_iso()
+                    _monthly_state[key] = cur
+            return _monthly_block(key, cur or None, error=err)
+        new = {
+            "points": pts, "series": spec["series"], "data_source": "live",
+            "fetched_at": _utc_now_iso(), "fetched_ts": time.time(),
+        }
+        new["last_attempt_at"] = new["fetched_at"]
+        with _monthly_state_lock:
+            _monthly_state[key] = new
+        _persist_monthly_last(key, new)
+        return _monthly_block(key, new)
+    finally:
+        _eia_download_slot.release()
+        lock.release()
+
+
+def fetch_monthly_supply(force: bool = False) -> dict:
+    series = {k: fetch_monthly_series(k, force=force) for k in EIA_MONTHLY_SERIES}
+    return {"series": series, "note": "EIA 官方月度数据（约 2 个月滞后，非实时），不参与综合评分。"}
+
+
+def overlay_monthly_supply(old: dict | None) -> dict:
+    """Current monthly blocks overlaid on an older payload's monthly_supply:
+    per series, keep whichever has the newer zone-aware fetched_at, so a stale
+    exported snapshot never hides fresher in-process data (and vice versa)."""
+    cur = monthly_supply_snapshot()
+    old_series = (old or {}).get("series") or {}
+    for key, blk in list(cur["series"].items()):
+        ob = old_series.get(key)
+        if not isinstance(ob, dict) or not ob.get("points"):
+            continue
+        ots = _ts_from_iso(ob.get("fetched_at"))
+        cts = _ts_from_iso(blk.get("fetched_at"))
+        if not blk.get("points") or (ots is not None and (cts is None or ots > cts)):
+            merged = dict(blk)
+            merged.update({k: v for k, v in ob.items() if k in blk})
+            merged["data_source"] = "snapshot"
+            merged["seed"] = bool(ob.get("seed"))
+            cur["series"][key] = merged
+    return cur
+
+
+def monthly_supply_snapshot() -> dict:
+    """Current monthly supply from memory/last success/seed. Never touches network."""
+    series = {k: _monthly_block(k, _monthly_current(k)) for k in EIA_MONTHLY_SERIES}
+    return {"series": series, "note": "EIA 官方月度数据（约 2 个月滞后，非实时），不参与综合评分。"}
 
 
 # ---------------------------------------------------------------- helpers
@@ -1275,8 +1545,10 @@ def build_dashboard(force: bool = False) -> dict:
         }
         src: dict[str, Any] = {}
         errors: dict[str, str] = {}
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        with ThreadPoolExecutor(max_workers=9) as pool:
             futs = {k: pool.submit(_cached, k, ttl, fn, force) for k, (fn, ttl) in jobs.items()}
+            # monthly supply manages its own 24h cache / single-flight / last-success
+            futs["monthly_supply"] = pool.submit(fetch_monthly_supply, force)
             for k, fut in futs.items():
                 try:
                     src[k] = fut.result(timeout=60)
@@ -1339,6 +1611,7 @@ def build_dashboard(force: bool = False) -> dict:
             "lng": src["lng"],
             "cot": src["cot"],
             "hurricane": src["hurricane"],
+            "monthly_supply": src.get("monthly_supply") or monthly_supply_snapshot(),
             "news": src["news"],
             "history": history,
             "errors": errors,
