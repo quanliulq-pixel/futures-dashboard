@@ -1526,12 +1526,16 @@
     if (levG) levG.innerHTML = moverRows(data.lev_gainers, "us");
     if (levL) levL.innerHTML = moverRows(data.lev_losers, "us");
     const label = data.period_label || "";
+    const kindLabel = data.kind_label || "";
     if (meta) {
-      meta.textContent = `${label} · 样本 ${data.universe || 0} · 多倍 ${data.lev_universe || 0} · ${data.asof || "—"}`;
+      const uni = typeof data.universe === "number" ? data.universe : "—";
+      const scope = data.partial ? " · ⚠ 快照范围有限，非完整排名" : "";
+      meta.textContent = `${label} · ${kindLabel} · 样本 ${uni} · 多倍 ${data.lev_universe || 0} · ${data.asof || "—"}${scope}`;
       meta.title = data.note || meta.textContent;
     }
-    if (gMeta) gMeta.textContent = `${label} 涨幅前 ${ (data.gainers || []).length }`;
-    if (lMeta) lMeta.textContent = `${label} 跌幅前 ${ (data.losers || []).length }`;
+    const partialTag = data.partial ? "（快照仅部分）" : "";
+    if (gMeta) gMeta.textContent = `${label} ${kindLabel} 涨幅前 ${ (data.gainers || []).length }${partialTag}`;
+    if (lMeta) lMeta.textContent = `${label} ${kindLabel} 跌幅前 ${ (data.losers || []).length }${partialTag}`;
     if (levMeta) levMeta.textContent = `${label} · ${data.lev_universe || 0} 只 2x/3x`;
   }
 
@@ -1607,19 +1611,27 @@
     if (levL) levL.innerHTML = waitRow;
     if (meta) meta.textContent = wait;
     state.usLoading = true;
+    // Request sequence: a slower older response/error/finally must not overwrite a newer one.
+    const seq = (state.usReqSeq = (state.usReqSeq || 0) + 1);
+    const reqKind = state.usKind;
+    const reqPeriod = state.usPeriod;
     try {
       const q = new URLSearchParams({
-        period: state.usPeriod,
-        kind: state.usKind,
+        period: reqPeriod,
+        kind: reqKind,
         limit: "20",
       });
       if (force) q.set("force", "1");
       const res = await fetch(apiUrl("/api/us-movers?" + q.toString()), { signal: AbortSignal.timeout(60000) });
       let data = await res.json();
+      if (seq !== state.usReqSeq) return;
       if (!res.ok) throw new Error(data.error || "us movers failed");
-      data = pickMoversPeriod(data, state.usPeriod);
+      data = pickMoversPeriod(data, reqPeriod);
+      // Static ./api/us_movers.json and old backends ignore kind: derive the same view client-side.
+      if (typeof window.usMoversView === "function") data = window.usMoversView(data, reqKind, 20);
       renderUsMovers(data);
     } catch (err) {
+      if (seq !== state.usReqSeq) return;
       const msg = `<tr><td colspan="4" class="empty">加载失败：${err.message || err}</td></tr>`;
       if (gain) gain.innerHTML = msg;
       if (lose) lose.innerHTML = msg;
@@ -1627,7 +1639,7 @@
       if (levL) levL.innerHTML = msg;
       if (meta) meta.textContent = "美股涨跌榜加载失败";
     } finally {
-      state.usLoading = false;
+      if (seq === state.usReqSeq) state.usLoading = false;
     }
   }
 

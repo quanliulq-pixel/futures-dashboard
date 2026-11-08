@@ -573,3 +573,110 @@ def compute_movers(
         "lev_losers": lev_losers,
         "note": "周=5日、月=21日、年=252日。多倍ETF（2x/3x及反向）单独一列，不与现货ETF混排。",
     }
+
+
+# --------------------------------------------------------- snapshot kind view
+US_KINDS = ("all", "stock", "etf", "lev")
+_KIND_CN = {"all": "公司+现货ETF", "stock": "公司", "etf": "现货ETF", "lev": "多倍ETF"}
+
+
+def snapshot_view(snap: dict | None, kind: str | None = "all", limit: Any = 20) -> dict | None:
+    """Return a kind/limit view of a movers payload WITHOUT mutating it.
+
+    - Payload already computed for this kind (snap["kind"] == kind): passthrough.
+    - Payload carries per-kind exports (snap["kinds"][kind]): use that full ranking.
+    - Legacy "all" snapshot: stock/etf are filtered from its top-N rows only and
+      marked partial (universe unknown); lev uses the separate lev lists.
+    Mirrors static/us_movers_view.js.
+    """
+    if not isinstance(snap, dict):
+        return snap
+    k = (kind or "all").lower() if isinstance(kind, str) else "all"
+    if k not in US_KINDS:
+        k = "all"
+    try:
+        lim = max(5, min(int(limit or 20), 50))
+    except (TypeError, ValueError):
+        lim = 20
+
+    def rows(lst):
+        return [dict(r) for r in (lst or []) if isinstance(r, dict)]
+
+    out = {key: val for key, val in snap.items() if key not in ("kinds", "periods")}
+    out["lev_gainers"] = rows(snap.get("lev_gainers"))
+    out["lev_losers"] = rows(snap.get("lev_losers"))
+    notes = [snap.get("note") or ""]
+    partial = False
+    kinds = snap.get("kinds") if isinstance(snap.get("kinds"), dict) else {}
+    src_kind = (snap.get("kind") or "all")
+
+    if src_kind == k:
+        g, l = rows(snap.get("gainers")), rows(snap.get("losers"))
+        uni = snap.get("universe")
+        partial = snap.get("partial") is True  # keep an upstream partial flag
+    elif isinstance(kinds.get(k), dict):
+        sub = kinds[k]
+        g, l = rows(sub.get("gainers")), rows(sub.get("losers"))
+        uni = sub.get("universe")
+        partial = sub.get("partial") is True
+        if sub.get("note"):
+            notes.append(str(sub["note"]))
+        if sub.get("asof"):
+            out["asof"] = sub["asof"]
+    elif k == "lev":
+        g, l = rows(snap.get("lev_gainers")), rows(snap.get("lev_losers"))
+        uni = snap.get("lev_universe")
+    elif src_kind == "all" and k in ("stock", "etf"):
+        g = [r for r in rows(snap.get("gainers")) if r.get("kind") == k]
+        l = [r for r in rows(snap.get("losers")) if r.get("kind") == k]
+        uni = None  # true count of this kind is unknown from a top-N snapshot
+        partial = True
+        n_src = len(snap.get("gainers") or [])
+        notes.append(f"快照只含全部榜前 {n_src} 名，从中筛出{_KIND_CN[k]} 涨{len(g)}/跌{len(l)} 行，非完整{_KIND_CN[k]}排名")
+    else:
+        g, l, uni = [], [], None
+        partial = True
+        notes.append("快照无该类别数据")
+
+    # Completeness: each side must hold min(limit, known universe) rows.
+    # Unknown universe is never claimed complete. Missing rows are not padded.
+    if not partial:
+        need = min(lim, uni) if isinstance(uni, int) and not isinstance(uni, bool) and uni >= 0 else None
+        if need is None or len(g) < need or len(l) < need:
+            partial = True
+            notes.append(f"快照仅保存 涨{len(g)}/跌{len(l)} 行（请求 {lim}），不是完整排名")
+    if len(g) > lim:
+        g = g[:lim]
+    if len(l) > lim:
+        l = l[:lim]
+    out.update({
+        "kind": k,
+        "kind_label": _KIND_CN[k],
+        "limit": lim,
+        "gainers": g,
+        "losers": l,
+        "universe": uni,
+        "partial": partial,
+        "snapshot_scope": "partial" if partial else "complete",
+        "note": " · ".join(n for n in notes if n),
+    })
+    return out
+
+
+def build_movers_export(compute=None, periods=("W", "M", "Y"), limit: int = 20) -> dict:
+    """Static export payload: per period the "all" ranking plus per-kind full
+    rankings. Every call uses force=False so the in-process price panel cache is
+    reused (no extra download)."""
+    compute = compute or compute_movers
+    out: dict[str, dict] = {}
+    for p in periods:
+        snap = compute(period=p, kind="all", limit=limit, force=False)
+        snap["kinds"] = {}
+        for k in ("stock", "etf", "lev"):
+            sub = compute(period=p, kind=k, limit=limit, force=False)
+            snap["kinds"][k] = {key: sub.get(key) for key in ("kind", "universe", "gainers", "losers", "asof", "note")}
+        out[p] = snap
+    flat = dict(out[periods[0]])
+    flat["periods"] = out
+    flat["default_period"] = periods[0]
+    return flat
