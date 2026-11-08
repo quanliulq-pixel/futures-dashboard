@@ -2,6 +2,8 @@
 """Historical high/low scoring and cost-aware analysis for the dashboard."""
 from __future__ import annotations
 
+import bg_tasks
+
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -67,7 +69,9 @@ def _schedule_analysis_refresh() -> None:
             with _analysis_refresh_lock:
                 _analysis_refresh_running = False
 
-    threading.Thread(target=_bg, daemon=True).start()
+    if not bg_tasks.submit("analysis", _bg, min_interval=0):
+        with _analysis_refresh_lock:
+            _analysis_refresh_running = False
 
 
 # Exclude pure financials from "commodity cost" narrative emphasis

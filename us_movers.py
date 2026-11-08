@@ -2,6 +2,8 @@
 """US stocks + ETFs with the largest weekly / monthly / yearly moves."""
 from __future__ import annotations
 
+import net_limits
+
 import json
 import logging
 import threading
@@ -413,7 +415,7 @@ def _download_panel(symbols: list[str]) -> pd.DataFrame:
         batch = symbols[i : i + chunk]
         logger.info("Yahoo US batch %d–%d / %d", i + 1, i + len(batch), len(symbols))
         try:
-            raw = yf.download(
+            raw = net_limits.yf_download(
                 batch,
                 period="15mo",
                 auto_adjust=True,

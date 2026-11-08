@@ -6,6 +6,8 @@ hog leading series, inventory days-of-cover, light macro.
 """
 from __future__ import annotations
 
+import net_limits
+
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -308,7 +310,7 @@ def fetch_us_margins_and_fx() -> tuple[list[dict], float | None]:
     rows: list[dict] = []
     fx = None
     try:
-        h = yf.Ticker("USDCNY=X").history(period="2mo")
+        h = net_limits.yf_history(yf.Ticker("USDCNY=X"), period="2mo")
         if h is not None and not h.empty:
             s_fx = h["Close"].dropna().astype(float)
             if not s_fx.empty:
@@ -336,7 +338,7 @@ def fetch_us_margins_and_fx() -> tuple[list[dict], float | None]:
     tickers = ["CL=F", "HO=F", "RB=F", "ZS=F", "ZM=F", "ZL=F"]
     series_map: dict[str, pd.Series] = {}
     try:
-        raw = yf.download(tickers, period="2mo", group_by="ticker", auto_adjust=True, threads=True, progress=False)
+        raw = net_limits.yf_download(tickers, period="2mo", group_by="ticker", auto_adjust=True, threads=True, progress=False)
         for t in tickers:
             try:
                 if len(tickers) == 1:
@@ -414,7 +416,7 @@ def fetch_import_parity(fx: float | None) -> list[dict]:
         ("US:ZC=F", "CN:C0", "美玉米", "美玉米配额内完税平价", "元/吨", "[(美分/100×39.368+55基差运费)×汇率×1.01关税×1.09增值税]+80港杂"),
     ]
     try:
-        raw = yf.download(
+        raw = net_limits.yf_download(
             [s[0].split(":", 1)[1] for s in specs],
             period="5d",
             group_by="ticker",

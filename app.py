@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 import threading
+
+import bg_tasks
+
+bg_tasks.install_yfinance_watch()
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
@@ -52,6 +56,7 @@ def health():
             "ok": True,
             "time": datetime.now().isoformat(timespec="seconds"),
             "universe": {"total": len(items), "cn": cn, "us": us},
+            "background": bg_tasks.snapshot(),
         }
     )
 
@@ -92,28 +97,57 @@ def _movers_seed_for(name: str, period: str) -> dict | None:
     return out
 
 
-_bg_refresh_lock = threading.Lock()
-_bg_refresh_last: dict[str, float] = {}
+def _spawn_bg_refresh(key: str, fn, min_interval: float = 600.0, provider: str | None = None) -> str:
+    """Non-blocking, single-flight, capacity-limited background rebuild."""
+    return bg_tasks.try_start(key, fn, min_interval=min_interval, provider=provider)
 
 
-def _spawn_bg_refresh(key: str, fn, min_interval: float = 600.0) -> None:
-    """At most one background rebuild per key every min_interval seconds."""
-    import time as _time
+_QUEUE_TEXT = {
+    "started": "已排队{what}，先返回快照",
+    "running": "{what}进行中，先返回快照",
+    "cooldown": "数据源限流冷却中，暂不刷新，返回快照",
+    "throttled": "刚刷新过，稍后再试，返回快照",
+    "busy": "后台任务已满，暂不刷新，返回快照",
+}
 
-    now = _time.time()
-    with _bg_refresh_lock:
-        last = _bg_refresh_last.get(key, 0)
-        if now - last < min_interval:
-            return
-        _bg_refresh_last[key] = now
 
-    def _run():
-        try:
-            fn()
-        except Exception:
-            logger.exception("bg refresh %s failed", key)
+def _queued_note(status: str, what: str) -> str:
+    return " · " + _QUEUE_TEXT.get(status, "返回快照").format(what=what)
 
-    threading.Thread(target=_run, daemon=True).start()
+
+def _on_render() -> bool:
+    import os
+
+    return bool(os.environ.get("RENDER"))
+
+
+def _pending_response(status: str):
+    """No cache and no seed: honest 'not yet available' instead of blocking."""
+    return jsonify({"error": "暂无快照，后台刷新已排队或稍后重试", "refresh": bg_tasks.refresh_meta(status)}), 503
+
+
+def _screen_refresh(key: str, module_name: str, builder_name: str, seed_name: str):
+    """Manual refresh for short put/call screens. On Render never computes in
+    the request thread: queue (single-flight, capacity-limited) and return the
+    current cache or seed immediately with refresh metadata."""
+    import importlib
+
+    mod = importlib.import_module(module_name)
+    builder = getattr(mod, builder_name)
+    if not _on_render():
+        return jsonify(builder(force=True))
+    status = bg_tasks.try_start(key, lambda: builder(force=True), force=True)
+    cached = getattr(mod, "_cache", None)
+    payload = dict(cached[1]) if cached else None
+    if payload is None:
+        seed = _read_api_seed(seed_name)
+        if seed is not None:
+            payload = dict(seed)
+            payload["source"] = "seed"
+    if payload is None:
+        return _pending_response(status)
+    payload["refresh"] = bg_tasks.refresh_meta(status)
+    return jsonify(payload)
 
 
 def _read_api_seed(name: str) -> dict | None:
@@ -140,7 +174,7 @@ def quotes():
         note = "国内=新浪全部主力连续；北美=Yahoo 可获取的 CME/CBOT/NYMEX/COMEX/CFE/ICE 连续合约。免费源有延迟。"
         # Only backfill history when explicitly refreshed — avoids Yahoo stampede.
         if force:
-            threading.Thread(target=fill_missing_quote_history, kwargs={"limit": 30}, daemon=True).start()
+            bg_tasks.submit("quote-history-backfill", lambda: fill_missing_quote_history(limit=30), min_interval=0)
         return jsonify(
             {
                 "items": data,
@@ -281,11 +315,22 @@ def analysis_all():
 def supply():
     force = request.args.get("force") == "1"
     try:
-        data = maybe_weekly_fetch(force=force) if force else (load_latest() or maybe_weekly_fetch())
+        refresh = None
+        if _on_render():
+            # Never fetch EIA/USDA/etc. inside the request thread on Render.
+            status = _spawn_bg_refresh("supply", lambda: maybe_weekly_fetch(force=force),
+                                       min_interval=0 if force else 3600.0, provider="supply")
+            refresh = bg_tasks.refresh_meta(status)
+            data = load_latest()
+        else:
+            data = maybe_weekly_fetch(force=force) if force else (load_latest() or maybe_weekly_fetch())
+        if data and refresh is not None:
+            data = dict(data)
+            data["refresh"] = refresh
         if not data:
             return jsonify({"items": [], "note": "尚无供给数据，请点击刷新或等待周更"}), 200
         # overlay latest domestic price onto import parity (shared with /refresh)
-        overlay_parity_vs_quotes(data.get("items") or [])
+        overlay_parity_vs_quotes(data.get("items") or [], allow_fetch=not _on_render())
         return jsonify(data)
     except Exception as exc:
         logger.exception("supply failed")
@@ -295,6 +340,16 @@ def supply():
 @app.route("/api/supply/refresh")
 def supply_refresh():
     try:
+        if _on_render():
+            status = _spawn_bg_refresh("supply", lambda: maybe_weekly_fetch(force=True),
+                                       min_interval=0, provider="supply")
+            data = load_latest()
+            if not data:
+                return _pending_response(status)
+            data = dict(data)
+            overlay_parity_vs_quotes(data.get("items") or [], allow_fetch=False)
+            data["refresh"] = bg_tasks.refresh_meta(status)
+            return jsonify(data)
         data = maybe_weekly_fetch(force=True)
         if data:
             overlay_parity_vs_quotes(data.get("items") or [])
@@ -332,23 +387,11 @@ def futures_movers_api():
             seed["losers"] = [r for r in (seed.get("losers") or []) if r.get("market") == market_l][:lim]
 
         if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True)
-                except Exception:
-                    logger.exception("bg futures movers failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit(f"futures-movers|{cache_key}", lambda: compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True))
             return jsonify(seed)
 
         if seed is not None and force and os.environ.get("RENDER"):
-            def _bg():
-                try:
-                    compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True)
-                except Exception:
-                    logger.exception("bg futures movers force failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit(f"futures-movers|{cache_key}", lambda: compute_futures_movers(period=period_u, market=market_l, limit=lim, force=True), force=True)
             return jsonify(seed)
 
         data = compute_futures_movers(period=period_u, market=market_l, limit=lim, force=force)
@@ -376,23 +419,11 @@ def us_movers_api():
         period_u = (period or "W").upper()
         seed = _movers_seed_for("us_movers.json", period_u)
         if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True)
-                except Exception:
-                    logger.exception("bg us movers failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit(f"us-movers|{period_u}|{kind}|{limit or 20}", lambda: compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True))
             return jsonify(seed)
 
         if seed is not None and force and os.environ.get("RENDER"):
-            def _bg():
-                try:
-                    compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True)
-                except Exception:
-                    logger.exception("bg us movers force failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit(f"us-movers|{period_u}|{kind}|{limit or 20}", lambda: compute_movers(period=period_u, kind=kind, limit=limit or 20, force=True), force=True)
             return jsonify(seed)
 
         data = compute_movers(period=period_u, kind=kind, limit=limit or 20, force=force)
@@ -442,10 +473,11 @@ def ng_refresh_api():
 
         seed = _read_api_seed("ng_dashboard.json")
         if seed is not None and os.environ.get("RENDER"):
-            _spawn_bg_refresh("ng_dashboard", lambda: ng_dashboard.build_dashboard(force=True), min_interval=300.0)
+            status = _spawn_bg_refresh("ng_dashboard", lambda: ng_dashboard.build_dashboard(force=True), min_interval=300.0)
             seed = dict(seed)
             seed["source"] = "seed"
-            seed["note"] = (seed.get("note") or "") + " · 已排队后台全网抓取，先返回快照"
+            seed["note"] = (seed.get("note") or "") + _queued_note(status, "后台全网抓取")
+            seed["refresh"] = bg_tasks.refresh_meta(status)
             return jsonify(seed)
         data = ng_dashboard.build_dashboard(force=True)
         return jsonify(data)
@@ -540,13 +572,7 @@ def short_put_high_vol_api():
 
         seed = _read_api_seed("short_put.json")
         if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    build_short_put_screen(force=True)
-                except Exception:
-                    logger.exception("bg short put failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit("short-put", lambda: build_short_put_screen(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)
@@ -565,9 +591,7 @@ def short_put_high_vol_api():
 @app.route("/api/short-put/refresh")
 def short_put_refresh_api():
     try:
-        from short_put_screen import build_short_put_screen
-
-        return jsonify(build_short_put_screen(force=True))
+        return _screen_refresh("short-put", "short_put_screen", "build_short_put_screen", "short_put.json")
     except Exception as exc:
         logger.exception("short put refresh failed")
         return jsonify({"error": str(exc)}), 500
@@ -583,13 +607,7 @@ def short_call_high_vol_api():
 
         seed = _read_api_seed("short_call.json")
         if seed is not None and os.environ.get("RENDER") and not force:
-            def _bg():
-                try:
-                    build_short_call_screen(force=True)
-                except Exception:
-                    logger.exception("bg short call failed")
-
-            threading.Thread(target=_bg, daemon=True).start()
+            bg_tasks.submit("short-call", lambda: build_short_call_screen(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
             return jsonify(seed)
@@ -608,9 +626,7 @@ def short_call_high_vol_api():
 @app.route("/api/short-call/refresh")
 def short_call_refresh_api():
     try:
-        from short_call_screen import build_short_call_screen
-
-        return jsonify(build_short_call_screen(force=True))
+        return _screen_refresh("short-call", "short_call_screen", "build_short_call_screen", "short_call.json")
     except Exception as exc:
         logger.exception("short call refresh failed")
         return jsonify({"error": str(exc)}), 500
@@ -652,16 +668,11 @@ def cn_index_options_refresh_api():
 
         seed = load_seed() or _read_api_seed("cn_index_options.json")
         if seed is not None and os.environ.get("RENDER"):
-            def _rebuild():
-                try:
-                    write_snapshot()
-                except Exception:
-                    logger.exception("cn index options bg rebuild failed")
-
-            _spawn_bg_refresh("cn_index_options", _rebuild, min_interval=300.0)
+            status = _spawn_bg_refresh("cn_index_options", write_snapshot, min_interval=300.0, provider="cffex")
             seed = dict(seed)
             seed["source"] = "seed"
-            seed["note"] = "已排队后台抓取中金所/新浪期权链，先返回快照"
+            seed["note"] = _queued_note(status, "后台抓取中金所/新浪期权链").lstrip(" ·")
+            seed["refresh"] = bg_tasks.refresh_meta(status)
             return jsonify(seed)
 
         payload = write_snapshot()
@@ -725,10 +736,12 @@ def cn_indices_refresh_api():
 
         seed = _read_api_seed("cn_indices.json")
         if seed is not None and os.environ.get("RENDER"):
-            _spawn_bg_refresh("cn_indices", lambda: build_cn_index_analysis(force=True), min_interval=120.0)
+            status = _spawn_bg_refresh("cn-index-analysis", lambda: build_cn_index_analysis(force=True),
+                                       min_interval=120.0, provider="yahoo")
             seed = dict(seed)
             seed["source"] = "seed"
-            seed["note"] = "已排队后台更新（美国节点拉 A 股源较慢），先返回快照"
+            seed["note"] = _queued_note(status, "后台更新（美国节点拉 A 股源较慢）").lstrip(" ·")
+            seed["refresh"] = bg_tasks.refresh_meta(status)
             return jsonify(_with_cn_advice(seed))
         return jsonify(_with_cn_advice(build_cn_index_analysis(force=True)))
     except Exception as exc:

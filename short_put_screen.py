@@ -2,6 +2,10 @@
 """High-volatility US stocks/ETFs screener for cash-secured / short put ideas."""
 from __future__ import annotations
 
+import net_limits
+
+import bg_tasks
+
 from pathlib import Path
 
 import logging
@@ -186,7 +190,7 @@ def _load_price_panel() -> tuple[pd.DataFrame, dict[str, dict]]:
         try:
             import yfinance as yf
 
-            extra = yf.download(
+            extra = net_limits.yf_download(
                 missing,
                 period="1y",
                 interval="1d",
@@ -778,10 +782,7 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
         seed = _load_seed_snapshot()
         if seed is not None:
             _cache = (time.time(), seed)
-            threading.Thread(
-                target=lambda: build_short_put_screen(force=True, top_n=top_n, option_n=option_n),
-                daemon=True,
-            ).start()
+            bg_tasks.submit("short-put", lambda: build_short_put_screen(force=True, top_n=top_n, option_n=option_n))
             return seed
 
     close, meta = _load_price_panel()
