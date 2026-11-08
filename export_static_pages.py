@@ -61,6 +61,7 @@ def export_html() -> None:
         )
     html = html.replace('href="/static/style.css?v={{ asset_v }}"', 'href="./static/style.css?v=static"')
     html = html.replace('src="/static/app.js?v={{ asset_v }}"', 'src="./static/app.js?v=static"')
+    html = html.replace('src="/static/ng_option_judgment.js?v={{ asset_v }}"', 'src="./static/ng_option_judgment.js?v=static"')
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")

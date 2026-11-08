@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261108ng1"
+    asset_v = "20261108ngopt1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -461,7 +461,9 @@ def ng_dashboard_api():
             _attach_ng_monthly(seed, ng_dashboard)
             return jsonify(seed)
 
-        data = ng_dashboard.build_dashboard(force=force)
+        # Built in this process within DASHBOARD_TTL: mark explicitly as live
+        # (exports/persisted payloads carry no source and stay "unknown").
+        data = dict(ng_dashboard.build_dashboard(force=force), source="live")
         return jsonify(data)
     except Exception as exc:
         logger.exception("ng dashboard failed")
@@ -489,7 +491,7 @@ def ng_refresh_api():
             seed["refresh"] = bg_tasks.refresh_meta(status)
             _attach_ng_monthly(seed, ng_dashboard)
             return jsonify(seed)
-        data = ng_dashboard.build_dashboard(force=True)
+        data = dict(ng_dashboard.build_dashboard(force=True), source="live")
         return jsonify(data)
     except Exception as exc:
         logger.exception("ng refresh failed")

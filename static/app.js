@@ -1818,7 +1818,10 @@
       const cls = b.includes("long") ? "high" : b.includes("short") ? "low" : "mid";
       elAction.className = `tag-pill ${cls}`;
     }
-    if (elSummary) elSummary.textContent = advice.summary || "—";
+    if (elSummary) {
+      elSummary.textContent = advice.summary || "—";
+      renderNgOptionJudgment(elSummary, state.ngPayload);
+    }
     if (elEntry) {
       elEntry.textContent = (advice.entry && advice.entry.length === 2)
         ? `$${fmt(advice.entry[0], 3)} ~ $${fmt(advice.entry[1], 3)}`
@@ -1845,6 +1848,27 @@
         elInval.innerHTML = `<li>依日线收盘均线与 ATR 防守。</li>`;
       }
     }
+  }
+
+  // 卖Put/Call 研究性判断（纯前端派生，兼容旧快照；全部 textContent，无 HTML 注入）
+  function renderNgOptionJudgment(container, data) {
+    if (!container || typeof window.ngOptionJudgment !== "function" || !data) return;
+    const j = window.ngOptionJudgment(data);
+    const box = document.createElement("div");
+    box.className = "ng-option-judgment";
+    box.style.marginTop = "8px";
+    const head = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = `期权方向：${j.label}${j.reference_only ? "（仅参考）" : ""}`;
+    head.appendChild(strong);
+    box.appendChild(head);
+    [`Put：${j.put.text}`, `Call：${j.call.text}`].concat(j.notes).forEach((t, i) => {
+      const line = document.createElement("div");
+      line.className = i < 2 ? "" : "sub";
+      line.textContent = (i < 2 ? "" : "· ") + t;
+      box.appendChild(line);
+    });
+    container.appendChild(box);
   }
 
   function renderNgEvents(events) {
