@@ -17,6 +17,8 @@ Henry Hub 天然气 (NYMEX NG) 专属看板。
 """
 from __future__ import annotations
 
+import net_limits
+
 import io
 import json
 import logging
@@ -321,7 +323,7 @@ def fetch_curve() -> dict:
     y, m = _front_delivery(today)
     months = [_add_month(y, m, k) for k in range(12)]
     tickers = [_ticker(yy, mm) for yy, mm in months]
-    raw = yf.download(tickers, period="5d", group_by="ticker", auto_adjust=False, threads=True, progress=False)
+    raw = net_limits.yf_download(tickers, period="5d", group_by="ticker", auto_adjust=False, threads=True, progress=False)
     pts = []
     for (yy, mm), t in zip(months, tickers):
         px = None
@@ -658,7 +660,7 @@ def fetch_weather() -> dict:
 def fetch_lng() -> dict:
     import yfinance as yf
 
-    raw = yf.download(["TTF=F", "EURUSD=X", "NG=F"], period="2mo", group_by="ticker", auto_adjust=False, threads=True, progress=False)
+    raw = net_limits.yf_download(["TTF=F", "EURUSD=X", "NG=F"], period="2mo", group_by="ticker", auto_adjust=False, threads=True, progress=False)
 
     def series(t: str) -> pd.Series:
         s = raw[t]["Close"].dropna()

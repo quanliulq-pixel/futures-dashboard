@@ -2,6 +2,10 @@
 """A-share index location / volatility analysis (Yahoo has no CN option chains)."""
 from __future__ import annotations
 
+import net_limits
+
+import bg_tasks
+
 import json
 import logging
 import math
@@ -233,7 +237,7 @@ def _download_close(tickers: list[str]) -> pd.DataFrame:
         # fallback: Yahoo quote-only or short history
         try:
             import yfinance as yf
-            hist = yf.Ticker(yahoo).history(period="1y")
+            hist = net_limits.yf_history(yf.Ticker(yahoo), period="1y")
             if hist is not None and not hist.empty and "Close" in hist.columns:
                 frames[yahoo] = hist["Close"].dropna()
         except Exception:
@@ -241,7 +245,7 @@ def _download_close(tickers: list[str]) -> pd.DataFrame:
     if us:
         try:
             import yfinance as yf
-            extra = yf.download(
+            extra = net_limits.yf_download(
                 us,
                 period="1y",
                 interval="1d",
@@ -289,7 +293,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         seed = _load_seed_snapshot()
         if seed is not None:
             _cache = (time.time(), seed)
-            threading.Thread(target=lambda: build_cn_index_analysis(force=True), daemon=True).start()
+            bg_tasks.submit("cn-index-analysis", lambda: build_cn_index_analysis(force=True))
             return seed
 
     tickers = list(CN_INDICES.keys()) + list(SATELLITES.keys())

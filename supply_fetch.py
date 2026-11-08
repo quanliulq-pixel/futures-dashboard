@@ -342,8 +342,11 @@ def fetch_ng_storage() -> list[dict]:
         return []
 
 
-def overlay_parity_vs_quotes(items: list[dict]) -> None:
-    """Compare import parity items against domestic contract prices and update signal."""
+def overlay_parity_vs_quotes(items: list[dict], allow_fetch: bool = True) -> None:
+    """Compare import parity items against domestic contract prices and update signal.
+
+    allow_fetch=False skips the per-item history download (used in request
+    handlers on Render so no upstream I/O happens in the request thread)."""
     if not items:
         return
     try:
@@ -357,7 +360,7 @@ def overlay_parity_vs_quotes(items: list[dict]) -> None:
             if not iid:
                 continue
             px = quotes.get(iid)
-            if px is None:
+            if px is None and allow_fetch:
                 try:
                     df = get_daily_history(iid)
                     if df is not None and not df.empty:

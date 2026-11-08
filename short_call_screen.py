@@ -2,6 +2,8 @@
 """Covered / short-call screener parallel to short_put_screen."""
 from __future__ import annotations
 
+import bg_tasks
+
 import json
 import logging
 import math
@@ -465,10 +467,7 @@ def build_short_call_screen(force: bool = False, top_n: int = 20, option_n: int 
         seed = _load_seed_snapshot()
         if seed is not None:
             _cache = (time.time(), seed)
-            threading.Thread(
-                target=lambda: build_short_call_screen(force=True, top_n=top_n, option_n=option_n),
-                daemon=True,
-            ).start()
+            bg_tasks.submit("short-call", lambda: build_short_call_screen(force=True, top_n=top_n, option_n=option_n))
             return seed
 
     close, meta = _load_price_panel()

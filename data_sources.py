@@ -2,10 +2,15 @@
 """Data layer: full CN (AKShare) + North America (yfinance)."""
 from __future__ import annotations
 
+import net_limits
+
+import bg_tasks
+
 from pathlib import Path
 
 import json
 import logging
+import threading
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -110,7 +115,7 @@ def _fetch_us_daily(symbol: str) -> pd.DataFrame:
     import yfinance as yf
 
     ticker = yf.Ticker(symbol)
-    raw = ticker.history(period="max", auto_adjust=True)
+    raw = net_limits.yf_history(ticker, period="max", auto_adjust=True)
     if raw is None or raw.empty:
         return _normalize_ohlcv(pd.DataFrame())
     raw = raw.reset_index()
@@ -348,7 +353,7 @@ def _batch_us_quotes() -> dict[str, dict]:
         return out
     try:
         # 10d to compute change
-        raw = yf.download(
+        raw = net_limits.yf_download(
             symbols,
             period="10d",
             group_by="ticker",
@@ -488,14 +493,25 @@ def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
                 with _quotes_refresh_lock:
                     _quotes_refresh_running = False
 
-        threading.Thread(target=_bg, daemon=True).start()
+        # Mixed Sina+Yahoo job: not gated as "yahoo"; Yahoo sub-source is
+        # skipped inside _fetch_quotes_live while Yahoo is cooling down.
+        if not bg_tasks.submit("quotes", _bg, min_interval=0, provider=None):
+            with _quotes_refresh_lock:
+                _quotes_refresh_running = False
 
     if snapshot is not None:
         # TTL miss or force: return snapshot now, refresh once in background.
         _kick_bg()
         return _filter(snapshot)
 
-    # No seed/cache at all (shouldn't happen in deploy) — last resort sync with timeout.
+    # No seed/cache at all. On Render never block the request: schedule a
+    # background refresh and return an honest empty list (count=0).
+    import os
+
+    if os.environ.get("RENDER"):
+        _kick_bg()
+        return []
+    # Local only: last resort sync with timeout.
     try:
         live = _fetch_quotes_live(timeout_sec=12)
         if live:
@@ -506,6 +522,22 @@ def get_quotes(market: str | None = None, force: bool = False) -> list[dict]:
     return []
 
 
+_quote_source_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="quote-src")
+_quote_source_futs: dict = {}
+_quote_source_lock = threading.Lock()
+
+
+def _start_source(name: str, fn):
+    with _quote_source_lock:
+        prev = _quote_source_futs.get(name)
+        if prev is not None and not prev.done():
+            logger.warning("quote source %s still running from previous refresh; skipped", name)
+            return None
+        fut = _quote_source_pool.submit(fn)
+        _quote_source_futs[name] = fut
+        return fut
+
+
 def _fetch_quotes_live(timeout_sec: int = 45) -> list[dict]:
     """Build a live quote bundle. Soft-timeouts so one slow source cannot hang forever."""
     quotes: list[dict] = []
@@ -513,22 +545,26 @@ def _fetch_quotes_live(timeout_sec: int = 45) -> list[dict]:
     cn_rt: dict[str, dict] = {}
     us_rt: dict[str, dict] = {}
 
-    pool = ThreadPoolExecutor(max_workers=2)
-    try:
-        fut_cn = pool.submit(_fetch_cn_realtime_map)
-        fut_us = pool.submit(_batch_us_quotes)
+    # Persistent 2-thread pool: a source whose previous call is still running
+    # (timed out on our side but not yet returned) is skipped, so stranded
+    # workers can never accumulate across refreshes.
+    fut_cn = _start_source("cn", _fetch_cn_realtime_map)
+    if bg_tasks.in_cooldown("yahoo"):
+        logger.info("yahoo cooling down; skipping US quote source this refresh")
+        fut_us = None
+    else:
+        fut_us = _start_source("us", _batch_us_quotes)
+    deadline = time.monotonic() + timeout_sec
+    if fut_cn is not None:
         try:
-            cn_rt = fut_cn.result(timeout=timeout_sec) or {}
+            cn_rt = fut_cn.result(timeout=max(0.0, deadline - time.monotonic())) or {}
         except Exception as exc:
             logger.warning("cn realtime batch failed/timeout: %s", exc)
+    if fut_us is not None:
         try:
-            # Don't let US wait the full CN budget if CN already consumed it.
-            us_rt = fut_us.result(timeout=max(5, min(20, timeout_sec))) or {}
+            us_rt = fut_us.result(timeout=max(5.0, min(20.0, deadline - time.monotonic()))) or {}
         except Exception as exc:
             logger.warning("us batch quotes failed/timeout: %s", exc)
-    finally:
-        # Never block the caller on stranded Yahoo/Sina workers.
-        pool.shutdown(wait=False, cancel_futures=True)
 
     # CN first
     for item in get_cn_instruments():
