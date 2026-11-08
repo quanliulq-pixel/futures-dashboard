@@ -1924,7 +1924,7 @@
             <td class="num mono ${scoreCls}">${score != null ? (score > 0 ? "+" : "") + fmt(score, 1) : "—"}</td>
             <td class="num mono ${contribCls}"><strong>${contrib != null ? (contrib > 0 ? "+" : "") + fmt(contrib, 1) : "—"}</strong></td>
             <td class="factor-read-cell">${f.reading || "—"}</td>
-            <td class="factor-detail-cell">${f.why || f.detail || "—"}</td>
+            <td class="factor-detail-cell">${[f.why, f.detail].filter(Boolean).join("<br/><br/>") || "—"}</td>
           </tr>
         `;
       })
@@ -1977,6 +1977,78 @@
     renderNgStorageChart(data.storage);
     renderNgWeatherChart(data.weather);
     renderNgLngChart(data.lng);
+    const ms = (data.monthly_supply && data.monthly_supply.series) || {};
+    renderNgMonthlyChart("chart-ng-dryprod", "ng-dryprod-hint", ms.dry_production, "#4fc3f7");
+    renderNgMonthlyChart("chart-ng-lngexp", "ng-lngexp-hint", ms.lng_exports, "#f6c945");
+  }
+
+  const NG_MONTHLY_STATUS = {
+    ok: "正常",
+    seed: "种子数据（官方XLS构造）",
+    stale: "最近抓取失败，显示上次成功数据",
+    unavailable: "暂不可用",
+  };
+
+  function renderNgMonthlyChart(chartId, hintId, block, color) {
+    const chart = getNgChart(chartId);
+    const hint = $(`#${hintId}`);
+    const pts = (block && block.points) || [];
+    const status = (block && block.status) || "unavailable";
+    if (hint) {
+      if (!pts.length) {
+        hint.textContent = `数据${NG_MONTHLY_STATUS.unavailable}`;
+      } else {
+        const last = block.latest || pts[pts.length - 1];
+        const fetched = block.fetched_at ? ` · 抓取 ${String(block.fetched_at).replace("T", " ").replace("+00:00", " UTC")}` : "";
+        hint.textContent = `截至 ${block.asof} · ${fmt(last.bcfd, 2)} Bcf/d（${fmt(last.mmcf, 0)} MMcf/月）· ${NG_MONTHLY_STATUS[status] || status}${block.seed && status === "stale" ? "（种子）" : ""}${block.cache_expired && status !== "stale" ? " · 缓存已超24小时" : ""}${fetched} · 约2个月滞后`;
+        hint.title = `${block.series} ${block.scope || ""}\n${block.page_url || block.source_url || ""}`;
+      }
+    }
+    if (!chart) return;
+    if (!pts.length) {
+      chart.clear();
+      return;
+    }
+    chart.setOption(
+      {
+        backgroundColor: "transparent",
+        tooltip: {
+          trigger: "axis",
+          backgroundColor: "#16202c",
+          borderColor: "#2a3a4f",
+          textStyle: { color: "#e5efff", fontSize: 11 },
+          formatter: (params) => {
+            const p = pts[params[0].dataIndex];
+            return `<b>${p.month}</b>（${p.days} 天）<br/>${fmt(p.bcfd, 2)} Bcf/d<br/><span style="color:#8b9bb0">${fmt(p.mmcf, 0)} MMcf/月 · EIA ${block.series}</span>`;
+          },
+        },
+        grid: { left: 45, right: 15, top: 20, bottom: 25 },
+        xAxis: {
+          type: "category",
+          data: pts.map((p) => p.month.slice(2)),
+          axisLabel: { color: "#8b9bb0", fontSize: 10 },
+          axisLine: { lineStyle: { color: "#243041" } },
+        },
+        yAxis: {
+          type: "value",
+          scale: true,
+          axisLabel: { color: "#8b9bb0", fontSize: 10, formatter: (v) => v.toFixed(1) },
+          splitLine: { lineStyle: { color: "#192230" } },
+        },
+        series: [
+          {
+            name: "Bcf/d",
+            type: "line",
+            data: pts.map((p) => p.bcfd),
+            smooth: 0.2,
+            symbolSize: 3,
+            itemStyle: { color },
+            lineStyle: { width: 2, color },
+          },
+        ],
+      },
+      true
+    );
   }
 
   function renderNgCurveChart(curve) {
@@ -2170,7 +2242,7 @@
         formatter: (params) => {
           const idx = params[0].dataIndex;
           const d = daily[idx];
-          return `<b>${d.date} 需求度日预报</b><br/>预报总度日 (TDD): <b>${d.tdd}</b> (HDD ${d.hdd} / CDD ${d.cdd})<br/>10年常态均值: ${d.normal_tdd || "—"}<br/>偏差: <b style="color:${diff[idx] > 0 ? "#ef5350" : "#26a69a"}">${diff[idx] > 0 ? "+" : ""}${diff[idx]} 度日</b>`;
+          return `<b>${d.date} 需求度日预报</b><br/>预报总度日 (TDD): <b>${d.tdd}</b> (HDD ${d.hdd} / CDD ${d.cdd})<br/>近5年常态均值: ${d.normal_tdd || "—"}<br/>偏差: <b style="color:${diff[idx] > 0 ? "#ef5350" : "#26a69a"}">${diff[idx] > 0 ? "+" : ""}${diff[idx]} 度日</b>`;
         },
       },
       legend: {
@@ -2255,7 +2327,7 @@
         formatter: (params) => {
           const idx = params[0].dataIndex;
           const h = hist[idx];
-          return `<b>${h.date}</b><br/>跨大西洋 LNG 出口套利 (TTF − HH):<br/><b>$${fmt(h.spread, 3)}</b> / MMBtu<br/><span style="color:#8b9bb0">出口成本盈亏平衡线: ~$4.00/MMBtu</span>`;
+          return `<b>${h.date}</b><br/>跨大西洋价格套利代理 (TTF − HH):<br/><b>$${fmt(h.spread, 3)}</b> / MMBtu<br/><span style="color:#8b9bb0">出口成本盈亏平衡线: ~$4.00/MMBtu</span>`;
         },
       },
       grid: { left: 45, right: 15, top: 20, bottom: 25 },

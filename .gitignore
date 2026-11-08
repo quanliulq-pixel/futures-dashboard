@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .DS_Store
 data/us_movers/close.pkl
+data/ng/monthly_supply_last.json

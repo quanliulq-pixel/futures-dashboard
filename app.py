@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261106dyn15"
+    asset_v = "20261108ng1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -437,6 +437,14 @@ def us_movers_api():
         return jsonify({"error": str(exc)}), 500
 
 
+def _attach_ng_monthly(payload: dict, ng_mod) -> None:
+    """Add EIA monthly supply from memory/last-success/seed (no network)."""
+    try:
+        payload["monthly_supply"] = ng_mod.overlay_monthly_supply(payload.get("monthly_supply"))
+    except Exception:
+        logger.debug("ng monthly snapshot failed", exc_info=True)
+
+
 @app.route("/api/ng/dashboard")
 def ng_dashboard_api():
     force = request.args.get("force") == "1"
@@ -450,6 +458,7 @@ def ng_dashboard_api():
             # and leaves the mobile tab stuck on "加载中". Refresh button queues it.
             seed = dict(seed)
             seed["source"] = "seed"
+            _attach_ng_monthly(seed, ng_dashboard)
             return jsonify(seed)
 
         data = ng_dashboard.build_dashboard(force=force)
@@ -478,6 +487,7 @@ def ng_refresh_api():
             seed["source"] = "seed"
             seed["note"] = (seed.get("note") or "") + _queued_note(status, "后台全网抓取")
             seed["refresh"] = bg_tasks.refresh_meta(status)
+            _attach_ng_monthly(seed, ng_dashboard)
             return jsonify(seed)
         data = ng_dashboard.build_dashboard(force=True)
         return jsonify(data)
