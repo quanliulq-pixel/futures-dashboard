@@ -755,6 +755,41 @@ def _action(row: dict) -> str:
     return "；".join(parts)
 
 
+def _fund_rank_key(r: dict) -> float:
+    from fundamentals import rank_key
+
+    return rank_key(r)
+
+
+def _fund_method_text(market: str, side: str) -> str:
+    try:
+        from fundamentals import method_text
+
+        return method_text(market, side)
+    except Exception:  # noqa: BLE001
+        return "基本面模块不可用"
+
+
+def _apply_fundamentals(rows: list[dict], side: str) -> dict:
+    """Never fatal: on any failure every row keeps combined_score = tech score."""
+    try:
+        from fundamentals import apply_us_fundamentals
+
+        meta = apply_us_fundamentals(rows, side, option_key=side)
+        meta["status"] = "ok"
+        return meta
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fundamentals failed (%s): %s", side, exc)
+        try:
+            from fundamentals import apply_fund_to_row
+
+            for r in rows:
+                apply_fund_to_row(r, None, not_computed_reason=f"基本面计算失败 {type(exc).__name__}")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+
+
 def _load_seed_snapshot() -> dict | None:
     """Cold-start fallback from exported Pages JSON (bundled in repo)."""
     for rel in ("docs/api/short_put.json", "data/short_put_seed.json"):
@@ -977,7 +1012,10 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             r["edge"] = None
             r["checklist"] = None
 
-    ranked = sorted(rows, key=lambda r: r.get("score") or -1, reverse=True)
+    # 基本面：仅对技术分前N且有期权合约的标的取数（24h缓存）；失败不致命，综合分退回技术分。
+    fund_meta = _apply_fundamentals(rows, "put")
+    # 入选门槛仍按技术分 score≥22（不变）；排序改为综合分 combined_score。
+    ranked = sorted(rows, key=_fund_rank_key, reverse=True)
     eligible = [r for r in ranked if (r.get("score") or 0) >= 22 and r.get("put")]
     openable = [r for r in eligible if not ((r.get("checklist") or {}).get("blocked"))]
     picks = (openable + [r for r in eligible if r not in openable])[:top_n]
@@ -1038,10 +1076,11 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             "goal": "高波动美股/ETF 的现金担保卖出看跌（CSP / Short Put）候选",
             "vol": "HV20/HV60 为近20/60日收益年化波动；hv_pctile 为近一年分位",
             "option": "优先选取约 14–45 DTE、约 8% OTM 的看跌期权；权利金取买卖中间价",
-            "score": "综合：高波动溢价 + RSI 回调甜蜜区 + 非自由落体 + 权利金年化 + IV相对HV + 流动性 − 临近财报",
+            "score": "技术分（score 字段）：高波动溢价 + RSI 回调甜蜜区 + 非自由落体 + 权利金年化 + IV相对HV + 流动性 − 临近财报",
             "risk": "风控层标注 IV贵贱、财报窗口、CSP占用、建议合约上限；杠杆ETF已排除",
             "filters": "前端可按 HV分位/RSI/OI/年化/OTM/类型/仅核心池 过滤",
             "edge": "Edge分=VRP+IV分位+期限结构+RV稳定性+Skew；检查清单含硬否决(财报/倒挂/RV加速/自由落体等)",
+            "fundamental": _fund_method_text("us", "put"),
             "chain": "卡片可下钻同到期看跌链，权重滑条可重算Edge",
         },
         "account_defaults": ACCOUNT_DEFAULTS,
@@ -1053,6 +1092,7 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
             "skew": 10,
         },
         "universe_size": len(rows),
+        "fund_meta": fund_meta,
         "picks": picks,
         "watchlist": watch,
         "all": ranked[:60],

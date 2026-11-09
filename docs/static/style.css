@@ -1623,3 +1623,20 @@ tbody tr.active {
 
 .cn-asof, .cn-scanned { color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 2px; }
 .cn-asof { color: #9ed0ff; }
+
+/* 技术分 / 基本面分 / 综合分 */
+.fund-block { margin: 6px 0; font-size: 12px; }
+.fund-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.fund-pill { padding: 1px 6px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); white-space: nowrap; }
+.fund-pill.comb { font-weight: 600; }
+.fund-status { opacity: .75; margin-top: 2px; }
+.fund-earn-warn { margin-top: 3px; color: #d9822b; font-weight: 600; }
+.fund-details summary { cursor: pointer; opacity: .85; margin-top: 3px; }
+.fund-list { margin: 3px 0 0 16px; padding: 0; }
+.fund-f { margin: 2px 0; }
+.fund-f.missing { opacity: .6; }
+.fund-fn { font-weight: 600; }
+.fund-fv { opacity: .75; font-size: 11px; }
+.fund-fc { font-weight: 600; }
+.fund-pen { color: #d9822b; font-size: 11px; margin-top: 2px; }
+.fund-cell-sub { font-size: 10px; opacity: .7; white-space: nowrap; }
