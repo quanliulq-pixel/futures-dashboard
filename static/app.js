@@ -2490,8 +2490,20 @@
   function applyPutFilters(rows) {
     const f = readPutFiltersFromDom();
     const core = new Set((state.putPayload && state.putPayload.core_symbols) || []);
-    return (rows || []).filter((r) => {
-      if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+    const view = window.cnOptionCandidatesView;
+    let list = rows || [];
+    // US tables never render CN; cn_fut lives only in the dedicated CNY panel.
+    if (view && view.filterByKind) list = view.filterByKind(list, f.kind || "all");
+    else {
+      list = list.filter((r) => {
+        if ((r.kind === "cn_fut" || r.market === "cn")) return (f.kind || "all") === "cn_fut";
+        if ((f.kind || "all") === "cn_fut") return false;
+        if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+        return true;
+      });
+    }
+    return list.filter((r) => {
+      if (r.kind === "cn_fut" || r.market === "cn") return false; // belt-and-suspenders: US grid excludes CN
       if (f.themeSymbols && f.themeSymbols.length && !f.themeSymbols.includes(r.symbol)) return false;
       if (f.coreOnly && !core.has(r.symbol)) return false;
       if ((r.hv_pctile == null ? 0 : r.hv_pctile) < f.hv) return false;
@@ -2743,6 +2755,7 @@
         `<strong>期权</strong>：${esc(m.option || "")}`,
         `<strong>打分</strong>：${esc(m.score || "")}`,
         `<strong>风险</strong>：${esc(m.risk || "")}`,
+        m.cn_futures ? `<strong>国内期货</strong>：${esc(m.cn_futures)}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
       ].filter(Boolean).join("<br/>");
     }
@@ -2781,6 +2794,15 @@
     renderPutTable(filteredAll);
     renderPutWatch();
     renderNgPutLinks();
+    if (window.cnOptionCandidatesView) {
+      window.cnOptionCandidatesView.renderInto($("#put-cn-picks"), data, "put");
+      const panel = $("#put-cn-panel");
+      if (panel) {
+        const kind = (state.putFilters && state.putFilters.kind) || state.putKind || "all";
+        panel.hidden = false;
+        panel.style.opacity = kind === "stock" || kind === "etf" ? "0.55" : "1";
+      }
+    }
   }
 
   function renderPutThemes(themes) {
@@ -3060,8 +3082,20 @@
   function applyCallFilters(rows) {
     const f = readCallFiltersFromDom();
     const core = new Set((state.callPayload && state.callPayload.core_symbols) || []);
-    return (rows || []).filter((r) => {
-      if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+    const view = window.cnOptionCandidatesView;
+    let list = rows || [];
+    if (view && view.filterByKind) list = view.filterByKind(list, f.kind || "all");
+    else {
+      list = list.filter((r) => {
+        if ((r.kind === "cn_fut" || r.market === "cn")) return (f.kind || "all") === "cn_fut";
+        if ((f.kind || "all") === "cn_fut") return false;
+        if (f.kind !== "all" && (r.kind || "stock") !== f.kind) return false;
+        return true;
+      });
+    }
+    return list.filter((r) => {
+      // US Call table must never render CN rows (dedicated CNY panel only).
+      if (r.kind === "cn_fut" || r.market === "cn") return false;
       if (f.themeSymbols && f.themeSymbols.length && !f.themeSymbols.includes(r.symbol)) return false;
       if (f.coreOnly && !core.has(r.symbol)) return false;
       if ((r.hv_pctile == null ? 0 : r.hv_pctile) < f.hv) return false;
@@ -3073,7 +3107,7 @@
       const earnDays = r.earnings && r.earnings.days;
       if (f.noEarn7 && earnDays != null && earnDays <= 7) return false;
       const ivTag = (r.risk && r.risk.iv_tag) || "";
-      if (f.ivRich && !ivTag.includes("偏贵")) return false;
+      if (f.ivRich && ivTag !== "IV偏贵") return false;
       return true;
     });
   }
@@ -3201,6 +3235,7 @@
         `<strong>期权</strong>：${esc(m.option || "")}`,
         `<strong>打分</strong>：${esc(m.score || "")}`,
         `<strong>风险</strong>：${esc(m.risk || "")}`,
+        m.cn_futures ? `<strong>国内期货</strong>：${esc(m.cn_futures)}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
       ].filter(Boolean).join("<br/>");
     }
@@ -3237,6 +3272,15 @@
     renderCallCards(filteredPicks);
     renderCallTable(filteredAll);
     renderCallWatch();
+    if (window.cnOptionCandidatesView) {
+      window.cnOptionCandidatesView.renderInto($("#call-cn-picks"), data, "call");
+      const panel = $("#call-cn-panel");
+      if (panel) {
+        const kind = (state.callFilters && state.callFilters.kind) || state.callKind || "all";
+        panel.hidden = false;
+        panel.style.opacity = kind === "stock" || kind === "etf" ? "0.55" : "1";
+      }
+    }
   }
   function renderCallThemes(themes) {
     const bar = $("#call-theme-bar");

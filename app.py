@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261108etf1"
+    asset_v = "20261109cnopt1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -144,6 +144,12 @@ def _screen_refresh(key: str, module_name: str, builder_name: str, seed_name: st
         if seed is not None:
             payload = dict(seed)
             payload["source"] = "seed"
+            try:
+                from cn_option_candidates import ensure_cn_candidate_fields
+                side = "call" if "call" in key else "put"
+                payload = ensure_cn_candidate_fields(payload, side=side)
+            except Exception:
+                logger.debug("cn candidate seed normalize failed", exc_info=True)
     if payload is None:
         return _pending_response(status)
     payload["refresh"] = bg_tasks.refresh_meta(status)
@@ -593,6 +599,8 @@ def short_put_high_vol_api():
             bg_tasks.submit("short-put", lambda: build_short_put_screen(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="put")
             return jsonify(seed)
 
         return jsonify(build_short_put_screen(force=force))
@@ -602,6 +610,8 @@ def short_put_high_vol_api():
         if seed:
             seed = dict(seed)
             seed["source"] = "seed"
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="put")
             return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
@@ -628,6 +638,8 @@ def short_call_high_vol_api():
             bg_tasks.submit("short-call", lambda: build_short_call_screen(force=True))
             seed = dict(seed)
             seed["source"] = "seed"
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="call")
             return jsonify(seed)
 
         return jsonify(build_short_call_screen(force=force))
@@ -637,6 +649,8 @@ def short_call_high_vol_api():
         if seed:
             seed = dict(seed)
             seed["source"] = "seed"
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="call")
             return jsonify(seed)
         return jsonify({"error": str(exc)}), 500
 
