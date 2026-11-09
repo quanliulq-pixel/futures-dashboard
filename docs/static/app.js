@@ -2779,6 +2779,7 @@
         `<strong>波动</strong>：${esc(m.vol || "")}`,
         `<strong>期权</strong>：${esc(m.option || "")}`,
         `<strong>打分</strong>：${esc(m.score || "")}`,
+        m.fundamental ? `<strong>基本面</strong>：${esc(m.fundamental)}` : "",
         `<strong>风险</strong>：${esc(m.risk || "")}`,
         m.cn_futures ? `<strong>国内期货</strong>：${esc(m.cn_futures)}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
@@ -2853,6 +2854,22 @@
     return `<span class="risk-badge ${cls}" title="${esc(flags)}">${esc(risk.iv_tag || "")} · 风险${esc(lvl)}</span>`;
   }
 
+  // 技术分/基本面分/综合分（static/fund_score_view.js；缺失时只显示技术分，不补算）
+  function fundHeadline(r) {
+    const v = window.fundScoreView;
+    return v ? v.headline(r) : { value: r && r.score, label: "技术分" };
+  }
+
+  function fundBlock(r) {
+    const v = window.fundScoreView;
+    return v ? v.blockHtml(r) : "";
+  }
+
+  function fundCell(r) {
+    const v = window.fundScoreView;
+    return v ? v.cellHtml(r) : `<strong>${fmt(r && r.score, 1)}</strong>`;
+  }
+
   function renderPutCards(picks) {
     const el = $("#put-picks");
     if (!el) return;
@@ -2877,9 +2894,10 @@
             <div class="put-sym">${esc(r.symbol)} <span class="tag-pill">${esc(r.kind === "etf" ? "ETF" : "股票")}</span></div>
             <div class="put-name">${esc(r.name || "")} · ${esc(r.sector || "")}</div>
           </div>
-          <div class="put-score">${fmt(r.score, 1)}</div>
+          <div class="put-score" title="${esc(fundHeadline(r).label)}">${fmt(fundHeadline(r).value, 1)}</div>
         </div>
         <div class="put-edge-bar">${edgePill(r.edge)} ${checklistMini(r.checklist)} ${riskBadge(risk)}</div>
+        ${fundBlock(r)}
         <div class="put-metrics">
           <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
           <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
@@ -2931,7 +2949,7 @@
         <td class="num">${fmt(r.hv_pctile, 0)}</td>
         <td class="num">${fmt(r.rsi14, 1)}</td>
         <td class="num ${chgCls}">${chgTxt}</td>
-        <td class="num"><strong>${fmt(r.score, 1)}</strong></td>
+        <td class="num">${fundCell(r)}</td>
         <td>${esc((risk.iv_tag || "").replace("IV", ""))}</td>
         <td>${esc(risk.level || "—")}</td>
         <td>${esc(earn)}</td>
@@ -3260,6 +3278,7 @@
         `<strong>波动</strong>：${esc(m.vol || "")}`,
         `<strong>期权</strong>：${esc(m.option || "")}`,
         `<strong>打分</strong>：${esc(m.score || "")}`,
+        m.fundamental ? `<strong>基本面</strong>：${esc(m.fundamental)}` : "",
         `<strong>风险</strong>：${esc(m.risk || "")}`,
         m.cn_futures ? `<strong>国内期货</strong>：${esc(m.cn_futures)}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
@@ -3346,9 +3365,10 @@
             <div class="put-sym">${esc(r.symbol)} <span class="tag-pill">${esc(r.kind === "etf" ? "ETF" : "股票")}</span></div>
             <div class="put-name">${esc(r.name || "")} · ${esc(r.sector || "")}</div>
           </div>
-          <div class="put-score">${fmt(r.score, 1)}</div>
+          <div class="put-score" title="${esc(fundHeadline(r).label)}">${fmt(fundHeadline(r).value, 1)}</div>
         </div>
         <div class="put-edge-bar">${edgePill(r.edge)} ${checklistMini(r.checklist)} ${riskBadge(risk)}</div>
+        ${fundBlock(r)}
         <div class="put-metrics">
           <div class="put-metric"><span class="l">现价</span><span class="v">$${fmt(r.price, 2)}</span></div>
           <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
@@ -3399,7 +3419,7 @@
         <td class="num">${fmt(r.hv_pctile, 0)}</td>
         <td class="num">${fmt(r.rsi14, 1)}</td>
         <td class="num ${chgCls}">${chgTxt}</td>
-        <td class="num"><strong>${fmt(r.score, 1)}</strong></td>
+        <td class="num">${fundCell(r)}</td>
         <td>${esc((risk.iv_tag || "").replace("IV", ""))}</td>
         <td>${esc(risk.level || "—")}</td>
         <td>${esc(earn)}</td>

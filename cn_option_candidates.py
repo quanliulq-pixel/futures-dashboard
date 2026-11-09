@@ -18,6 +18,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
 
+import fundamentals as _fund
+
 logger = logging.getLogger(__name__)
 
 CST = timezone(timedelta(hours=8))
@@ -133,12 +135,16 @@ CN_METHOD_PUT = (
     "复用与美股相同的 HV/RSI/涨跌评分框架中的方向部分；"
     f"仅 score≥{CN_MIN_SCORE:.0f}（观望等待及以上）列入候选栏，文案为研究/观望，不作下单推荐；"
     "不提供权利金/IV/行权价/到期日，未核验期权链与流动性，不能下单。"
+    "基本面分（库存/仓单、基差、期限结构、季节性）与技术分按 0.6×技术+0.4×基本面 合成综合分，"
+    "入选仍看技术分门槛，排序按综合分；缺数据的因子标「无数据」不插补。"
 )
 CN_METHOD_CALL = (
     "国内商品期货（白名单内已上市期权品种）仅提供连续合约标的方向候选："
     "复用卖Call 的 RSI/均线/涨跌方向评分；"
     f"仅 score≥{CN_MIN_SCORE:.0f}（观望等待及以上）列入候选栏，文案为研究/观望，不作下单推荐；"
     "不提供权利金/IV/行权价/到期日，未核验期权链与流动性，不能下单。"
+    "基本面分（库存/仓单、基差、期限结构、季节性）与技术分按 0.6×技术+0.4×基本面 合成综合分，"
+    "入选仍看技术分门槛，排序按综合分；缺数据的因子标「无数据」不插补。"
 )
 CN_DISCLAIMER = (
     "国内部分为期货期权方向研究：价格为人民币连续合约，"
@@ -147,6 +153,15 @@ CN_DISCLAIMER = (
 )
 
 HistoryLoader = Callable[[str], Any]
+
+# 基本面取数入口（运行时查找，测试可 monkeypatch 为离线桩）。None/False ⇒ 不取基本面。
+def _default_fund_provider():
+    from fundamentals import DEFAULT_CN_PROVIDER
+
+    return DEFAULT_CN_PROVIDER
+
+
+DEFAULT_CN_FUND_PROVIDER: Any = _default_fund_provider
 
 
 def instrument_id(symbol: str) -> str:
@@ -426,8 +441,13 @@ def build_cn_direction_candidates(
     history_loader: HistoryLoader | None = None,
     top_n: int = 12,
     min_score: float | None = None,
+    fund_provider: Any = None,
 ) -> dict[str, Any]:
-    """Build direction-only CN candidates for put or call tab."""
+    """Build direction-only CN candidates for put or call tab.
+
+    Inclusion gate is unchanged (technical ``score`` ≥ min_score); ordering is by
+    ``combined_score`` = 0.6·tech + 0.4·fundamental (tech only when fundamentals missing).
+    """
     side = "call" if side == "call" else "put"
     min_score = CN_MIN_SCORE if min_score is None else float(min_score)
     loader = history_loader or _default_history_loader
@@ -444,6 +464,7 @@ def build_cn_direction_candidates(
     failed: list[dict[str, Any]] = []      # 取数/数据校验失败（未取到可用行情）
     filtered: list[dict[str, Any]] = []    # 取到行情但未过 HV/样本门槛
     fetched_ok = 0
+    series_by_sym: dict[str, Any] = {}
     for meta in optionable_universe():
         sym = meta["symbol"]
         iid = meta["id"]
@@ -508,6 +529,7 @@ def build_cn_direction_candidates(
                 "scanned_at_tz": scanned_tz,
             }
             row["score"] = _r(_score_row(row), 1)
+            series_by_sym[sym] = series
             row["bias_cn"] = _cn_bias(row.get("score"), row.get("rsi14"), side)
             row["action"] = _cn_action(side)
             row["risk"] = _cn_risk(side)
@@ -520,9 +542,10 @@ def build_cn_direction_candidates(
             errors.append(f"{sym}:{type(exc).__name__}")
             reject_reasons[sym] = type(exc).__name__
 
-    ranked = sorted(rows, key=lambda r: r.get("score") or -1, reverse=True)
-    # Keep low-score rows out of the candidate rail (bias 暂不推荐).
-    picks = [r for r in ranked if (r.get("score") or 0) >= min_score][:top_n]
+    fund_meta = _attach_cn_fundamentals(rows, series_by_sym, side, fund_provider)
+    ranked = sorted(rows, key=_fund.rank_key, reverse=True)
+    # Gate on the technical score (unchanged threshold); order by combined score.
+    picks = [r for r in ranked if (r.get("tech_score") if r.get("tech_score") is not None else (r.get("score") or 0)) >= min_score][:top_n]
     status = "ok" if picks else ("empty" if not ranked else "below_threshold")
     note = None
     if failed:
@@ -553,6 +576,57 @@ def build_cn_direction_candidates(
         "min_score": min_score,
         "note": note,
         "disclaimer": CN_DISCLAIMER,
+        "fund_meta": fund_meta,
+    }
+
+
+def _attach_cn_fundamentals(rows: list[dict], series_by_sym: dict, side: str, fund_provider: Any) -> dict:
+    """Add tech/fund/combined fields to every scored row. Never fatal."""
+    t0 = time.time()
+    provider = fund_provider
+    if provider is None:
+        factory = DEFAULT_CN_FUND_PROVIDER
+        try:
+            provider = factory() if callable(factory) and not hasattr(factory, "snapshot") else factory
+        except Exception:  # noqa: BLE001
+            provider = None
+    snap: dict | None = None
+    status = "disabled" if not provider else "ok"
+    err = None
+    if provider and rows:
+        try:
+            snap = provider.snapshot([r["symbol"] for r in rows])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cn fundamentals fetch failed: %s", exc)
+            err = f"{type(exc).__name__}: {str(exc)[:120]}"
+            status = "error"
+            snap = None
+    for r in rows:
+        if not provider:
+            _fund.apply_fund_to_row(r, None, not_computed_reason="基本面未计算（未启用取数）")
+            continue
+        try:
+            facs = _fund.cn_factors_for(r["symbol"], series_by_sym.get(r["symbol"]), snap)
+            if snap is None:
+                for f in facs:
+                    if f["key"] != "seasonality" and f["status"] != "ok":
+                        f["reason"] = f"取数失败：{err}" if err else f.get("reason")
+            fund = _fund.score_factors(facs, _fund.CN_FACTOR_WEIGHTS, side)
+            _fund.apply_fund_to_row(r, fund)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cn fundamentals %s failed: %s", r.get("symbol"), exc)
+            _fund.apply_fund_to_row(r, None, not_computed_reason=f"基本面计算异常 {type(exc).__name__}")
+    return {
+        "status": status,
+        "error": err,
+        "seconds": round(time.time() - t0, 1),
+        "fetch_seconds": (snap or {}).get("fetch_seconds"),
+        "fetched_at": (snap or {}).get("fetched_at"),
+        "fetch_errors": dict(list(((snap or {}).get("errors") or {}).items())[:30]),
+        "weights": dict(_fund.CN_FACTOR_WEIGHTS),
+        "tech_weight": _fund.TECH_WEIGHT,
+        "fund_weight": _fund.FUND_WEIGHT,
+        "method": _fund.method_text("cn", side),
     }
 
 
@@ -610,6 +684,7 @@ def attach_cn_candidates(
     populate: bool = True,
     history_loader: HistoryLoader | None = None,
     top_n: int = 12,
+    fund_provider: Any = None,
 ) -> dict:
     """Attach CN direction candidates. Never merge CN into US picks/all tables."""
     side = "call" if side == "call" else "put"
@@ -617,7 +692,8 @@ def attach_cn_candidates(
     if not populate:
         return out
     try:
-        built = build_cn_direction_candidates(side, history_loader=history_loader, top_n=top_n)
+        built = build_cn_direction_candidates(side, history_loader=history_loader, top_n=top_n,
+                                              fund_provider=fund_provider)
         out["cn_candidates"] = built["candidates"]
         out["cn_candidate_meta"] = {
             "side": side,
@@ -638,6 +714,7 @@ def attach_cn_candidates(
             "scanned_at_tz": built.get("scanned_at_tz"),
             "min_score": built.get("min_score"),
             "disclaimer": built.get("disclaimer"),
+            "fund_meta": built.get("fund_meta"),
         }
         # US lists stay US-only; CN lives only in cn_candidates.
         for key in ("picks", "watchlist", "all"):

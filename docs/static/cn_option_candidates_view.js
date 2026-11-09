@@ -19,6 +19,14 @@
     return x.toFixed(n == null ? 2 : n);
   }
 
+  function fundView() {
+    if (root.fundScoreView) return root.fundScoreView;
+    if (typeof require === "function") {
+      try { return require("./fund_score_view.js"); } catch (e) { return null; }
+    }
+    return null;
+  }
+
   function isCnRow(r) {
     return !!(r && (r.kind === "cn_fut" || r.market === "cn"));
   }
@@ -93,6 +101,10 @@
     const risk = r.risk || {};
     const flags = (risk.flags || []).join(" · ");
     const sideLabel = side === "call" ? "卖Call方向" : "卖Put方向";
+    const fv = fundView();
+    const head = fv ? fv.headline(r) : { value: r.score, label: "技术分" };
+    const headVal = head.value;
+    const headLabel = head.label;
     const asof = r.asof || "未知";
     const asofLabel = asof === "未知" ? "行情截至：未知" : `行情截至：${asof}（交易日）`;
     const scanned = r.scanned_at || "";
@@ -109,8 +121,9 @@
           </div>
           <div class="put-name">${esc(r.name || "")} · ${esc(r.exchange || "")} · ${esc(r.sector || "")} · CNY</div>
         </div>
-        <div class="put-score">${fmt(r.score, 1)}</div>
+        <div class="put-score" title="${esc(headLabel)}">${fmt(headVal, 1)}</div>
       </div>
+      ${fv ? fv.blockHtml(r) : ""}
       <div class="put-metrics">
         <div class="put-metric"><span class="l">现价</span><span class="v">¥${fmt(r.price, 2)}</span></div>
         <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>

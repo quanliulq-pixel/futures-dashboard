@@ -18,6 +18,8 @@ import cn_option_candidates as coc
 @pytest.fixture(autouse=True)
 def _no_retry_sleep(monkeypatch):
     monkeypatch.setattr(coc, "FETCH_RETRY_DELAY_SEC", 0.0)
+    # Offline: never hit akshare fundamentals from these technical-only tests.
+    monkeypatch.setattr(coc, "DEFAULT_CN_FUND_PROVIDER", None)
 
 
 def _synthetic_close(n: int = 120, start: float = 100.0, drift: float = -0.002, vol: float = 0.025, seed: int = 42) -> pd.Series:
