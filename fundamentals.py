@@ -700,59 +700,597 @@ def earnings_window(earnings: dict | None, option: dict | None) -> dict | None:
 
 # ---------------------------------------------------------------- US network provider
 
+# Ticker.info 里真正被打分用到的键。Yahoo 在拿不到 crumb 时（quoteSummary / v7 quote
+# 返回 401 "Invalid Crumb"），yfinance 默认吞掉异常，info 只剩无 crumb 也能取到的
+# {"trailingPegRatio": …}——字典非空但打分键全无。这种情况必须算作「info为空」而非成功。
+US_INFO_NEEDED_KEYS: tuple[str, ...] = (
+    "forwardPE", "trailingPE", "profitMargins", "returnOnEquity", "freeCashflow", "debtToEquity",
+    "revenueGrowth", "earningsGrowth", "numberOfAnalystOpinions", "targetMeanPrice", "recommendationMean",
+)
+US_INFO_NEG_TTL = 15 * 60            # info 为空/失败：只缓存 15 分钟，之后重试
+US_SNAPSHOT_MAX_AGE_HOURS = 48.0     # 快照基本面最多复用 48 小时
+US_SNAPSHOT_REMOTE_TTL = 30 * 60
+US_SNAPSHOT_REMOTE_URLS: tuple[str, ...] = (
+    "https://raw.githubusercontent.com/quanliulq-pixel/futures-dashboard/main/docs/api/short_put.json",
+    "https://raw.githubusercontent.com/quanliulq-pixel/futures-dashboard/main/docs/api/short_call.json",
+)
+US_FACTOR_KEYS: tuple[str, ...] = tuple(US_FACTOR_WEIGHTS)
+
+
+def _src_us_statements(symbol: str) -> dict[str, str]:
+    return {
+        "function": "yfinance Ticker.get_valuation_measures/ttm_income_stmt/quarterly_income_stmt/"
+                    "quarterly_balance_sheet/ttm_cashflow（fundamentals-timeseries）",
+        "url": f"https://finance.yahoo.com/quote/{symbol}/financials",
+        "label": "Yahoo Finance 财报/估值时间序列（按报表计算）",
+    }
+
+
+def _src_us_analyst(symbol: str) -> dict[str, str]:
+    return {
+        "function": "yfinance Ticker.analyst_price_targets/recommendations_summary",
+        "url": f"https://finance.yahoo.com/quote/{symbol}/analysis",
+        "label": "Yahoo Finance 分析师预期",
+    }
+
+
+def info_needed_status(info: Any) -> tuple[str, list[str], list[str]]:
+    """('ok'|'empty', present, missing) by the keys the US factors actually need."""
+    if not isinstance(info, dict):
+        return "empty", [], list(US_INFO_NEEDED_KEYS)
+    present = [k for k in US_INFO_NEEDED_KEYS if _num(info.get(k)) is not None]
+    missing = [k for k in US_INFO_NEEDED_KEYS if k not in present]
+    return ("ok" if present else "empty"), present, missing
+
+
+# —— 报表回退（纯函数，可离线测试） ——
+
+def _df_row(df, names: Iterable[str]):
+    """First matching row of a statement DataFrame as a Series (columns = period dates, newest first)."""
+    try:
+        if df is None or getattr(df, "empty", True):
+            return None
+        for n in names:
+            if n in df.index:
+                s = df.loc[n]
+                if hasattr(s, "ndim") and s.ndim > 1:
+                    s = s.iloc[0]
+                return s
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _latest(series) -> tuple[float | None, Any]:
+    if series is None:
+        return None, None
+    try:
+        pairs = sorted(((c, _num(v)) for c, v in series.items()), key=lambda cv: str(cv[0]), reverse=True)
+    except Exception:  # noqa: BLE001
+        return None, None
+    for c, v in pairs:
+        if v is not None:
+            return v, c
+    return None, None
+
+
+def _to_date(c: Any) -> date | None:
+    try:
+        if hasattr(c, "to_pydatetime"):
+            return c.to_pydatetime().date()
+        if isinstance(c, datetime):
+            return c.date()
+        if isinstance(c, date):
+            return c
+        return datetime.strptime(str(c)[:10], "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _yoy(series) -> tuple[float | None, str | None]:
+    """Latest quarter vs the quarter ~1 year earlier (330–400 days). Prior must be > 0."""
+    if series is None:
+        return None, None
+    pts = []
+    try:
+        for c, v in series.items():
+            d, x = _to_date(c), _num(v)
+            if d is not None and x is not None:
+                pts.append((d, x))
+    except Exception:  # noqa: BLE001
+        return None, None
+    if len(pts) < 2:
+        return None, None
+    pts.sort(reverse=True)
+    d0, v0 = pts[0]
+    for d, v in pts[1:]:
+        if 330 <= (d0 - d).days <= 400:
+            if v <= 0:
+                return None, None
+            return v0 / v - 1.0, d0.isoformat()
+    return None, None
+
+
+def _epoch(d: date | None) -> int | None:
+    if d is None:
+        return None
+    return int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+
+
+def info_from_statements(
+    *,
+    valuation=None,
+    ttm_income=None,
+    q_income=None,
+    q_balance=None,
+    ttm_cashflow=None,
+    price: Any = None,
+    price_targets: dict | None = None,
+    rec_summary=None,
+) -> tuple[dict, dict[str, str]]:
+    """Rebuild the info keys the factors use from Yahoo timeseries statements (no crumb needed).
+
+    Returns (info_like, how) — how[key] says which input produced it. Only computes from
+    real reported numbers; anything not derivable is simply absent (never imputed).
+    """
+    out: dict[str, Any] = {}
+    how: dict[str, str] = {}
+    # PE：仅当 TTM 稀释EPS>0 时给出。滚动PE = 现价/TTM EPS（自算）；远期PE 取 Yahoo 估值表 Current 列。
+    # 估值表 Current 列对亏损公司不可靠（实测 RIOT：TTM EPS −4.12 时表中 Trailing P/E 仍为 12.9），
+    # 因此 EPS≤0 或 EPS 未知时不采用估值表 PE；亏损由净利率<0 体现。
+    eps, _ = _latest(_df_row(ttm_income, ("Diluted EPS", "Basic EPS")))
+    px = _num(price)
+    if eps is not None and eps > 0:
+        if px is not None and px > 0:
+            out["trailingPE"] = px / eps
+            how["trailingPE"] = "现价/TTM稀释EPS"
+        cur = None
+        try:
+            if valuation is not None and not valuation.empty and "Current" in valuation.columns:
+                cur = valuation["Current"]
+        except Exception:  # noqa: BLE001
+            cur = None
+        fpe = _num(cur.get("Forward P/E")) if cur is not None and hasattr(cur, "get") else None
+        if fpe is not None and fpe > 0:
+            out["forwardPE"] = fpe
+            how["forwardPE"] = "Yahoo估值表远期PE"
+    ni, _ = _latest(_df_row(ttm_income, ("Net Income", "Net Income Common Stockholders")))
+    rev, _ = _latest(_df_row(ttm_income, ("Total Revenue", "Operating Revenue")))
+    if ni is not None and rev is not None and rev > 0:
+        out["profitMargins"] = ni / rev
+        how["profitMargins"] = "TTM净利润/TTM营收"
+    eq, eq_col = _latest(_df_row(q_balance, ("Stockholders Equity", "Common Stock Equity")))
+    if ni is not None and eq is not None and eq > 0:
+        out["returnOnEquity"] = ni / eq
+        how["returnOnEquity"] = "TTM净利润/最新股东权益"
+    debt, _ = _latest(_df_row(q_balance, ("Total Debt",)))
+    if debt is not None and eq is not None and eq > 0 and debt >= 0:
+        out["debtToEquity"] = debt / eq * 100.0  # 与 info 同口径（百分比）
+        how["debtToEquity"] = "总负债/股东权益"
+    fcf, _ = _latest(_df_row(ttm_cashflow, ("Free Cash Flow",)))
+    if fcf is not None:
+        out["freeCashflow"] = fcf
+        how["freeCashflow"] = "TTM自由现金流"
+    rg, rq = _yoy(_df_row(q_income, ("Total Revenue", "Operating Revenue")))
+    if rg is not None:
+        out["revenueGrowth"] = rg
+        how["revenueGrowth"] = "单季营收同比"
+    eg, eq_q = _yoy(_df_row(q_income, ("Diluted EPS",)))
+    if eg is None:
+        eg, eq_q = _yoy(_df_row(q_income, ("Net Income",)))
+    if eg is not None:
+        out["earningsGrowth"] = eg
+        how["earningsGrowth"] = "单季EPS/净利润同比"
+    mrq = rq or eq_q or (_to_date(eq_col).isoformat() if _to_date(eq_col) else None)
+    if mrq:
+        out["mostRecentQuarter"] = _epoch(_to_date(mrq))
+    # 分析师：analyst_price_targets / recommendations_summary（需 crumb；失败即缺失）
+    pt = price_targets if isinstance(price_targets, dict) else {}
+    tgt = _num(pt.get("mean"))
+    if tgt is not None and tgt > 0:
+        out["targetMeanPrice"] = tgt
+        how["targetMeanPrice"] = "analyst_price_targets"
+        cp = _num(pt.get("current"))
+        if cp is not None and cp > 0:
+            out["currentPrice"] = cp
+    try:
+        if rec_summary is not None and not rec_summary.empty:
+            row = rec_summary.iloc[0]
+            if "period" in rec_summary.columns:
+                cur_rows = rec_summary[rec_summary["period"] == "0m"]
+                if not cur_rows.empty:
+                    row = cur_rows.iloc[0]
+            counts = [(1, "strongBuy"), (2, "buy"), (3, "hold"), (4, "sell"), (5, "strongSell")]
+            vals = [(w, _num(row.get(k))) for w, k in counts]
+            if all(v is not None for _, v in vals):
+                n = sum(v for _, v in vals)
+                if n > 0:
+                    out["numberOfAnalystOpinions"] = n
+                    out["recommendationMean"] = sum(w * v for w, v in vals) / n
+                    how["numberOfAnalystOpinions"] = how["recommendationMean"] = "recommendations_summary"
+    except Exception:  # noqa: BLE001
+        pass
+    return out, how
+
+
+_SANITIZE_RE = None
+
+
+def _sanitize(msg: str) -> str:
+    import re
+
+    global _SANITIZE_RE
+    if _SANITIZE_RE is None:
+        _SANITIZE_RE = re.compile(r"(crumb|cookie|token)[=:]\s*[^\s&,'\"}]+", re.I)
+    return _SANITIZE_RE.sub(r"\1=<redacted>", str(msg))[:160]
+
+
+class _YfLogCapture(logging.Handler):
+    """Collect yfinance WARNING+ messages (e.g. 'HTTP Error 401 … Invalid Crumb') for the probe."""
+
+    def __init__(self, limit: int = 6):
+        super().__init__(level=logging.WARNING)
+        self.limit = limit
+        self.msgs: list[str] = []
+
+    def emit(self, record):  # noqa: D401
+        try:
+            m = _sanitize(record.getMessage())
+        except Exception:  # noqa: BLE001
+            return
+        if m not in self.msgs and len(self.msgs) < self.limit:
+            self.msgs.append(m)
+
+
+def _yf_version() -> str | None:
+    try:
+        import yfinance as yf
+
+        return getattr(yf, "__version__", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class UsInfoProvider:
-    """yfinance Ticker.info with 24h in-memory cache; failures are cached briefly as None."""
+    """Per-symbol US fundamentals record.
 
-    FAIL_TTL = 30 * 60
+    1) yfinance Ticker.info（quoteSummary + v7 quote，需 crumb）——缺少打分键即算「info为空」；
+    2) info 为空/失败时回退到 fundamentals-timeseries 报表接口（无需 crumb）+ 分析师接口；
+    3) info 正常的记录缓存 24h；info 为空/失败的记录只缓存 15 分钟（回退结果同样 15 分钟后重取）。
+    Record: {info, info_status ok|empty|failed, fetched, err, present, missing, fallback, fallback_how,
+             fallback_err, cached}.
+    """
 
-    def __init__(self, ttl: float = US_FUND_CACHE_TTL):
+    FAIL_TTL = US_INFO_NEG_TTL
+
+    def __init__(self, ttl: float = US_FUND_CACHE_TTL, neg_ttl: float = US_INFO_NEG_TTL,
+                 ticker_factory: Callable[[str], Any] | None = None, clock: Callable[[], float] | None = None):
         self.ttl = ttl
+        self.neg_ttl = neg_ttl
+        self._ticker_factory = ticker_factory
+        self._clock = clock or time.time
         self._lock = threading.Lock()
-        self._cache: dict[str, tuple[float, dict | None, str | None, str | None]] = {}
+        self._cache: dict[str, tuple[float, dict]] = {}
+        self.last_probe: dict | None = None
 
-    def _get_one(self, sym: str) -> tuple[dict | None, str | None, str | None]:
-        now = time.time()
+    def _ticker(self, sym: str):
+        if self._ticker_factory is not None:
+            return self._ticker_factory(sym)
+        import yfinance as yf
+
+        return yf.Ticker(sym)
+
+    def _fallback(self, t: Any, sym: str) -> tuple[dict, dict, dict]:
+        """Statements/analyst fallback; returns (info_like, how, endpoint_status)."""
+        ep: dict[str, str] = {}
+
+        def grab(name: str, fn: Callable[[], Any]):
+            try:
+                v = fn()
+            except Exception as exc:  # noqa: BLE001
+                ep[name] = f"error {type(exc).__name__}"
+                return None
+            empty = v is None or (hasattr(v, "empty") and v.empty) or (isinstance(v, dict) and not v)
+            ep[name] = "empty" if empty else "ok"
+            return None if empty else v
+
+        valuation = grab("valuation_measures", lambda: t.get_valuation_measures()
+                         if hasattr(t, "get_valuation_measures") else None)
+        ttm_income = grab("ttm_income_stmt", lambda: t.ttm_income_stmt)
+        q_income = grab("quarterly_income_stmt", lambda: t.quarterly_income_stmt)
+        q_balance = grab("quarterly_balance_sheet", lambda: t.quarterly_balance_sheet)
+        ttm_cf = grab("ttm_cashflow", lambda: t.ttm_cashflow)
+        price = None
+        try:
+            price = _num(t.fast_info["lastPrice"])
+            ep["fast_info"] = "ok" if price is not None else "empty"
+        except Exception as exc:  # noqa: BLE001
+            ep["fast_info"] = f"error {type(exc).__name__}"
+        targets = grab("analyst_price_targets", lambda: t.analyst_price_targets)
+        recs = grab("recommendations_summary", lambda: t.recommendations_summary)
+        info_like, how = info_from_statements(
+            valuation=valuation, ttm_income=ttm_income, q_income=q_income, q_balance=q_balance,
+            ttm_cashflow=ttm_cf, price=price, price_targets=targets, rec_summary=recs)
+        if price is not None:
+            info_like.setdefault("currentPrice", price)
+        return info_like, how, ep
+
+    def _get_one(self, sym: str, *, probe: bool = False) -> dict:
+        now = self._clock()
         with self._lock:
             hit = self._cache.get(sym)
         if hit:
-            ts, info, fetched, err = hit
-            if now - ts < (self.ttl if info is not None else self.FAIL_TTL):
-                return info, fetched, err
-        info, err = None, None
+            ts, rec = hit
+            ttl = self.ttl if rec.get("info_status") == "ok" else self.neg_ttl
+            if now - ts < ttl:
+                out = dict(rec)
+                out["cached"] = True
+                return out
+        cap = _YfLogCapture() if probe else None
+        yf_logger = logging.getLogger("yfinance")
+        if cap is not None:
+            yf_logger.addHandler(cap)
+        rec: dict[str, Any] = {"info": None, "info_status": "failed", "err": None, "present": [],
+                               "missing": list(US_INFO_NEEDED_KEYS), "fallback": None, "fallback_how": {},
+                               "fallback_err": None, "endpoints": {}, "info_key_count": 0, "cached": False}
         try:
-            import yfinance as yf
-
-            raw = yf.Ticker(sym).info or {}
-            if isinstance(raw, dict) and raw:
-                info = raw
-            else:
-                err = "info为空"
-        except Exception as exc:  # noqa: BLE001
-            err = f"{type(exc).__name__}: {str(exc)[:80]}"
-        fetched = today_cst().isoformat()
+            t = None
+            try:
+                t = self._ticker(sym)
+                raw = t.info or {}
+                if not isinstance(raw, dict):
+                    raw = {}
+                status, present, missing = info_needed_status(raw)
+                rec.update(info_key_count=len(raw), present=present, missing=missing)
+                if status == "ok":
+                    rec.update(info=raw, info_status="ok")
+                else:
+                    rec.update(info_status="empty", err="info缺少打分字段",
+                               quote_type=str(raw.get("quoteType") or "") or None)
+                    logger.warning("US fundamentals %s: Ticker.info lacks scoring keys (got %d keys: %s); "
+                                   "missing %s — likely Yahoo crumb/quoteSummary blocked; using statement fallback",
+                                   sym, len(raw), ",".join(sorted(raw)[:6]) or "-", ",".join(missing))
+            except Exception as exc:  # noqa: BLE001
+                rec.update(info_status="failed", err=f"{type(exc).__name__}: {_sanitize(exc)[:80]}")
+                logger.warning("US fundamentals %s: Ticker.info failed: %s", sym, rec["err"])
+            if rec["info_status"] != "ok" and t is not None:
+                try:
+                    fb, how, ep = self._fallback(t, sym)
+                    rec["endpoints"] = ep
+                    if fb and any(k in fb for k in US_INFO_NEEDED_KEYS):
+                        rec["fallback"] = fb
+                        rec["fallback_how"] = how
+                    else:
+                        rec["fallback_err"] = "报表接口也无可用字段"
+                except Exception as exc:  # noqa: BLE001
+                    rec["fallback_err"] = f"{type(exc).__name__}: {_sanitize(exc)[:80]}"
+        finally:
+            if cap is not None:
+                yf_logger.removeHandler(cap)
+                rec["yf_log"] = cap.msgs
+        rec["fetched"] = today_cst().isoformat()
         with self._lock:
-            self._cache[sym] = (time.time(), info, fetched, err)
-        return info, fetched, err
+            self._cache[sym] = (self._clock(), rec)
+        return dict(rec)
 
-    def batch(self, symbols: list[str]) -> dict[str, tuple[dict | None, str | None, str | None]]:
-        out: dict[str, tuple[dict | None, str | None, str | None]] = {}
+    def batch(self, symbols: list[str]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
         if not symbols:
             return out
         pool = ThreadPoolExecutor(max_workers=US_FUND_WORKERS)
-        futs = {pool.submit(self._get_one, s): s for s in symbols}
+        futs = {pool.submit(self._get_one, s, probe=(i == 0)): s for i, s in enumerate(symbols)}
         done, not_done = wait(list(futs), timeout=US_FUND_BATCH_TIMEOUT_SEC)
         for f in done:
             try:
                 out[futs[f]] = f.result()
             except Exception as exc:  # noqa: BLE001
-                out[futs[f]] = (None, None, type(exc).__name__)
+                out[futs[f]] = {"info": None, "info_status": "failed", "err": type(exc).__name__}
         for f in not_done:
-            out[futs[f]] = (None, None, "超时")
+            out[futs[f]] = {"info": None, "info_status": "failed", "err": "超时"}
         pool.shutdown(wait=False, cancel_futures=True)
         return out
 
 
 DEFAULT_US_PROVIDER = UsInfoProvider()
+
+
+def _normalize_record(rec: Any) -> dict:
+    """Accept the legacy (info, fetched, err) tuple or the provider dict record."""
+    if isinstance(rec, dict) and "info_status" in rec:
+        return rec
+    info, fetched, err = (tuple(rec) + (None, None, None))[:3] if isinstance(rec, (tuple, list)) else (None, None, "未取数")
+    if info is None:
+        return {"info": None, "info_status": "failed", "fetched": fetched, "err": err, "fallback": None}
+    status, present, missing = info_needed_status(info)
+    # legacy providers: an ETF quoteType dict is still a valid (ETF) answer
+    is_etf = str(info.get("quoteType") or "").upper() == "ETF"
+    if status == "ok" or is_etf:
+        return {"info": info, "info_status": "ok", "fetched": fetched, "err": err, "present": present,
+                "missing": missing, "fallback": None}
+    return {"info": None, "info_status": "empty", "fetched": fetched, "err": err or "info缺少打分字段",
+            "present": present, "missing": missing, "fallback": None, "info_key_count": len(info)}
+
+
+# —— 快照复用（GitHub Actions 生成的 docs/api 快照里的 fund_factors） ——
+
+def _parse_snapshot_time(v: Any) -> datetime | None:
+    """docs/api 的 updated_at 为无时区 ISO（导出环境 TZ=Asia/Shanghai），按 UTC+8 解释。"""
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(v))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=CST)
+    return dt
+
+
+class SnapshotFundIndex:
+    """symbol → {factor_key: factor, ...} from snapshot payloads, newest ok factor wins."""
+
+    def __init__(self, payloads: Iterable[tuple[str, dict]] = (), *, max_age_hours: float = US_SNAPSHOT_MAX_AGE_HOURS,
+                 now: Callable[[], datetime] | None = None):
+        self.max_age_hours = max_age_hours
+        self._now = now or (lambda: datetime.now(CST))
+        self._by_sym: dict[str, dict[str, tuple[datetime, str, dict]]] = {}
+        self.sources: list[dict] = []
+        for label, payload in payloads:
+            self.add(label, payload)
+
+    def add(self, label: str, payload: dict | None) -> None:
+        if not isinstance(payload, dict):
+            return
+        snap_at = _parse_snapshot_time(payload.get("updated_at"))
+        self.sources.append({"source": label, "updated_at": payload.get("updated_at")})
+        if snap_at is None:
+            return
+        rows = []
+        for bucket in ("all", "picks", "watchlist"):
+            rows.extend(payload.get(bucket) or [])
+        for th in payload.get("themes") or []:
+            rows.extend((th or {}).get("rows") or [])
+        for r in rows:
+            if not isinstance(r, dict) or not r.get("symbol") or (r.get("kind") or "stock") == "etf":
+                continue
+            for f in r.get("fund_factors") or []:
+                if not isinstance(f, dict) or f.get("status") != "ok" or f.get("key") not in US_FACTOR_KEYS:
+                    continue
+                if _num(f.get("signal")) is None:
+                    continue
+                # 已经是复用来的因子：沿用其原始快照时间，避免一份旧值被反复「续命」
+                orig = _parse_snapshot_time(f.get("snapshot_at")) if f.get("from_snapshot") else snap_at
+                if orig is None:
+                    continue
+                cur = self._by_sym.setdefault(r["symbol"], {}).get(f["key"])
+                if cur is None or orig > cur[0]:
+                    self._by_sym[r["symbol"]][f["key"]] = (orig, label, f)
+
+    def lookup(self, symbol: str, key: str) -> dict | None:
+        hit = (self._by_sym.get(symbol) or {}).get(key)
+        if not hit:
+            return None
+        orig, label, f = hit
+        age_h = (self._now() - orig).total_seconds() / 3600.0
+        if age_h < 0 or age_h > self.max_age_hours:
+            return None
+        g = dict(f)
+        stamp = orig.astimezone(CST).strftime("%Y-%m-%d %H:%M")
+        base_text = f.get("value_text") or ""
+        if f.get("from_snapshot"):
+            base_text = base_text.split("（来自快照")[0]
+        base_asof = f.get("snapshot_orig_asof") if f.get("from_snapshot") else f.get("asof")
+        g.update({
+            "from_snapshot": True,
+            "data_route": "snapshot",
+            "snapshot_at": orig.isoformat(timespec="seconds"),
+            "snapshot_age_hours": round(age_h, 1),
+            "snapshot_source": label,
+            "snapshot_orig_asof": base_asof,
+            "value_text": f"{base_text}（来自快照 {stamp} 北京时间）",
+            "asof": f"{base_asof or '日期未知'}·来自快照",
+            "source": f"{f.get('source') or 'Yahoo Finance'} · 来自快照",
+            "reason": None,
+            "weight": None,
+            "contribution": None,
+        })
+        return g
+
+    def __len__(self) -> int:
+        return len(self._by_sym)
+
+
+_SNAPSHOT_LOCK = threading.Lock()
+_SNAPSHOT_REMOTE_CACHE: tuple[float, list[tuple[str, dict]]] | None = None
+
+
+def _remote_snapshots(timeout: float = 8.0) -> list[tuple[str, dict]]:
+    """Latest docs/api snapshots from GitHub raw (public). Disabled with FUND_SNAPSHOT_REMOTE=0."""
+    import os
+
+    global _SNAPSHOT_REMOTE_CACHE
+    if os.environ.get("FUND_SNAPSHOT_REMOTE", "1") == "0":
+        return []
+    with _SNAPSHOT_LOCK:
+        if _SNAPSHOT_REMOTE_CACHE and time.time() - _SNAPSHOT_REMOTE_CACHE[0] < US_SNAPSHOT_REMOTE_TTL:
+            return _SNAPSHOT_REMOTE_CACHE[1]
+    out: list[tuple[str, dict]] = []
+    try:
+        import requests
+
+        for url in US_SNAPSHOT_REMOTE_URLS:
+            try:
+                r = requests.get(url, timeout=timeout)
+                if r.ok:
+                    out.append((url, r.json()))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("remote snapshot %s: %s", url, exc)
+    except Exception:  # noqa: BLE001
+        pass
+    with _SNAPSHOT_LOCK:
+        _SNAPSHOT_REMOTE_CACHE = (time.time(), out)
+    return out
+
+
+def default_snapshot_index(*, remote: bool = True) -> SnapshotFundIndex:
+    """Bundled docs/api/short_put.json + short_call.json (+ newest copies on GitHub main)."""
+    import json
+    from pathlib import Path
+
+    payloads: list[tuple[str, dict]] = []
+    root = Path(__file__).resolve().parent
+    for rel in ("docs/api/short_put.json", "docs/api/short_call.json"):
+        p = root / rel
+        try:
+            if p.exists():
+                payloads.append((rel, json.loads(p.read_text(encoding="utf-8"))))
+        except Exception:  # noqa: BLE001
+            logger.debug("snapshot load failed %s", rel, exc_info=True)
+    if remote:
+        payloads.extend(_remote_snapshots())
+    return SnapshotFundIndex(payloads)
+
+
+_FACTOR_INFO_KEYS: dict[str, tuple[str, ...]] = {
+    "valuation": ("forwardPE", "trailingPE"),
+    "quality": ("profitMargins", "returnOnEquity", "freeCashflow", "debtToEquity"),
+    "growth": ("revenueGrowth", "earningsGrowth"),
+    "analyst": ("numberOfAnalystOpinions", "targetMeanPrice", "recommendationMean"),
+}
+
+
+def _label_route(facs: list[dict], route: str, symbol: str, how: dict[str, str] | None = None) -> None:
+    for f in facs:
+        if f.get("status") != "ok":
+            continue
+        f["data_route"] = route
+        if route == "statements":
+            src = _src_us_analyst(symbol) if f["key"] == "analyst" else _src_us_statements(symbol)
+            f["source"], f["source_function"], f["source_url"] = src["label"], src["function"], src["url"]
+            if how:
+                keys = _FACTOR_INFO_KEYS.get(f["key"], ())
+                if f["key"] == "valuation":
+                    keys = ("forwardPE",) if "远期PE" in (f.get("value_text") or "") else ("trailingPE",)
+                hows = list(dict.fromkeys(how[k] for k in keys if k in how))
+                f["value_text"] = f"{f.get('value_text') or ''}（{'、'.join(hows) if hows else '按财报'}）"
+
+
+def _probe_from(sym: str | None, rec: dict | None) -> dict | None:
+    if not sym or not rec:
+        return None
+    return {
+        "symbol": sym,
+        "yfinance": _yf_version(),
+        "info_status": rec.get("info_status"),
+        "info_key_count": rec.get("info_key_count"),
+        "needed_present": rec.get("present") or [],
+        "needed_missing": rec.get("missing") or [],
+        "fallback_keys": sorted((rec.get("fallback") or {}).keys()),
+        "endpoints": rec.get("endpoints") or {},
+        "yf_log": rec.get("yf_log") or [],
+        "cached": bool(rec.get("cached")),
+        "error": rec.get("err"),
+    }
 
 
 def apply_us_fundamentals(
@@ -762,11 +1300,13 @@ def apply_us_fundamentals(
     option_key: str,
     top_n: int = US_FUND_TOP_N,
     provider: Any = None,
+    snapshot: "SnapshotFundIndex | Callable[[], SnapshotFundIndex] | None" = None,
 ) -> dict[str, Any]:
     """Score fundamentals for the top-N technical rows that have an option idea.
 
+    Per factor the data route is: Ticker.info → 报表回退 → 快照（≤48h，标「来自快照」）→ 无数据.
     Mutates rows: adds tech_score/fund_score/combined_score/fund_factors/earnings_window.
-    Returns meta for the payload.
+    Returns meta for the payload (honest counts, per-factor routes and a 1-symbol probe).
     """
     t0 = time.time()
     side = "call" if side == "call" else "put"
@@ -776,8 +1316,25 @@ def apply_us_fundamentals(
     stocks = [r for r in by_tech if r.get(option_key) and (r.get("kind") or "stock") != "etf"][:top_n]
     targets = stocks
     target_ids = {id(r) for r in targets}
-    fetched = provider.batch([r["symbol"] for r in stocks]) if stocks else {}
-    n_ok = n_fail = 0
+    raw = provider.batch([r["symbol"] for r in stocks]) if stocks else {}
+    fetched = {s: _normalize_record(v) for s, v in raw.items()}
+    snap_state: dict[str, Any] = {"index": snapshot if isinstance(snapshot, SnapshotFundIndex) else None,
+                                  "factory": snapshot if (snapshot is not None and not isinstance(snapshot, SnapshotFundIndex)) else None,
+                                  "error": None}
+
+    def _snap() -> SnapshotFundIndex | None:
+        # 懒加载：只有确实缺因子时才读快照（含 GitHub raw）
+        if snap_state["index"] is None and snap_state["factory"] is not None:
+            fac, snap_state["factory"] = snap_state["factory"], None
+            try:
+                snap_state["index"] = fac()
+            except Exception as exc:  # noqa: BLE001
+                snap_state["error"] = f"{type(exc).__name__}: {str(exc)[:80]}"
+        return snap_state["index"]
+
+    n_ok = n_empty = n_fail = 0
+    n_fb_any = n_snap_any = n_scored = 0
+    routes = {k: {"info": 0, "statements": 0, "snapshot": 0, "missing": 0} for k in US_FACTOR_KEYS}
     for r in rows:
         opt = r.get(option_key)
         ew = earnings_window(r.get("earnings"), opt)
@@ -791,32 +1348,84 @@ def apply_us_fundamentals(
         if id(r) not in target_ids:
             apply_fund_to_row(r, None, not_computed_reason=f"基本面未计算（仅对技术分前{top_n}名且有期权合约的标的计算）")
             continue
-        info, fdate, err = fetched.get(r["symbol"], (None, None, "未取数"))
-        if info is not None and str(info.get("quoteType") or "").upper() == "ETF":
+        sym = r["symbol"]
+        rec = fetched.get(sym) or {"info": None, "info_status": "failed", "err": "未取数"}
+        info = rec.get("info")
+        qt = str((info or {}).get("quoteType") or rec.get("quote_type") or "").upper()
+        if qt == "ETF":
             fund = score_factors([], US_FACTOR_WEIGHTS, side)
             fund["fund_status_cn"] = "基本面无数据（ETF 不适用个股基本面）"
             apply_fund_to_row(r, fund)
             continue
-        if info is None:
-            n_fail += 1
-            facs = us_factors_from_info({}, r["symbol"], None)
-            for f in facs:
-                f["reason"] = f"取数失败：{err}" if err else f.get("reason")
-        else:
+        fdate = rec.get("fetched")
+        st = rec.get("info_status")
+        if st == "ok":
             n_ok += 1
-            facs = us_factors_from_info(info, r["symbol"], fdate, r.get("price"))
+            facs = us_factors_from_info(info, sym, fdate, r.get("price"))
+            _label_route(facs, "info", sym)
+        else:
+            if st == "empty":
+                n_empty += 1
+            else:
+                n_fail += 1
+            fb = rec.get("fallback")
+            if fb:
+                facs = us_factors_from_info(fb, sym, fdate, r.get("price"))
+                _label_route(facs, "statements", sym, rec.get("fallback_how"))
+            else:
+                facs = us_factors_from_info({}, sym, None)
+            why = "Ticker.info 缺少打分字段" if st == "empty" else f"取数失败：{rec.get('err')}"
+            for f in facs:
+                if f.get("status") != "ok":
+                    f["reason"] = f"{why}；报表回退无此项" if fb else (
+                        f"{why}" + (f"；报表回退失败：{rec.get('fallback_err')}" if rec.get("fallback_err") else ""))
+        # 快照复用（仅对仍缺失的因子）
+        if snapshot is not None and any(f.get("status") != "ok" for f in facs) and _snap() is not None:
+            idx = _snap()
+            for i, f in enumerate(facs):
+                if f.get("status") == "ok":
+                    continue
+                g = idx.lookup(sym, f["key"])
+                if g is not None:
+                    facs[i] = g
+                else:
+                    f["reason"] = (f.get("reason") or "") + f"；无{US_SNAPSHOT_MAX_AGE_HOURS:.0f}小时内快照"
+        used_fb = used_snap = False
+        for f in facs:
+            route = f.get("data_route") if f.get("status") == "ok" else "missing"
+            routes[f["key"]][route or "missing"] += 1
+            used_fb |= route == "statements"
+            used_snap |= route == "snapshot"
+        n_fb_any += used_fb
+        n_snap_any += used_snap
         pen = EARNINGS_IN_WINDOW_PENALTY if (ew and ew["in_window"]) else 0.0
         fund = score_factors(facs, US_FACTOR_WEIGHTS, side, penalty=pen,
                              penalty_reason=(ew or {}).get("text") if pen else None)
+        if fund.get("fund_score") is not None:
+            n_scored += 1
         apply_fund_to_row(r, fund)
+    probe_sym = stocks[0]["symbol"] if stocks else None
+    degraded = (n_empty + n_fail) > 0
     return {
         "top_n": top_n,
         "targets": len(targets),
         "stocks_fetched": len(stocks),
         "info_ok": n_ok,
+        "info_empty": n_empty,
         "info_failed": n_fail,
+        "fallback_used": n_fb_any,
+        "snapshot_used": n_snap_any,
+        "fund_scored": n_scored,
+        "factor_routes": routes,
+        "data_status": "degraded" if degraded else "live",
+        "snapshot_max_age_hours": US_SNAPSHOT_MAX_AGE_HOURS if snapshot is not None else None,
+        "snapshot_loaded": snap_state["index"] is not None,
+        "snapshot_sources": (snap_state["index"].sources if snap_state["index"] is not None else []),
+        "snapshot_error": snap_state["error"],
+        "probe": _probe_from(probe_sym, fetched.get(probe_sym) if probe_sym else None),
         "seconds": round(time.time() - t0, 1),
         "cache_ttl_hours": US_FUND_CACHE_TTL / 3600,
+        "neg_cache_minutes": US_INFO_NEG_TTL / 60,
     }
 
 
@@ -830,7 +1439,8 @@ def method_text(market: str, side: str) -> str:
     else:
         w = US_FACTOR_WEIGHTS
         body = (f"估值{w['valuation']:.0%}、盈利质量{w['quality']:.0%}、成长{w['growth']:.0%}、分析师{w['analyst']:.0%}；"
-                f"财报落在期权到期前扣{EARNINGS_IN_WINDOW_PENALTY:.0f}分；仅对技术分前{US_FUND_TOP_N}名计算，缓存24小时")
+                f"财报落在期权到期前扣{EARNINGS_IN_WINDOW_PENALTY:.0f}分；仅对技术分前{US_FUND_TOP_N}名计算，缓存24小时；"
+                f"Yahoo 关键统计取不到时改用财报时间序列计算，仍缺失则复用{US_SNAPSHOT_MAX_AGE_HOURS:.0f}小时内快照（标「来自快照」）")
     return (f"{side_cn}基本面分0–100（50=中性，{pol}）：{body}。缺失因子标「无数据」并在可用因子间重新归一；"
             f"全部缺失时综合分=技术分。综合分={TECH_WEIGHT:.0%}×技术分(截断0–100)+{FUND_WEIGHT:.0%}×基本面分；"
             f"入选门槛仍按原技术分，排序按综合分。")

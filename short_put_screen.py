@@ -773,9 +773,10 @@ def _fund_method_text(market: str, side: str) -> str:
 def _apply_fundamentals(rows: list[dict], side: str) -> dict:
     """Never fatal: on any failure every row keeps combined_score = tech score."""
     try:
-        from fundamentals import apply_us_fundamentals
+        from fundamentals import apply_us_fundamentals, default_snapshot_index
 
-        meta = apply_us_fundamentals(rows, side, option_key=side)
+        # info 取不到时：报表回退 → ≤48h 的 Pages 快照（bundled + GitHub main），标「来自快照」
+        meta = apply_us_fundamentals(rows, side, option_key=side, snapshot=default_snapshot_index)
         meta["status"] = "ok"
         return meta
     except Exception as exc:  # noqa: BLE001
