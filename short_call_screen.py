@@ -466,6 +466,8 @@ def build_short_call_screen(force: bool = False, top_n: int = 20, option_n: int 
     if not force and _cache is None:
         seed = _load_seed_snapshot()
         if seed is not None:
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="call")
             _cache = (time.time(), seed)
             bg_tasks.submit("short-call", lambda: build_short_call_screen(force=True, top_n=top_n, option_n=option_n))
             return seed
@@ -718,6 +720,8 @@ def build_short_call_screen(force: bool = False, top_n: int = 20, option_n: int 
         "core_symbols": sorted(CORE_UNIVERSE.keys()),
         "disclaimer": "研究用途，非投资建议。备兑需持有标的；裸卖Call损失理论上不封顶。",
     }
+    from cn_option_candidates import attach_cn_candidates
+    payload = attach_cn_candidates(payload, side="call", populate=True)
     _cache = (time.time(), payload)
     return payload
 

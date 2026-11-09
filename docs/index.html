@@ -342,7 +342,7 @@
           <div class="panel-head">
             <div>
               <h2>高波动股票 / ETF · 卖出看跌（CSP）推荐</h2>
-              <p class="sub" id="put-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Put 候选</p>
+              <p class="sub" id="put-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Put 候选；国内期货见下方方向栏</p>
             </div>
             <div class="put-hero-actions">
               <span class="tag-pill" id="put-count-pill">—</span>
@@ -381,6 +381,7 @@
               <button type="button" data-kind="all" class="active">全部</button>
               <button type="button" data-kind="stock">股票</button>
               <button type="button" data-kind="etf">ETF</button>
+              <button type="button" data-kind="cn_fut">国内期货</button>
             </div>
           </div>
           <div class="put-filters" id="put-filters">
@@ -405,6 +406,19 @@
           </div>
           <div class="put-card-grid" id="put-picks">
             <div class="empty-card">正在计算高波动卖Put候选…</div>
+          </div>
+        </div>
+
+        <div class="panel" id="put-cn-panel">
+          <div class="panel-head">
+            <div>
+              <h2>国内期货（有上市期权）· 卖Put 方向候选</h2>
+              <p class="sub" id="put-cn-meta">连续合约标的方向研究 · 未核验期权链/流动性 · 人民币 · 不可下单</p>
+            </div>
+            <span class="tag-pill" id="put-cn-count-pill">—</span>
+          </div>
+          <div class="put-card-grid" id="put-cn-picks">
+            <div class="empty-card">加载国内期货方向候选…</div>
           </div>
         </div>
 
@@ -487,7 +501,7 @@
           <div class="panel-head">
             <div>
               <h2>高波动股票 / ETF · 卖出看涨（备兑 Call）推荐</h2>
-              <p class="sub" id="call-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Call 候选</p>
+              <p class="sub" id="call-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Call 候选；国内期货见下方方向栏</p>
             </div>
             <div class="put-hero-actions">
               <span class="tag-pill" id="call-count-pill">—</span>
@@ -526,6 +540,7 @@
               <button type="button" data-kind="all" class="active">全部</button>
               <button type="button" data-kind="stock">股票</button>
               <button type="button" data-kind="etf">ETF</button>
+              <button type="button" data-kind="cn_fut">国内期货</button>
             </div>
           </div>
           <div class="put-filters" id="call-filters">
@@ -550,6 +565,19 @@
           </div>
           <div class="put-card-grid" id="call-picks">
             <div class="empty-card">正在计算高波动卖Call候选…</div>
+          </div>
+        </div>
+
+        <div class="panel" id="call-cn-panel">
+          <div class="panel-head">
+            <div>
+              <h2>国内期货（有上市期权）· 卖Call 方向候选</h2>
+              <p class="sub" id="call-cn-meta">连续合约标的方向研究 · 未核验期权链/流动性 · 人民币 · 不可下单</p>
+            </div>
+            <span class="tag-pill" id="call-cn-count-pill">—</span>
+          </div>
+          <div class="put-card-grid" id="call-cn-picks">
+            <div class="empty-card">加载国内期货方向候选…</div>
           </div>
         </div>
 
@@ -1008,6 +1036,7 @@
 
   <script src="./static/ng_option_judgment.js?v=static"></script>
   <script src="./static/us_movers_view.js?v=static"></script>
+  <script src="./static/cn_option_candidates_view.js?v=static"></script>
   <script src="./static/app.js?v=static"></script>
 </body>
 </html>

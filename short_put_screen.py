@@ -781,6 +781,8 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
     if not force and _cache is None:
         seed = _load_seed_snapshot()
         if seed is not None:
+            from cn_option_candidates import ensure_cn_candidate_fields
+            seed = ensure_cn_candidate_fields(seed, side="put")
             _cache = (time.time(), seed)
             bg_tasks.submit("short-put", lambda: build_short_put_screen(force=True, top_n=top_n, option_n=option_n))
             return seed
@@ -1058,6 +1060,8 @@ def build_short_put_screen(force: bool = False, top_n: int = 20, option_n: int =
         "core_symbols": sorted(CORE_UNIVERSE.keys()),
         "disclaimer": "研究用途，非投资建议。期权有杠杆与流动性风险，请独立判断。",
     }
+    from cn_option_candidates import attach_cn_candidates
+    payload = attach_cn_candidates(payload, side="put", populate=True)
     _cache = (time.time(), payload)
     return payload
 

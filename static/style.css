@@ -1614,3 +1614,12 @@ tbody tr.active {
 .cnidx-advice.stance-bear .cnidx-stance {
   background: rgba(251, 113, 133, 0.18); color: #fda4af;
 }
+
+/* CN futures direction candidates in put/call tabs */
+.cn-fut-card { border-color: #2a4d73; }
+.cn-fut-risk { color: #9ed0ff; font-size: 12px; line-height: 1.45; margin-top: 6px; }
+.put-flags { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.badge.cn-fut { color: #9ed0ff; border-color: #2a4d73; background: #142335; }
+
+.cn-asof, .cn-scanned { color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 2px; }
+.cn-asof { color: #9ed0ff; }
