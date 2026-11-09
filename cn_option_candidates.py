@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
 CST = timezone(timedelta(hours=8))
+# 扫描时间统一为 UTC+8（北京时间 = 新加坡时间）；标签由实际时间戳偏移推导。
+CN_HV20_MIN = 18.0
+FETCH_ATTEMPTS = 2
+FETCH_RETRY_DELAY_SEC = 1.5
 
 # 公开可追溯来源（交易所/券商规则页）。行级 source_urls 引用这些键。
 SOURCE_CATALOG: dict[str, str] = {
@@ -277,15 +282,28 @@ def prepare_close_frame(df) -> tuple[Any | None, str | None, str | None]:
     return series, None, None
 
 
+def metrics_gate(series) -> tuple[str | None, float | None]:
+    """Return (reject_reason, hv20). reject_reason None means the series passes."""
+    from short_put_screen import _hv
+
+    if series is None or len(series) < 40:
+        return "insufficient_bars", None
+    hv20 = _hv(series, 20)
+    if hv20 is None:
+        return "hv20_unavailable", None
+    if hv20 < CN_HV20_MIN:
+        return "low_hv20", float(hv20)
+    return None, float(hv20)
+
+
 def _metrics_from_series(series) -> dict[str, Any] | None:
     from short_put_screen import _hv, _hv_percentile, _r, _rsi
 
-    if series is None or len(series) < 40:
+    gate, _ = metrics_gate(series)
+    if gate is not None:
         return None
     px = float(series.iloc[-1])
     hv20 = _hv(series, 20)
-    if hv20 is None or hv20 < 18:
-        return None
     hv60 = _hv(series, 60)
     ma20 = float(series.tail(20).mean()) if len(series) >= 20 else None
     ma60 = float(series.tail(60).mean()) if len(series) >= 60 else None
@@ -357,6 +375,51 @@ def now_cst_iso() -> str:
     return datetime.now(CST).isoformat(timespec="seconds")
 
 
+def tz_label_for(ts: str | None) -> str | None:
+    """Label derived from the timestamp's own UTC offset (never hard-coded)."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts))
+    except Exception:
+        return None
+    off = dt.utcoffset()
+    if off is None:
+        return None
+    mins = int(off.total_seconds() // 60)
+    sign = "+" if mins >= 0 else "-"
+    h, m = divmod(abs(mins), 60)
+    utc = f"UTC{sign}{h}" + (f":{m:02d}" if m else "")
+    if mins == 8 * 60:
+        return f"北京时间/新加坡时间 {utc}"
+    return utc
+
+
+_REASON_CN = {
+    "fetch_error": "取数失败",
+    "empty_frame": "无行情数据",
+    "missing_close_column": "缺收盘价列",
+    "date_column_unparseable": "日期列无法解析",
+    "nonpositive_or_nonfinite_close": "收盘价含非正/非有限值",
+    "insufficient_bars": "日线不足40根",
+    "hv20_unavailable": "HV20无法计算",
+    "low_hv20": f"HV20<{CN_HV20_MIN:.0f}%（波动不足，未入评分）",
+}
+
+
+def _load_with_retry(loader: HistoryLoader, iid: str):
+    last: Exception | None = None
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            return loader(iid)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if attempt + 1 < FETCH_ATTEMPTS and FETCH_RETRY_DELAY_SEC > 0:
+                time.sleep(FETCH_RETRY_DELAY_SEC)
+    assert last is not None
+    raise last
+
+
 def build_cn_direction_candidates(
     side: str = "put",
     *,
@@ -374,22 +437,46 @@ def build_cn_direction_candidates(
         from short_put_screen import _r, _score_row
 
     scanned_at = now_cst_iso()
+    scanned_tz = tz_label_for(scanned_at)
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     reject_reasons: dict[str, str] = {}
+    failed: list[dict[str, Any]] = []      # 取数/数据校验失败（未取到可用行情）
+    filtered: list[dict[str, Any]] = []    # 取到行情但未过 HV/样本门槛
+    fetched_ok = 0
     for meta in optionable_universe():
         sym = meta["symbol"]
         iid = meta["id"]
         try:
-            df = loader(iid)
+            try:
+                df = _load_with_retry(loader, iid)
+            except Exception as exc:  # noqa: BLE001
+                detail = f"{type(exc).__name__}: {str(exc)[:160]}"
+                logger.warning("cn candidate %s fetch failed: %s", sym, detail)
+                failed.append({"symbol": sym, "name": meta["name"], "reason": "fetch_error",
+                               "reason_cn": _REASON_CN["fetch_error"], "detail": detail})
+                reject_reasons[sym] = "fetch_error"
+                errors.append(f"{sym}:{type(exc).__name__}")
+                continue
             series, asof, reject = prepare_close_frame(df)
             if reject:
+                logger.warning("cn candidate %s rejected: %s", sym, reject)
+                failed.append({"symbol": sym, "name": meta["name"], "reason": reject,
+                               "reason_cn": _REASON_CN.get(reject, reject)})
                 reject_reasons[sym] = reject
                 errors.append(f"{sym}:{reject}")
                 continue
-            metrics = _metrics_from_series(series)
+            fetched_ok += 1
+            gate, hv20_val = metrics_gate(series)
+            metrics = None if gate else _metrics_from_series(series)
             if metrics is None:
-                reject_reasons[sym] = "insufficient_bars_or_low_hv"
+                gate = gate or "hv20_unavailable"
+                logger.info("cn candidate %s filtered: %s hv20=%s", sym, gate, hv20_val)
+                filtered.append({"symbol": sym, "name": meta["name"], "reason": gate,
+                                 "reason_cn": _REASON_CN.get(gate, gate),
+                                 "hv20": None if hv20_val is None else round(hv20_val, 1),
+                                 "asof": asof or "未知"})
+                reject_reasons[sym] = gate
                 continue
             row = {
                 **metrics,
@@ -415,18 +502,21 @@ def build_cn_direction_candidates(
                 "price_note": "新浪主力连续合约收盘价（人民币）；非具体可交易期权标的合约",
                 "asof": asof or "未知",
                 "asof_status": "ok" if asof else "unknown",
-                "asof_tz": "Asia/Tokyo-calendar-date" if asof else None,
+                "asof_tz": "交易所交易日（日线日期）" if asof else None,
                 "price_source": "sina_continuous_daily",
                 "scanned_at": scanned_at,
-                "scanned_at_tz": "Asia/Tokyo (UTC+9)",
+                "scanned_at_tz": scanned_tz,
             }
             row["score"] = _r(_score_row(row), 1)
             row["bias_cn"] = _cn_bias(row.get("score"), row.get("rsi14"), side)
             row["action"] = _cn_action(side)
             row["risk"] = _cn_risk(side)
             rows.append(row)
-        except Exception as exc:
-            logger.debug("cn candidate %s failed: %s", sym, exc)
+        except Exception as exc:  # noqa: BLE001 — scoring bug etc.; never silent
+            detail = f"{type(exc).__name__}: {str(exc)[:160]}"
+            logger.warning("cn candidate %s failed: %s", sym, detail)
+            failed.append({"symbol": sym, "name": meta["name"], "reason": "processing_error",
+                           "reason_cn": "处理异常", "detail": detail})
             errors.append(f"{sym}:{type(exc).__name__}")
             reject_reasons[sym] = type(exc).__name__
 
@@ -435,6 +525,9 @@ def build_cn_direction_candidates(
     picks = [r for r in ranked if (r.get("score") or 0) >= min_score][:top_n]
     status = "ok" if picks else ("empty" if not ranked else "below_threshold")
     note = None
+    if failed:
+        logger.warning("cn candidates %s: %d/%d symbols without usable data: %s", side, len(failed),
+                       len(CN_OPTIONABLE_CONTINUOUS), ", ".join(f["symbol"] for f in failed))
     if not ranked:
         note = "白名单品种暂无足够连续合约行情，或波动未达筛选阈值；未伪补国内信号。"
     elif not picks:
@@ -444,9 +537,13 @@ def build_cn_direction_candidates(
         "status": status,
         "updated_at": scanned_at,
         "scanned_at": scanned_at,
-        "scanned_at_tz": "Asia/Tokyo (UTC+9)",
+        "scanned_at_tz": scanned_tz,
         "universe_size": len(CN_OPTIONABLE_CONTINUOUS),
         "scanned": len(ranked),
+        "fetched": fetched_ok,
+        "failed": failed,
+        "filtered": filtered,
+        "hv20_min": CN_HV20_MIN,
         "candidates": picks,
         "all": ranked,
         "errors": errors[:20],
@@ -479,6 +576,18 @@ def ensure_cn_candidate_fields(payload: dict | None, side: str = "put") -> dict:
         meta.setdefault("status", "ok" if out["cn_candidates"] else "empty")
         meta.setdefault("universe_size", len(CN_OPTIONABLE_CONTINUOUS))
         meta.setdefault("min_score", CN_MIN_SCORE)
+        # Re-derive tz labels from the timestamps (fixes old "Asia/Tokyo (UTC+9)" labels).
+        if meta.get("scanned_at"):
+            meta["scanned_at_tz"] = tz_label_for(meta["scanned_at"]) or meta.get("scanned_at_tz")
+        fixed_rows = []
+        for r in out["cn_candidates"]:
+            if isinstance(r, dict) and r.get("scanned_at"):
+                r = dict(r)
+                r["scanned_at_tz"] = tz_label_for(r["scanned_at"]) or r.get("scanned_at_tz")
+                if r.get("asof_tz") == "Asia/Tokyo-calendar-date":
+                    r["asof_tz"] = "交易所交易日（日线日期）"
+            fixed_rows.append(r)
+        out["cn_candidates"] = fixed_rows
         out["cn_candidate_meta"] = meta
     # Strip any CN rows that may have leaked into US lists (old buggy attach).
     for key in ("picks", "watchlist", "all"):
@@ -516,6 +625,10 @@ def attach_cn_candidates(
             "note": built.get("note"),
             "universe_size": built["universe_size"],
             "scanned": built["scanned"],
+            "fetched": built.get("fetched"),
+            "failed": built.get("failed") or [],
+            "filtered": built.get("filtered") or [],
+            "hv20_min": built.get("hv20_min"),
             "errors": built.get("errors") or [],
             "reject_reasons": built.get("reject_reasons") or {},
             "source_notes": built.get("source_notes") or [],

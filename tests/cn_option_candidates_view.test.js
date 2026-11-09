@@ -50,7 +50,7 @@ function testCardShowsAsofAndScanSeparatelyNoUsd() {
       score: 35,
       bias_cn: "观望等待（方向·研究）",
       asof: "2026-11-06",
-      scanned_at: "2026-11-09T10:00:00+09:00",
+      scanned_at: "2026-11-09T18:25:00+08:00",
       scanned_at_tz: "Asia/Tokyo (UTC+9)",
       action: "标的方向研究/观望候选（连续合约）；未核验期权链与流动性，不能下单。",
       risk: { flags: ["连续合约", "期权链未核验"], margin_note: "期货期权保证金" },
@@ -58,8 +58,9 @@ function testCardShowsAsofAndScanSeparatelyNoUsd() {
     "put"
   );
   assert.ok(html.includes("行情截至：2026-11-06"));
-  assert.ok(html.includes("扫描时间：2026-11-09T10:00:00+09:00"));
-  assert.ok(html.includes("Asia/Tokyo"));
+  assert.ok(html.includes("扫描时间：2026-11-09T18:25:00+08:00"));
+  assert.ok(html.includes("北京时间/新加坡时间 UTC+8"));
+  assert.ok(!html.includes("Tokyo"), "legacy label must not leak into UI");
   assert.ok(html.includes("CNY") || html.includes("¥"));
   assert.ok(!html.includes("$"));
   assert.ok(!html.includes("CSP"));
@@ -70,7 +71,41 @@ function testCardUnknownAsof() {
   assert.ok(html.includes("行情截至：未知"));
 }
 
+function testTzLabelFromOffset() {
+  assert.strictEqual(view.tzLabelFor("2026-11-09T18:25:00+08:00"), "北京时间/新加坡时间 UTC+8");
+  assert.strictEqual(view.tzLabelFor("2026-11-09T18:25:00+09:00"), "UTC+9");
+  assert.strictEqual(view.tzLabelFor("2026-11-09T18:25:00"), "");
+  const norm = view.normalizePayload({
+    cn_candidates: [],
+    cn_candidate_meta: { status: "below_threshold", scanned_at: "2026-11-09T18:25:00+08:00", scanned_at_tz: "Asia/Tokyo (UTC+9)" },
+  });
+  assert.strictEqual(norm.scanned_at_tz, "北京时间/新加坡时间 UTC+8");
+}
+
+function testFailureSummary() {
+  const txt = view.failureSummary({
+    failed: [{ symbol: "CU0", name: "沪铜", reason: "fetch_error" }],
+    filtered: [{ symbol: "M0" }, { symbol: "C0" }],
+    hv20_min: 18,
+  });
+  assert.ok(txt.includes("未取到数据：1个"));
+  assert.ok(txt.includes("沪铜"));
+  assert.ok(txt.includes("HV20<18%未入评分：2个"));
+  assert.strictEqual(view.failureSummary({}), "");
+}
+
+function testShouldRepoll() {
+  assert.strictEqual(view.shouldRepoll({ refresh: { status: "started", queued: true } }, 0), true);
+  assert.strictEqual(view.shouldRepoll({ refresh: { status: "running", queued: true } }, 3), true);
+  assert.strictEqual(view.shouldRepoll({ refresh: { status: "fresh", queued: false } }, 0), false);
+  assert.strictEqual(view.shouldRepoll({ source: "seed" }, 0), false); // static Pages JSON
+  assert.strictEqual(view.shouldRepoll({ refresh: { status: "running", queued: true } }, 12), false);
+}
+
 testNormalizeAbsent();
+testTzLabelFromOffset();
+testFailureSummary();
+testShouldRepoll();
 testFilterByKindExcludesCnFromUs();
 testUsTableNeverRendersCnEvenIfMergedIntoAll();
 testCardShowsAsofAndScanSeparatelyNoUsd();

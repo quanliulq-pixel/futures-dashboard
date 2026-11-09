@@ -2691,7 +2691,31 @@
     if (modal) modal.classList.add("hidden");
   }
 
-  async function loadShortPut(force = false) {
+  // Render serves a seed/cache immediately and rebuilds in the background;
+  // re-poll the read endpoint so a finished scan replaces the old snapshot.
+  const SCREEN_REPOLL_MS = 45000;
+  function scheduleScreenRepoll(side, data, isRepoll) {
+    const view = window.cnOptionCandidatesView;
+    state.screenRepoll = state.screenRepoll || { put: { n: 0, t: null }, call: { n: 0, t: null } };
+    const slot = state.screenRepoll[side];
+    if (!isRepoll) slot.n = 0;
+    if (slot.t) {
+      clearTimeout(slot.t);
+      slot.t = null;
+    }
+    if (!view || !view.shouldRepoll || !view.shouldRepoll(data, slot.n)) {
+      slot.n = 0;
+      return;
+    }
+    slot.n += 1;
+    slot.t = setTimeout(() => {
+      slot.t = null;
+      if (side === "call") loadShortCall(false, true);
+      else loadShortPut(false, true);
+    }, SCREEN_REPOLL_MS);
+  }
+
+  async function loadShortPut(force = false, repoll = false) {
     if (state.putLoading) return;
     state.putLoading = true;
     const btn = $("#btn-put-refresh");
@@ -2705,6 +2729,7 @@
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "short put failed");
       renderShortPut(data);
+      scheduleScreenRepoll("put", data, repoll);
     } catch (err) {
       console.error("loadShortPut error:", err);
       const picks = $("#put-picks");
@@ -3173,7 +3198,7 @@
     const modal = $("#call-chain-modal");
     if (modal) modal.classList.add("hidden");
   }
-  async function loadShortCall(force = false) {
+  async function loadShortCall(force = false, repoll = false) {
     if (state.callLoading) return;
     state.callLoading = true;
     const btn = $("#btn-call-refresh");
@@ -3187,6 +3212,7 @@
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "short call failed");
       renderShortCall(data);
+      scheduleScreenRepoll("call", data, repoll);
     } catch (err) {
       console.error("loadShortCall error:", err);
       const picks = $("#call-picks");

@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import json
 import math
+import os
+
+os.environ.setdefault("SKIP_BG_WARMUP", "1")
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 import cn_option_candidates as coc
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_sleep(monkeypatch):
+    monkeypatch.setattr(coc, "FETCH_RETRY_DELAY_SEC", 0.0)
 
 
 def _synthetic_close(n: int = 120, start: float = 100.0, drift: float = -0.002, vol: float = 0.025, seed: int = 42) -> pd.Series:
@@ -79,7 +87,9 @@ def test_no_invented_option_chain_fields_and_cny_continuous_flags():
             assert r["candidate_mode"] == "underlying_direction_only"
             assert r["asof"] and r["asof"] != "扫描"
             assert r["scanned_at"]
-            assert "Asia/Tokyo" in (r.get("scanned_at_tz") or "")
+            assert r["scanned_at"].endswith("+08:00")
+            assert r.get("scanned_at_tz") == "北京时间/新加坡时间 UTC+8"
+            assert "Tokyo" not in (r.get("scanned_at_tz") or "")
             assert r["source_urls"]
             assert "不适用美股" in (r.get("action") or "")
             assert "不能下单" in (r.get("action") or "")
@@ -254,8 +264,144 @@ def test_repo_seed_snapshots_remain_honest_without_fake_cn_rows():
     root = Path(__file__).resolve().parents[1]
     for name in ("short_put.json", "short_call.json"):
         data = json.loads((root / "docs" / "api" / name).read_text(encoding="utf-8"))
-        assert data.get("cn_candidates") in (None, [])
+        # Pages exports may now carry real CN direction rows (snapshot 2026-11-09 18:20);
+        # they must stay direction-only: no option chain fields, CNY, unverified chain.
+        for r in data.get("cn_candidates") or []:
+            assert r.get("market") == "cn" and r.get("kind") == "cn_fut"
+            assert r.get("put") is None and r.get("call") is None
+            assert r.get("currency") == "CNY"
+            assert r.get("option_chain_status") == "unverified"
+            assert coc.is_optionable_continuous(r["symbol"])
         for bucket in ("picks", "all", "watchlist"):
             for r in data.get(bucket) or []:
                 assert r.get("market") != "cn"
                 assert r.get("kind") != "cn_fut"
+
+
+# ---- cn-fix: failure reasons, tz label, Render cache-over-seed ----
+
+def test_failure_reasons_recorded_and_logged_at_warning(caplog):
+    good = _synthetic_close(vol=0.04)
+    flat = pd.Series([100.0 + 0.01 * (i % 2) for i in range(120)],
+                     index=pd.date_range("2025-01-01", periods=120, freq="B"))
+    calls: dict[str, int] = {}
+
+    def loader(iid: str):
+        sym = coc.continuous_symbol(iid)
+        calls[sym] = calls.get(sym, 0) + 1
+        if sym == "CU0":
+            raise TimeoutError("read timed out")
+        if sym == "AU0":
+            return pd.DataFrame()
+        if sym == "M0":
+            return _df_from_series(flat)
+        if sym == "SR0" and calls[sym] == 1:
+            raise ConnectionError("transient")  # retried once, then ok
+        return _df_from_series(good)
+
+    with caplog.at_level("WARNING", logger="cn_option_candidates"):
+        out = coc.build_cn_direction_candidates("put", history_loader=loader, min_score=0, top_n=50)
+    failed = {f["symbol"]: f for f in out["failed"]}
+    filtered = {f["symbol"]: f for f in out["filtered"]}
+    assert set(failed) == {"CU0", "AU0"}
+    assert failed["CU0"]["reason"] == "fetch_error" and "TimeoutError" in failed["CU0"]["detail"]
+    assert failed["AU0"]["reason"] == "empty_frame"
+    assert calls["CU0"] == coc.FETCH_ATTEMPTS
+    assert filtered["M0"]["reason"] == "low_hv20" and filtered["M0"]["hv20"] < coc.CN_HV20_MIN
+    assert "SR0" in {r["symbol"] for r in out["all"]}  # transient error recovered by retry
+    assert out["fetched"] == len(coc.CN_OPTIONABLE_CONTINUOUS) - 2
+    assert out["scanned"] == out["fetched"] - 1
+    assert any("CU0" in rec.getMessage() and rec.levelname == "WARNING" for rec in caplog.records)
+
+    attached = coc.attach_cn_candidates({"picks": [], "all": []}, side="call", history_loader=loader)
+    meta = attached["cn_candidate_meta"]
+    assert {f["symbol"] for f in meta["failed"]} == {"CU0", "AU0"}
+    assert {f["symbol"] for f in meta["filtered"]} == {"M0"}
+    assert meta["hv20_min"] == coc.CN_HV20_MIN
+
+
+def test_tz_label_derived_from_offset():
+    assert coc.tz_label_for("2026-11-09T18:25:00+08:00") == "北京时间/新加坡时间 UTC+8"
+    assert coc.tz_label_for("2026-11-09T18:25:00+09:00") == "UTC+9"
+    assert coc.tz_label_for("2026-11-09T18:25:00") is None
+    assert coc.now_cst_iso().endswith("+08:00")
+    assert coc.tz_label_for(coc.now_cst_iso()) == "北京时间/新加坡时间 UTC+8"
+
+
+def test_ensure_fixes_legacy_tokyo_label_in_cached_payload():
+    payload = {
+        "cn_candidates": [{"symbol": "MA0", "kind": "cn_fut", "market": "cn",
+                           "scanned_at": "2026-11-09T18:25:01+08:00", "scanned_at_tz": "Asia/Tokyo (UTC+9)",
+                           "asof_tz": "Asia/Tokyo-calendar-date"}],
+        "cn_candidate_meta": {"status": "ok", "scanned_at": "2026-11-09T18:25:01+08:00",
+                              "scanned_at_tz": "Asia/Tokyo (UTC+9)"},
+    }
+    out = coc.ensure_cn_candidate_fields(payload, side="put")
+    assert out["cn_candidate_meta"]["scanned_at_tz"] == "北京时间/新加坡时间 UTC+8"
+    assert out["cn_candidates"][0]["scanned_at_tz"] == "北京时间/新加坡时间 UTC+8"
+    assert "Tokyo" not in json.dumps(out, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("side,module_name,seed_name", [
+    ("put", "short_put_screen", "short_put.json"),
+    ("call", "short_call_screen", "short_call.json"),
+])
+def test_render_high_vol_prefers_completed_cache_over_seed(monkeypatch, side, module_name, seed_name):
+    import importlib
+    import time as _time
+
+    import app as app_mod
+
+    mod = importlib.import_module(module_name)
+    monkeypatch.setenv("RENDER", "true")
+    started: list[str] = []
+    monkeypatch.setattr(app_mod.bg_tasks, "try_start", lambda key, fn, **kw: started.append(key) or "started")
+    seed = {"updated_at": "2026-11-09T10:00:00", "picks": [], "all": [], "watchlist": []}
+    monkeypatch.setattr(app_mod, "_read_api_seed", lambda name: dict(seed) if name == seed_name else None)
+    client = app_mod.app.test_client()
+    url = f"/api/short-{side}/high-vol"
+
+    # 1) no completed build (seed-only cache) -> seed + one bg refresh
+    monkeypatch.setattr(mod, "_cache", (_time.time(), {**seed, "source": "seed"}))
+    r = client.get(url).get_json()
+    assert r["source"] == "seed"
+    assert r["cn_candidate_meta"]["status"] == "absent_in_snapshot"
+    assert r["refresh"]["status"] == "started" and started == [f"short-{side}"]
+
+    # 2) completed fresh build -> served from cache, no new bg task
+    built = {
+        "updated_at": "2026-11-09T18:25:00", "picks": [], "all": [], "watchlist": [],
+        "cn_candidates": [{"symbol": "MA0", "kind": "cn_fut", "market": "cn",
+                           "scanned_at": "2026-11-09T18:25:00+08:00"}],
+        "cn_candidate_meta": {"status": "ok", "scanned_at": "2026-11-09T18:25:00+08:00"},
+    }
+    monkeypatch.setattr(mod, "_cache", (_time.time(), built))
+    started.clear()
+    r = client.get(url).get_json()
+    assert r["source"] == "cache"
+    assert [c["symbol"] for c in r["cn_candidates"]] == ["MA0"]
+    assert r["cn_candidate_meta"]["status"] == "ok"
+    assert r["refresh"]["status"] == "fresh" and started == []
+
+    # 3) completed but stale build -> still served (not the older seed) + bg refresh
+    monkeypatch.setattr(mod, "_cache", (_time.time() - mod.CACHE_TTL - 5, built))
+    r = client.get(url).get_json()
+    assert r["source"] == "cache_stale"
+    assert r["cn_candidates"] and started == [f"short-{side}"]
+
+
+def test_render_refresh_endpoint_returns_completed_cache_not_seed_cache(monkeypatch):
+    import time as _time
+
+    import app as app_mod
+    import short_put_screen as sps
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setattr(app_mod.bg_tasks, "try_start", lambda key, fn, **kw: "running")
+    monkeypatch.setattr(app_mod, "_read_api_seed", lambda name: {"updated_at": "x", "picks": []})
+    monkeypatch.setattr(sps, "_cache", (_time.time(), {"source": "seed", "picks": []}))
+    r = app_mod.app.test_client().get("/api/short-put/refresh").get_json()
+    assert r["source"] == "seed" and r["refresh"]["queued"] is True
+    monkeypatch.setattr(sps, "_cache", (_time.time(), {"updated_at": "y", "picks": [], "cn_candidates": []}))
+    r = app_mod.app.test_client().get("/api/short-put/refresh").get_json()
+    assert r["source"] == "cache"

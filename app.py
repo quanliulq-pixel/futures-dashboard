@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261109cnopt1"
+    asset_v = "20261109cnopt2"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -137,8 +137,10 @@ def _screen_refresh(key: str, module_name: str, builder_name: str, seed_name: st
     if not _on_render():
         return jsonify(builder(force=True))
     status = bg_tasks.try_start(key, lambda: builder(force=True), force=True)
-    cached = getattr(mod, "_cache", None)
-    payload = dict(cached[1]) if cached else None
+    done = _completed_screen_cache(mod)
+    payload = dict(done[1]) if done else None
+    if payload is not None:
+        payload["source"] = "cache"
     if payload is None:
         seed = _read_api_seed(seed_name)
         if seed is not None:
@@ -152,6 +154,76 @@ def _screen_refresh(key: str, module_name: str, builder_name: str, seed_name: st
                 logger.debug("cn candidate seed normalize failed", exc_info=True)
     if payload is None:
         return _pending_response(status)
+    payload["refresh"] = bg_tasks.refresh_meta(status)
+    return jsonify(payload)
+
+
+def _completed_screen_cache(mod) -> tuple[float, dict] | None:
+    """Return (built_epoch, payload) only for a finished live build held in the
+    module's in-process ``_cache``. Seed copies (``source == 'seed'``) don't count."""
+    cached = getattr(mod, "_cache", None)
+    if not cached:
+        return None
+    try:
+        ts, payload = cached
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("source") == "seed":
+        return None
+    return float(ts), payload
+
+
+def _iso_epoch(value) -> float | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    # naive app timestamps are server-local (Render TZ=Asia/Shanghai); aware ones carry their offset
+    return dt.timestamp()
+
+
+def _screen_high_vol_render(key: str, module_name: str, builder_name: str, seed_name: str):
+    """Render read path for short put/call: never computes in the request thread.
+
+    Prefers a completed in-process build over the bundled docs/api seed (the seed
+    is only refreshed by the Pages export). Starts a single-flight background
+    rebuild only when there is no completed build or it is older than the
+    module CACHE_TTL. gunicorn runs ``-w 1`` (render.yaml/Procfile), so the
+    in-process cache is shared by every request thread.
+    """
+    import importlib
+    import time as _time
+
+    mod = importlib.import_module(module_name)
+    builder = getattr(mod, builder_name)
+    side = "call" if "call" in key else "put"
+    ttl = float(getattr(mod, "CACHE_TTL", 30 * 60))
+    done = _completed_screen_cache(mod)
+    seed = _read_api_seed(seed_name)
+    fresh = done is not None and (_time.time() - done[0]) < ttl
+    if fresh:
+        status = "fresh"
+    else:
+        status = bg_tasks.try_start(key, lambda: builder(force=True))
+    payload = None
+    if done is not None:
+        seed_ts = _iso_epoch((seed or {}).get("updated_at"))
+        cache_ts = _iso_epoch(done[1].get("updated_at")) or done[0]
+        if seed is None or seed_ts is None or cache_ts >= seed_ts:
+            payload = dict(done[1])
+            payload["source"] = "cache" if fresh else "cache_stale"
+    if payload is None and seed is not None:
+        payload = dict(seed)
+        payload["source"] = "seed"
+    if payload is None:
+        return _pending_response(status)
+    try:
+        from cn_option_candidates import ensure_cn_candidate_fields
+        payload = ensure_cn_candidate_fields(payload, side=side)
+    except Exception:
+        logger.debug("cn candidate normalize failed", exc_info=True)
     payload["refresh"] = bg_tasks.refresh_meta(status)
     return jsonify(payload)
 
@@ -591,17 +663,9 @@ def _ng_warmup():
 def short_put_high_vol_api():
     force = request.args.get("force") == "1"
     try:
-        import os
+        if _on_render() and not force:
+            return _screen_high_vol_render("short-put", "short_put_screen", "build_short_put_screen", "short_put.json")
         from short_put_screen import build_short_put_screen
-
-        seed = _read_api_seed("short_put.json")
-        if seed is not None and os.environ.get("RENDER") and not force:
-            bg_tasks.submit("short-put", lambda: build_short_put_screen(force=True))
-            seed = dict(seed)
-            seed["source"] = "seed"
-            from cn_option_candidates import ensure_cn_candidate_fields
-            seed = ensure_cn_candidate_fields(seed, side="put")
-            return jsonify(seed)
 
         return jsonify(build_short_put_screen(force=force))
     except Exception as exc:
@@ -630,17 +694,9 @@ def short_put_refresh_api():
 def short_call_high_vol_api():
     force = request.args.get("force") == "1"
     try:
-        import os
+        if _on_render() and not force:
+            return _screen_high_vol_render("short-call", "short_call_screen", "build_short_call_screen", "short_call.json")
         from short_call_screen import build_short_call_screen
-
-        seed = _read_api_seed("short_call.json")
-        if seed is not None and os.environ.get("RENDER") and not force:
-            bg_tasks.submit("short-call", lambda: build_short_call_screen(force=True))
-            seed = dict(seed)
-            seed["source"] = "seed"
-            from cn_option_candidates import ensure_cn_candidate_fields
-            seed = ensure_cn_candidate_fields(seed, side="call")
-            return jsonify(seed)
 
         return jsonify(build_short_call_screen(force=force))
     except Exception as exc:
