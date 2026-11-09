@@ -285,6 +285,21 @@ def _load_seed_snapshot() -> dict | None:
     return None
 
 
+def _index_fundamentals() -> dict | None:
+    """A股指数基本面 bundle（政策/估值/流动性/宏观）；失败不致命。只在后台/导出路径调用。"""
+    import os
+
+    if os.environ.get("SKIP_INDEX_FUND") == "1":
+        return None
+    try:
+        from cn_index_fundamentals import DEFAULT_PROVIDER
+
+        return DEFAULT_PROVIDER.refresh()
+    except Exception:  # noqa: BLE001
+        logger.warning("cn index fundamentals failed", exc_info=True)
+        return None
+
+
 def build_cn_index_analysis(force: bool = False) -> dict:
     global _cache
     if not force and _cache and time.time() - _cache[0] < CACHE_TTL:
@@ -320,10 +335,13 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         seed = _load_seed_snapshot()
         if seed and seed.get("indices"):
             # Keep seed index cards; refresh satellites if we got them.
+            seed = dict(seed)
             if satellites:
-                seed = dict(seed)
                 seed["satellites"] = satellites
                 seed["note"] = (seed.get("note") or "") + " · 指数历史源超时，卡片沿用快照"
+            fund = _index_fundamentals()
+            if fund is not None:
+                seed["index_fundamentals"] = fund
             _cache = (time.time(), seed)
             return seed
 
@@ -342,6 +360,10 @@ def build_cn_index_analysis(force: bool = False) -> dict:
         "futures_extra": getattr(_attach_futures, "extras", []),
         "disclaimer": "研究用途。期权链为延时转播+估算 IV，请用国内行情与期权系统核验。",
     }
+    fund = _index_fundamentals()
+    if fund is not None:
+        payload["index_fundamentals"] = fund
+        payload["method"]["fundamental"] = "政策/估值/流动性/宏观四组基本面（见建议评分说明），数据日期逐项标注"
     _cache = (time.time(), payload)
     return payload
 

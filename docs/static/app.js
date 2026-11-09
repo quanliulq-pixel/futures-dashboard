@@ -3646,6 +3646,7 @@
         <span class="cnidx-score">评分 ${esc(scoreTxt)} · 置信 ${conf != null ? conf : "—"}</span>
       </div>
       <div class="cnidx-opt-bias">期权偏向：<strong>${esc(bias)}</strong></div>
+      ${window.cnIndexFundView ? window.cnIndexFundView.blockHtml(advice) : ""}
       <ul class="cnidx-bullets">${bullets || "<li>暂无细则</li>"}</ul>
       <div class="cnidx-levels">
         <span class="lvl support">支撑 ${esc(supp)}</span>
@@ -3684,6 +3685,8 @@
         `<strong>期权</strong>：${esc(optMethod || "中金所 IO/HO/MO（新浪转播延时）")}`,
         `<strong>指标</strong>：${esc(m.stats || "")}`,
         am.score ? `<strong>建议评分</strong>：${esc(am.score)}` : "",
+        am.fundamental ? `<strong>基本面</strong>：${esc(am.fundamental)}` : "",
+        (data.advice_fund_notes || []).length ? `<strong>数据说明</strong>：${esc((data.advice_fund_notes || []).join("；"))}` : "",
         data.disclaimer ? `<em>${esc(data.disclaimer)}</em>` : "",
       ].filter(Boolean).join("<br/>");
     }
