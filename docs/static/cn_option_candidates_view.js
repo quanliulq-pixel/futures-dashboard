@@ -38,6 +38,32 @@
     return us.filter((r) => (r.kind || "stock") === k);
   }
 
+  /** Label from the timestamp's own offset; legacy "Asia/Tokyo (UTC+9)" labels are ignored. */
+  function tzLabelFor(ts) {
+    const m = /([+-])(\d{2}):?(\d{2})$/.exec(String(ts || "").trim());
+    if (!m) return /Z$/.test(String(ts || "").trim()) ? "UTC" : "";
+    const h = Number(m[2]);
+    const mm = Number(m[3]);
+    const utc = `UTC${m[1]}${h}${mm ? ":" + m[3] : ""}`;
+    if (m[1] === "+" && h === 8 && mm === 0) return `北京时间/新加坡时间 ${utc}`;
+    return utc;
+  }
+
+  function failureSummary(meta) {
+    const m = meta || {};
+    const failed = Array.isArray(m.failed) ? m.failed : [];
+    const filtered = Array.isArray(m.filtered) ? m.filtered : [];
+    const bits = [];
+    if (failed.length) {
+      bits.push(`未取到数据：${failed.length}个（${failed.map((f) => f.name || f.symbol).join("、")}）`);
+    }
+    if (filtered.length) {
+      const hv = m.hv20_min != null ? m.hv20_min : 18;
+      bits.push(`HV20<${hv}%未入评分：${filtered.length}个`);
+    }
+    return bits.join(" · ");
+  }
+
   function normalizePayload(data) {
     const d = data && typeof data === "object" ? data : {};
     const candidates = Array.isArray(d.cn_candidates) ? d.cn_candidates : [];
@@ -56,7 +82,7 @@
       status: status,
       note: note,
       scanned_at: (meta && meta.scanned_at) || d.updated_at || null,
-      scanned_at_tz: (meta && meta.scanned_at_tz) || "Asia/Tokyo (UTC+9)",
+      scanned_at_tz: tzLabelFor((meta && meta.scanned_at) || d.updated_at),
     };
   }
 
@@ -68,10 +94,10 @@
     const flags = (risk.flags || []).join(" · ");
     const sideLabel = side === "call" ? "卖Call方向" : "卖Put方向";
     const asof = r.asof || "未知";
-    const asofLabel = asof === "未知" ? "行情截至：未知" : `行情截至：${asof}（日线日历日）`;
+    const asofLabel = asof === "未知" ? "行情截至：未知" : `行情截至：${asof}（交易日）`;
     const scanned = r.scanned_at || "";
     const scannedLabel = scanned
-      ? `扫描时间：${scanned}${r.scanned_at_tz ? " · " + r.scanned_at_tz : " · Asia/Tokyo (UTC+9)"}`
+      ? `扫描时间：${scanned}${tzLabelFor(scanned) ? " · " + tzLabelFor(scanned) : ""}`
       : "扫描时间：—";
     return `<article class="put-card cn-fut-card" data-symbol="${esc(r.symbol)}">
       <div class="put-card-top">
@@ -117,7 +143,8 @@
       const m = norm.meta || {};
       const bits = [
         m.note || norm.note || "连续合约标的方向研究 · 未核验期权链/流动性 · 人民币 · 不可下单",
-        norm.scanned_at ? `扫描 ${norm.scanned_at} (${norm.scanned_at_tz || "Asia/Tokyo"})` : null,
+        failureSummary(m) || null,
+        norm.scanned_at ? `扫描 ${norm.scanned_at}${norm.scanned_at_tz ? " (" + norm.scanned_at_tz + ")" : ""}` : null,
       ].filter(Boolean);
       metaEl.textContent = bits.join(" · ");
     }
@@ -137,7 +164,22 @@
     return excludeCnFromUsRows(filterByKind(rows, kind));
   }
 
+  /**
+   * After a Render response that queued/is running a background rebuild, the page
+   * should re-poll the read endpoint so a finished scan replaces the seed.
+   */
+  function shouldRepoll(data, attempts, maxAttempts) {
+    const d = data || {};
+    const r = d.refresh || {};
+    const lim = maxAttempts == null ? 12 : maxAttempts;
+    if ((attempts || 0) >= lim) return false;
+    return !!(r.queued || r.status === "running" || r.status === "started" || r.status === "busy");
+  }
+
   const api = {
+    tzLabelFor: tzLabelFor,
+    failureSummary: failureSummary,
+    shouldRepoll: shouldRepoll,
     normalizePayload: normalizePayload,
     filterByKind: filterByKind,
     excludeCnFromUsRows: excludeCnFromUsRows,
