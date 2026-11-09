@@ -1640,3 +1640,15 @@ tbody tr.active {
 .fund-fc { font-weight: 600; }
 .fund-pen { color: #d9822b; font-size: 11px; margin-top: 2px; }
 .fund-cell-sub { font-size: 10px; opacity: .7; white-space: nowrap; }
+
+/* A股指数基本面（政策组置顶、权重最高） */
+.cnidx-fund { margin: 6px 0 8px; }
+.cnf-group { margin-top: 4px; }
+.cnf-group.policy { border-left: 2px solid #fbbf24; padding-left: 6px; }
+.cnf-gh { font-weight: 600; font-size: 12px; }
+.cnf-gw { font-weight: 400; opacity: .75; }
+.cnf-emph { font-size: 10px; color: #fbbf24; border: 1px solid rgba(251,191,36,.5); border-radius: 8px; padding: 0 4px; margin-left: 2px; }
+.cnf-scope { font-size: 10px; opacity: .7; border: 1px solid rgba(148,163,184,.4); border-radius: 8px; padding: 0 4px; margin-left: 3px; }
+.cnf-w { font-size: 10px; opacity: .7; margin-left: 3px; }
+.cnf-adjust { margin-top: 3px; color: #93c5fd; }
+.cnf-ev-basis { font-size: 11px; opacity: .7; margin-top: 1px; }

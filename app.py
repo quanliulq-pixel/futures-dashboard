@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261109fund1"
+    asset_v = "20261109idxfund1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -775,15 +775,40 @@ def cn_index_options_refresh_api():
         return jsonify({"error": str(exc)}), 500
 
 
+def _cn_index_fund_bundle(payload: dict | None, *, kick: bool | None = None) -> dict | None:
+    """Freshest A股指数基本面 bundle: in-memory background cache vs snapshot-embedded. CPU only.
+
+    On Render (or CN_INDEX_FUND_AUTO=1) a missing/stale bundle queues one bounded, single-flight
+    background fetch; the request thread never waits on the network.
+    """
+    import os
+
+    try:
+        from cn_index_fundamentals import DEFAULT_PROVIDER, FUND_CACHE_TTL, fund_bundle_age_hours, pick_bundle
+
+        cached = DEFAULT_PROVIDER.get_cached()
+        best = pick_bundle(cached, (payload or {}).get("index_fundamentals"))
+        if kick is None:
+            kick = _on_render() or os.environ.get("CN_INDEX_FUND_AUTO") == "1"
+        age = fund_bundle_age_hours(best)
+        if kick and (age is None or age * 3600 > FUND_CACHE_TTL) and os.environ.get("SKIP_INDEX_FUND") != "1":
+            _spawn_bg_refresh("cn-index-fund", DEFAULT_PROVIDER.refresh, min_interval=1800.0, provider="cn-macro")
+        return best
+    except Exception:
+        logger.debug("cn index fund bundle failed", exc_info=True)
+        return (payload or {}).get("index_fundamentals")
+
+
 def _with_cn_advice(payload: dict) -> dict:
     """Attach structured A-share advice offline from seeds (never network)."""
     try:
         from cn_index_advice import attach_advice_to_indices, load_advice_seed, build_cn_index_advice
 
         opt = _read_api_seed("cn_index_options.json")
+        fund = _cn_index_fund_bundle(payload)
         # Prefer recomputing from current indices+options so stance stays consistent
         try:
-            bundle = build_cn_index_advice(payload, opt)
+            bundle = build_cn_index_advice(payload, opt, fund)
         except Exception:
             bundle = load_advice_seed()
         return attach_advice_to_indices(payload, opt, advice_bundle=bundle)
@@ -853,7 +878,7 @@ def cn_index_advice_api():
         idx = _read_api_seed("cn_indices.json")
         opt = _read_api_seed("cn_index_options.json")
         if idx and idx.get("indices"):
-            bundle = build_cn_index_advice(idx, opt)
+            bundle = build_cn_index_advice(idx, opt, _cn_index_fund_bundle(idx))
             bundle["served_from"] = "computed_from_seeds"
             return jsonify(bundle)
         if seed:

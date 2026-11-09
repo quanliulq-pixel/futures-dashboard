@@ -7,6 +7,9 @@ Score formula (brief):
   vrp = ATM_IV - HV20; hv_pctile and VRP drive stance overlay
   score = dir + vol_overlay(-20..+20) where positive vol_overlay favors selling rich IV
   stance_cn picks among 卖波动 / 防守区间 / 观望高波 / 偏多 / 偏空
+Fundamentals (cn_index_fundamentals): tech_score = 50 + score/2, fund_score (政策35/估值25/流动性25/宏观15),
+  combined = 0.6·tech + 0.4·fund. Fundamentals only adjust option_bias_cn (see adjust_option_bias);
+  stance, score, confidence and all technical thresholds are unchanged.
 """
 from __future__ import annotations
 
@@ -336,7 +339,13 @@ def _bullets(
     return out
 
 
-def advice_for_index(row: dict, options_payload: dict | None = None) -> dict:
+def _expiry_of(month: dict | None):
+    from cn_index_fundamentals import _to_date
+
+    return _to_date((month or {}).get("expire"))
+
+
+def advice_for_index(row: dict, options_payload: dict | None = None, fund_bundle: dict | None = None) -> dict:
     month = _front_month(options_payload, row.get("id") or "")
     dir_score, dir_notes = _direction_score(row)
     vol_overlay, meta = _vol_overlay(row, month)
@@ -361,7 +370,7 @@ def advice_for_index(row: dict, options_payload: dict | None = None) -> dict:
     levels = _levels_for(row, month)
     bullets = _bullets(row, stance, option_bias, meta, levels, oi_ratio, dir_notes)
 
-    return {
+    out = {
         "stance_cn": stance,
         "score": score,
         "confidence": confidence,
@@ -382,24 +391,47 @@ def advice_for_index(row: dict, options_payload: dict | None = None) -> dict:
             "oi_cp_ratio": meta.get("oi_cp_ratio"),
         },
     }
+    try:
+        from cn_index_fundamentals import apply_to_advice
+
+        apply_to_advice(out, row.get("id") or "", fund_bundle, expiry=_expiry_of(month))
+        if out.get("option_bias_cn") != option_bias:
+            # keep bullet wording consistent with the fundamentals-adjusted option bias
+            out["bullets_cn"] = _bullets(row, stance, out["option_bias_cn"], meta, levels, oi_ratio, dir_notes)
+    except Exception:  # noqa: BLE001 — fundamentals never break technical advice
+        logger.debug("index fundamentals failed for %s", row.get("id"), exc_info=True)
+        out.setdefault("fund_status", "not_computed")
+        out.setdefault("fund_status_cn", "基本面未计算")
+    return out
 
 
 def build_cn_index_advice(
     indices_payload: dict | None = None,
     options_payload: dict | None = None,
+    fund_bundle: dict | None = None,
 ) -> dict:
-    """Build full advice bundle. Loads seeds when payloads omitted."""
+    """Build full advice bundle. Loads seeds when payloads omitted.
+
+    fund_bundle: A股指数基本面 bundle (cn_index_fundamentals). When omitted, uses the one embedded in
+    indices_payload["index_fundamentals"] (snapshot); never fetches from the network here.
+    """
     if indices_payload is None:
         indices_payload = _load_json(SEED_INDICES) or {"indices": []}
     if options_payload is None:
         options_payload = _load_json(SEED_OPTIONS)
+    if fund_bundle is None:
+        fund_bundle = indices_payload.get("index_fundamentals")
 
     advices: dict[str, dict] = {}
     for row in indices_payload.get("indices") or []:
         iid = row.get("id")
         if not iid:
             continue
-        advices[iid] = advice_for_index(row, options_payload)
+        advices[iid] = advice_for_index(row, options_payload, fund_bundle)
+    try:
+        from cn_index_fundamentals import METHOD_TEXT
+    except Exception:  # noqa: BLE001
+        METHOD_TEXT = ""
 
     return {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
@@ -408,7 +440,10 @@ def build_cn_index_advice(
             "score": "dir(-50..50:均线/RSI/涨跌/距52周/bias) + 0.35*vol_overlay(-20..20: VRP与HV分位)；stance 另据规则覆盖",
             "stances": "卖波动 | 防守区间 | 观望高波 | 偏多 | 偏空",
             "options": "近月链 ATM IV 与 ATM 带 Call/Put 持仓比（中金所新浪转播）",
+            "fundamental": METHOD_TEXT,
         },
+        "fund_asof": (fund_bundle or {}).get("fetched_at"),
+        "fund_notes": (fund_bundle or {}).get("notes") or [],
         "advices": advices,
         "disclaimer_cn": DISCLAIMER,
         "source_indices_at": indices_payload.get("updated_at"),
@@ -421,11 +456,12 @@ def attach_advice_to_indices(
     options_payload: dict | None = None,
     *,
     advice_bundle: dict | None = None,
+    fund_bundle: dict | None = None,
 ) -> dict:
     """Return a shallow-copied indices payload with per-row advice + top-level advices."""
     if options_payload is None:
         options_payload = _load_json(SEED_OPTIONS)
-    bundle = advice_bundle or build_cn_index_advice(indices_payload, options_payload)
+    bundle = advice_bundle or build_cn_index_advice(indices_payload, options_payload, fund_bundle)
     out = dict(indices_payload)
     advices = bundle.get("advices") or {}
     rows = []
@@ -439,6 +475,8 @@ def attach_advice_to_indices(
     out["advices"] = advices
     out["advice_updated_at"] = bundle.get("updated_at")
     out["advice_method"] = bundle.get("method")
+    out["advice_fund_asof"] = bundle.get("fund_asof")
+    out["advice_fund_notes"] = bundle.get("fund_notes") or []
     # Keep research disclaimer visible
     disc = out.get("disclaimer") or ""
     if DISCLAIMER not in disc:
@@ -478,6 +516,7 @@ if __name__ == "__main__":
     out = write_advice_snapshot()
     print("updated", out["updated_at"])
     for k, a in (out.get("advices") or {}).items():
-        print(k, a["stance_cn"], "score", a["score"], "conf", a["confidence"], a["option_bias_cn"])
+        print(k, a["stance_cn"], "score", a["score"], "conf", a["confidence"], a["option_bias_cn"],
+              "tech", a.get("tech_score"), "fund", a.get("fund_score"), "comb", a.get("combined_score"))
         for b in a["bullets_cn"]:
             print(" -", b)
