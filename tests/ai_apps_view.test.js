@@ -11,9 +11,14 @@ assert.equal(view.safeUrl('data:text/html,evil'), '');
 assert.equal(view.safeUrl('/relative'), '');
 assert.ok(view.safeUrl('https://example.com/a?x=1&y=2').includes('&amp;'));
 const filters = {market:'A股', tier:'观察', segment:'office'};
-assert.equal(view.filterCompanies(data.companies, filters).length, 2);
-assert.equal(view.filterCompanies(data.companies, {market:'A股', tier:'高风险'}).length, 0);
+assert.equal(view.filterCompanies(data.companies, filters).length, 3);
+assert.equal(view.filterCompanies(data.companies, {market:'A股', tier:'领先'}).length, 0);
 assert.equal(view.filterCompanies(data.companies, {market:'all', tier:'all', segment:'all'}).length, data.companies.length);
+assert.equal(view.filterCompanies(data.companies, {cap:'中小盘'}).length, 12);
+assert.equal(view.filterCompanies(data.companies, {cap:'大盘'}).length, 14);
+assert.equal(view.filterCompanies(data.companies, {cap:'中小盘', market:'美股'}).length, 6);
+assert.equal(view.filterCompanies(data.companies, {cap:'中小盘', market:'A股'}).length, 5);
+assert.equal(view.filterCompanies(data.companies, {cap:'中小盘', market:'港股'}).length, 1);
 const html = view.companyHTML(data.companies[0], data);
 for (const s of ['noopener noreferrer', '关键风险', '无数据', '下一步验证', '已核验的披露']) assert.ok(html.includes(s));
 assert.ok(!view.companyHTML({...data.companies[0], name:'<img src=x onerror=alert(1)>'}, data).includes('<img'));
@@ -23,7 +28,7 @@ assert.ok(view.segmentHTML(data.segments[0], data).includes('反面情景与依�
 // Minimal DOM verifies lazy load, duplicate-request guard, static URL, failure and retry.
 async function lifecycle() {
   const elements = {};
-  const ids = ['ai-content','ai-market','ai-tier','ai-segment','ai-count','ai-companies','ai-heading',
+  const ids = ['ai-content','ai-cap','ai-market','ai-tier','ai-segment','ai-count','ai-companies','ai-heading',
     'ai-summary','ai-asof','ai-disclaimer','ai-method-body','ai-segments','ai-sources','ai-status','ai-retry'];
   for (const id of ids) elements[id] = {value:'all', hidden:true, listeners:{},
     addEventListener(name, fn) { this.listeners[name] = fn; }};
@@ -47,11 +52,15 @@ async function lifecycle() {
   await retry;
   assert.equal(elements['ai-content'].hidden, false);
   assert.equal(calls[1], './api/ai_apps.json');
+  elements['ai-cap'].value = '中小盘';
+  elements['ai-cap'].listeners.change();
+  assert.equal(elements['ai-count'].textContent, '12 / 26 家候选');
+  assert.ok(elements['ai-companies'].innerHTML.includes('市值规模与来源'));
   assert.ok(elements['ai-asof'].textContent.includes('Asia/Tokyo'));
   await api.load();
   assert.equal(calls.length, 2, 'loaded cache');
   elements['ai-market'].value = 'A股';
-  elements['ai-tier'].value = '高风险';
+  elements['ai-tier'].value = '领先';
   elements['ai-market'].listeners.change();
   assert.ok(elements['ai-companies'].innerHTML.includes('无数据'));
 }
