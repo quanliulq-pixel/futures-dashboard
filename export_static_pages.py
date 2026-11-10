@@ -59,12 +59,9 @@ def export_html() -> None:
             '<head>\n  <base href="/futures-dashboard/" />\n  <script>window.STATIC_MODE = true;</script>\n',
             1,
         )
-    html = html.replace('href="/static/style.css?v={{ asset_v }}"', 'href="./static/style.css?v=static"')
-    html = html.replace('src="/static/app.js?v={{ asset_v }}"', 'src="./static/app.js?v=static"')
-    html = html.replace('src="/static/ng_option_judgment.js?v={{ asset_v }}"', 'src="./static/ng_option_judgment.js?v=static"')
-    html = html.replace('src="/static/us_movers_view.js?v={{ asset_v }}"', 'src="./static/us_movers_view.js?v=static"')
-    html = html.replace('src="/static/cn_option_candidates_view.js?v={{ asset_v }}"', 'src="./static/cn_option_candidates_view.js?v=static"')
-    html = html.replace('src="/static/fund_score_view.js?v={{ asset_v }}"', 'src="./static/fund_score_view.js?v=static"')
+    # Keep every local UI asset (including index fundamentals) in sync with Flask.
+    html = html.replace('"/static/', '"./static/')
+    html = html.replace("{{ asset_v }}", "20261110ui1")
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")

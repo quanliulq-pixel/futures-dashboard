@@ -5,8 +5,9 @@
   <script>window.STATIC_MODE = true;</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=static" />
+  <link rel="stylesheet" href="./static/style.css?v=20261110ui1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -74,7 +75,7 @@
 
       <div class="watch-grid">
         <section class="panel table-panel">
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table id="quote-table">
               <thead>
                 <tr id="quote-head">
@@ -187,7 +188,7 @@
           <button data-kind="hog">能繁/猪</button>
           <button data-kind="fx">汇率宏观</button>
         </div>
-        <div class="table-wrap supply-wrap">
+        <div class="table-wrap supply-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
           <table id="supply-table">
             <thead>
               <tr>
@@ -244,7 +245,7 @@
             </div>
             <span class="tag-pill high">UP</span>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table>
               <thead>
                 <tr>
@@ -268,7 +269,7 @@
             </div>
             <span class="tag-pill low">DOWN</span>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table>
               <thead>
                 <tr>
@@ -294,7 +295,7 @@
           </div>
           <div class="lev-stack">
             <h3 class="lev-sub">涨幅</h3>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
               <table>
                 <thead>
                   <tr>
@@ -312,7 +313,7 @@
               </table>
             </div>
             <h3 class="lev-sub">跌幅</h3>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
               <table>
                 <thead>
                   <tr>
@@ -349,7 +350,10 @@
               <button type="button" id="btn-put-refresh" class="btn btn-tiny">重新扫描期权</button>
             </div>
           </div>
-          <div class="put-method" id="put-method">加载方法说明…</div>
+          <details class="method-details">
+            <summary>评分方法与风险说明 <span>展开查看</span></summary>
+            <div class="put-method" id="put-method">加载方法说明…</div>
+          </details>
           <div class="put-theme-bar" id="put-theme-bar"></div>
           <p class="put-theme-note" id="put-theme-note" hidden></p>
         </div>
@@ -430,7 +434,7 @@
             </div>
             <button type="button" id="btn-put-watch-clear" class="btn btn-tiny">清空已平仓</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="put-table" id="put-watch-table">
               <thead>
                 <tr>
@@ -460,7 +464,7 @@
               <p class="sub">HV / RSI / IV贵贱 / 财报 / CSP占用</p>
             </div>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="put-table" id="put-table">
               <thead>
                 <tr>
@@ -508,7 +512,10 @@
               <button type="button" id="btn-call-refresh" class="btn btn-tiny">重新扫描期权</button>
             </div>
           </div>
-          <div class="put-method" id="call-method">加载方法说明…</div>
+          <details class="method-details">
+            <summary>评分方法与风险说明 <span>展开查看</span></summary>
+            <div class="put-method" id="call-method">加载方法说明…</div>
+          </details>
           <div class="put-theme-bar" id="call-theme-bar"></div>
           <p class="put-theme-note" id="call-theme-note" hidden></p>
         </div>
@@ -589,7 +596,7 @@
             </div>
             <button type="button" id="btn-call-watch-clear" class="btn btn-tiny">清空已平仓</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="put-table" id="call-watch-table">
               <thead>
                 <tr>
@@ -619,7 +626,7 @@
               <p class="sub">HV / RSI / IV贵贱 / 财报 / 备兑占用</p>
             </div>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="put-table" id="call-table">
               <thead>
                 <tr>
@@ -678,7 +685,7 @@
               <p class="sub">FXI / KWEB 不是指数本身，仅作海外情绪对照</p>
             </div>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="put-table" id="cnidx-sat-table">
               <thead>
                 <tr>
@@ -900,7 +907,7 @@
               <p class="sub">各因子得分 [-100 极度利空 ~ +100 极度利多] × 季节权重 = 综合贡献</p>
             </div>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
             <table class="ng-factors-table">
               <thead>
                 <tr>
@@ -982,7 +989,7 @@
         </div>
         <div id="put-chain-edge" class="put-chain-edge"></div>
         <div id="put-chain-check" class="put-chain-check"></div>
-        <div class="table-wrap">
+        <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
           <table class="put-table" id="put-chain-table">
             <thead>
               <tr>
@@ -1014,7 +1021,7 @@
         </div>
         <div id="call-chain-edge" class="put-chain-edge"></div>
         <div id="call-chain-check" class="put-chain-check"></div>
-        <div class="table-wrap">
+        <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
           <table class="put-table" id="call-chain-table">
             <thead>
               <tr>
@@ -1034,11 +1041,11 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=static"></script>
-  <script src="./static/us_movers_view.js?v=static"></script>
-  <script src="./static/fund_score_view.js?v=static"></script>
-  <script src="./static/cn_option_candidates_view.js?v=static"></script>
-  <script src="/static/cn_index_fund_view.js?v={{ asset_v }}"></script>
-  <script src="./static/app.js?v=static"></script>
+  <script src="./static/ng_option_judgment.js?v=20261110ui1"></script>
+  <script src="./static/us_movers_view.js?v=20261110ui1"></script>
+  <script src="./static/fund_score_view.js?v=20261110ui1"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261110ui1"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261110ui1"></script>
+  <script src="./static/app.js?v=20261110ui1"></script>
 </body>
 </html>
