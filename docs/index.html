@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261110ui1" />
+  <link rel="stylesheet" href="./static/style.css?v=20261111ai1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -29,6 +29,7 @@
         <button type="button" data-view="call" class="tab-call">卖Call</button>
         <button type="button" data-view="cnidx" class="tab-cnidx">A股指数</button>
         <button type="button" data-view="ng" class="tab-ng">美气NG</button>
+        <button type="button" data-view="ai" class="tab-ai">AI应用</button>
       </nav>
       <div class="top-actions">
         <div class="status">
@@ -710,6 +711,33 @@
       </div>
     </section>
 
+    <!-- 人工维护研究快照：仅在打开页签时加载，不参与行情刷新 -->
+    <section class="view view-ai" id="view-ai" aria-labelledby="ai-heading">
+      <div class="ai-hero panel">
+        <span class="ai-eyebrow">应用落地 · 商业化证据 · 长期护城河</span>
+        <h2 id="ai-heading">AI 应用：谁更可能成为赢家？</h2>
+        <p id="ai-summary">研究快照，不是实时行情；最终赢家仍需持续验证。</p>
+        <p id="ai-asof" class="sub"></p>
+        <p id="ai-disclaimer" class="ai-notice">研究分析，不构成投资建议。商业赢家不等于投资赢家。</p>
+      </div>
+      <div id="ai-status" role="status" aria-live="polite">打开页签后加载研究资料…</div>
+      <button type="button" id="ai-retry" class="btn btn-ghost" hidden>重试加载研究快照</button>
+      <div id="ai-content" hidden>
+        <details class="ai-method panel"><summary>研究框架、分层标准与政策背景</summary><div id="ai-method-body"></div></details>
+        <div class="ai-section-head"><h3>板块落地优先级</h3><span class="sub">主观研究顺序 · 不是股价收益排名</span></div>
+        <div id="ai-segments" class="ai-segment-grid"></div>
+        <div class="ai-section-head"><h3>潜在赢家候选</h3><span class="sub">证据与判断分开 · 展开看风险</span></div>
+        <div class="ai-filters" aria-label="AI 公司筛选">
+          <label>市场 <select id="ai-market"><option value="all">全部市场</option><option value="美股">美股</option><option value="A股">A股</option><option value="港股">港股（含双重上市）</option></select></label>
+          <label>分层 <select id="ai-tier"><option value="all">全部分层</option><option>领先</option><option>观察</option><option>高风险</option></select></label>
+          <label>板块 <select id="ai-segment"><option value="all">全部板块</option></select></label>
+          <span id="ai-count" role="status" aria-live="polite"></span>
+        </div>
+        <div id="ai-companies" class="ai-company-grid"></div>
+        <details class="ai-method panel"><summary>资料来源与覆盖限制</summary><div id="ai-sources"></div></details>
+      </div>
+    </section>
+
     <!-- 美气 NG 专属看板 -->
     <section class="view view-ng" id="view-ng">
       <div class="ng-layout">
@@ -1041,11 +1069,12 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=20261110ui1"></script>
-  <script src="./static/us_movers_view.js?v=20261110ui1"></script>
-  <script src="./static/fund_score_view.js?v=20261110ui1"></script>
-  <script src="./static/cn_option_candidates_view.js?v=20261110ui1"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261110ui1"></script>
-  <script src="./static/app.js?v=20261110ui1"></script>
+  <script src="./static/ng_option_judgment.js?v=20261111ai1"></script>
+  <script src="./static/us_movers_view.js?v=20261111ai1"></script>
+  <script src="./static/fund_score_view.js?v=20261111ai1"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261111ai1"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261111ai1"></script>
+  <script src="./static/ai_apps_view.js?v=20261111ai1"></script>
+  <script src="./static/app.js?v=20261111ai1"></script>
 </body>
 </html>

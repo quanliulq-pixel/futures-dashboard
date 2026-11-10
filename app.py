@@ -10,7 +10,7 @@ import bg_tasks
 bg_tasks.install_yfinance_watch()
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from analysis import (
     build_full_analysis,
@@ -42,8 +42,14 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261110ui1"
+    asset_v = "20261111ai1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
+
+
+@app.route("/api/ai-apps")
+def ai_apps():
+    """Curated local research only: no market refresh or external requests."""
+    return send_from_directory(app.root_path + "/data", "ai_apps.json", mimetype="application/json")
 
 
 @app.route("/api/health")
