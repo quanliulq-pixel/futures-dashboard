@@ -61,7 +61,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261110ui1")
+    html = html.replace("{{ asset_v }}", "20261111ai1")
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
@@ -70,6 +70,8 @@ def export_html() -> None:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(ROOT / "static", dst)
+    # Copy only the curated research; never trigger market fetches here.
+    dump(API / "ai_apps.json", json.loads((ROOT / "data/ai_apps.json").read_text(encoding="utf-8")))
     print("copied templates + static -> docs/")
 
 

@@ -1,0 +1,526 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-11",
+  "timezone": "Asia/Tokyo",
+  "title": "AI 应用落地：谁更可能留下利润？",
+  "summary": "最终赢家尚无定论。优先研究掌握客户入口、专有数据和业务动作，并能证明持续付费的公司，而不只看模型榜单。",
+  "disclaimer": "研究分析，不构成投资建议或收益保证。领先仅指商业化与护城河的相对判断，不代表股票便宜；未纳入实时价格和估值，不能据此直接下单。",
+  "methodology": [
+    "排序为主观研究优先级：综合商业化证据、分发/数据/工作流护城河、定价与成本、政策/监管可执行性。不是量化概率或股价收益排名。",
+    "领先：入口/工作流与已披露付费、采用或变现证据较强。观察：已有产品或收入，但利润和可复制性待验证。高风险：路径较长，监管、资金或盈利不确定性大。三档均可能失败。",
+    "人工核验快照，不实时抓取，不代表完整市场覆盖。报告期不同，收入、ACV、ARR 与用量不能直接比较；公司自报不等于独立审计的 AI 增量。",
+    "A股先看政策允许场景及国产适配，再看中标→验收→回款→续费。政策是催化，不是利润或股价保证；未披露或未核实的独立 AI 收入标“无数据”。"
+  ],
+  "policy": {
+    "text": "国务院“人工智能+”意见于 2025-08-26 发布，覆盖科技、产业、消费、民生、治理与全球合作，支持工业全环节、智能体服务、教育医疗和应用中试基地。优先看进入真实业务且合规回款的厂商，警惕只靠政策概念和补贴。",
+    "source_ids": [
+      "policy"
+    ]
+  },
+  "segments": [
+    {
+      "id": "ads",
+      "rank": 1,
+      "name": "广告与消费互联网",
+      "monetization": "较高｜已有收入反馈",
+      "rationale": "推荐、投放、创意直接接入广告预算；分发入口与转化数据形成闭环，比培养新的付费习惯更快。",
+      "monitor": "增量广告毛利能否覆盖 AI 成本。",
+      "risks": "隐私、反垄断与资本开支；广告增长不能全归因 AI。",
+      "source_ids": [
+        "meta",
+        "tencent"
+      ]
+    },
+    {
+      "id": "enterprise",
+      "rank": 2,
+      "name": "企业软件、编程与智能体",
+      "monetization": "较高｜已有付费/合同证据",
+      "rationale": "企业权限、专有数据与工作流带来锁定，可按席位或用量收费。",
+      "monitor": "续费、真实生产用量和扣除推理/交付后的毛利。",
+      "risks": "代理减少席位、客户自建与模型原生对手压价。",
+      "source_ids": [
+        "msft",
+        "now",
+        "kingdee"
+      ]
+    },
+    {
+      "id": "cloud",
+      "rank": 3,
+      "name": "云与推理服务平台",
+      "monetization": "较高｜应用配套层",
+      "rationale": "模型托管、数据与治理随应用增加需求；多模型平台可持续收费。属于应用配套，不是纯应用。",
+      "monitor": "外部客户复购、利用率与资本开支后现金流。",
+      "risks": "算力商品化、模型降价、折旧与能源成本。",
+      "source_ids": [
+        "msft",
+        "goog",
+        "baba"
+      ]
+    },
+    {
+      "id": "security",
+      "rank": 4,
+      "name": "网络安全与 AI 治理",
+      "monetization": "中高｜刚需但增量需验证",
+      "rationale": "智能体扩大攻击面；遥测、身份与响应闭环有粘性。",
+      "monitor": "AI 安全独立附加付费、续费和事故赔付。",
+      "risks": "捆绑竞争、误报、可靠性；全部安全订阅不等于 AI 收入。",
+      "source_ids": [
+        "crwd",
+        "now"
+      ]
+    },
+    {
+      "id": "industrial",
+      "rank": 5,
+      "name": "工业、边缘与流程优化",
+      "monetization": "中等｜已有项目收入",
+      "rationale": "工艺数据、控制系统与行业经验难复制，节能减损可量化；政策推动工业全环节应用。",
+      "monitor": "跨工厂复制、订阅比例、验收回款。",
+      "risks": "定制交付重、安全责任高、制造业投资周期长。",
+      "source_ids": [
+        "supcon",
+        "policy"
+      ]
+    },
+    {
+      "id": "office",
+      "rank": 6,
+      "name": "教育与办公",
+      "monetization": "中等｜入口清晰，增量待验证",
+      "rationale": "文档与教育内容有存量入口；国产适配有利，但需证明持续付费。",
+      "monitor": "AI 独立付费率、续费、客单价与教育效果。",
+      "risks": "免费替代、渠道成本、未成年人数据和内容合规。",
+      "source_ids": [
+        "wps",
+        "iflytek",
+        "policy"
+      ]
+    },
+    {
+      "id": "finance",
+      "rank": 7,
+      "name": "金融与专业知识服务",
+      "monetization": "中等｜先提效，后收费",
+      "rationale": "合规数据与业务权限有壁垒；研究、客服、风控辅助和后台先节省工时。",
+      "monitor": "可审计降本、差错率及责任边界。",
+      "risks": "幻觉、隐私与监管；数据可能属于客户，暂未筛出可比纯 AI 收入标的。",
+      "source_ids": [
+        "msft",
+        "policy"
+      ]
+    },
+    {
+      "id": "health",
+      "rank": 8,
+      "name": "医疗、药物研发与临床辅助",
+      "monetization": "中低｜长周期、分化大",
+      "rationale": "临床数据与合规流程有壁垒；文书辅助、数据授权先于新药兑现。",
+      "monitor": "获批、临床效益、医院付费与授权回款。",
+      "risks": "临床失败、报销、隐私；诊断和数据收入不等于 AI 新药成功。",
+      "source_ids": [
+        "tem",
+        "msft",
+        "policy"
+      ]
+    },
+    {
+      "id": "autonomy",
+      "rank": 9,
+      "name": "自动驾驶与机器人",
+      "monetization": "较低｜长期期权",
+      "rationale": "场景数据、运营网络与安全能力有价值，但可用不等于规模盈利。",
+      "monitor": "无安全员商业运营、利用率与剔除补贴的贡献利润。",
+      "risks": "事故、许可、硬件与融资；人形机器人量产盈利仍待验证。",
+      "source_ids": [
+        "bidu",
+        "goog",
+        "policy"
+      ]
+    }
+  ],
+  "companies": [
+    {
+      "name": "微软",
+      "ticker": "MSFT",
+      "market": "美股",
+      "segment_id": "enterprise",
+      "tier": "领先",
+      "thesis": "Office、GitHub、Azure 与企业权限相互导流，模型嵌入日常工作。",
+      "evidence": "公司称消耗按量计费 Copilot credits 的客户数环比增长超过 75%；当季未更新付费席位总数。",
+      "evidence_kind": "采用/用量",
+      "evidence_period": "FY27 Q1（截至 2026-09-30）",
+      "source_ids": [
+        "msft"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "推理/资本开支、代理替代席位、模型与竞争依赖。",
+      "next_check": "按量收入、续费和云毛利；不能用用量推算收入。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "Meta",
+      "ticker": "META",
+      "market": "美股",
+      "segment_id": "ads",
+      "tier": "领先",
+      "thesis": "社交分发、广告预算与转化反馈闭环，AI 可在既有业务变现。",
+      "evidence": "Q3 公告明确称 AI 投资通过互动、推荐和变现效率带来增量广告收入，但未单列 AI 收入。",
+      "evidence_kind": "管理层定性归因",
+      "evidence_period": "2026 Q3",
+      "source_ids": [
+        "meta"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "隐私监管、广告周期、资本开支与新产品回报周期。",
+      "next_check": "广告效率与自由现金流；不把广告总收入当 AI 收入。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "ServiceNow",
+      "ticker": "NOW",
+      "market": "美股",
+      "segment_id": "enterprise",
+      "tier": "领先",
+      "thesis": "IT/客服工作流与治理层适合承接跨系统代理，不只是通用聊天框。",
+      "evidence": "公司称年内生产环境 agentic AI 用量同比超过 13 倍；2026 年末 AI ACV 目标上调至 17 亿美元（目标，非已确认收入）。",
+      "evidence_kind": "采用/合同目标",
+      "evidence_period": "2026 Q3",
+      "source_ids": [
+        "now"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "竞争、交付成本、消耗式定价能否抵消席位压力。",
+      "next_check": "核对目标兑现、付费消耗与续约；ACV 不等于 GAAP 收入。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "Alphabet",
+      "ticker": "GOOGL / GOOG",
+      "market": "美股",
+      "segment_id": "cloud",
+      "tier": "领先",
+      "thesis": "搜索、Android、Workspace 入口与云/模型协同，降低单产品风险。",
+      "evidence": "CEO 称 Q3 Google Cloud 收入同比增长 103%，AI 基础设施及解决方案为主要驱动；这是云整体增幅，非独立 AI 收入。",
+      "evidence_kind": "业务分部（非纯 AI）",
+      "evidence_period": "2026 Q3",
+      "source_ids": [
+        "goog"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "搜索广告被 AI 改变、反垄断、云资本密集。",
+      "next_check": "搜索变现是否覆盖 AI 查询成本，云利润和现金流。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "阿里巴巴",
+      "ticker": "9988.HK / BABA",
+      "market": "港股",
+      "segment_id": "cloud",
+      "tier": "领先",
+      "thesis": "云客户、通义模型与电商/钉钉入口相连，兼具服务与分发。",
+      "evidence": "六月季度公告披露 AI 相关产品收入 123.76 亿元；AI 实验室及应用分部仍有较大投入亏损，两者不可混用。",
+      "evidence_kind": "AI 相关收入",
+      "evidence_period": "截至 2026-06-30 的季度",
+      "source_ids": [
+        "baba"
+      ],
+      "ai_revenue": "123.76 亿元人民币（季度；AI 相关产品，含配套服务，非纯应用）",
+      "risks": "价格战、资本开支、应用补贴及出口限制。",
+      "next_check": "AI 产品毛利、外部客户复购及应用亏损收敛。",
+      "policy_context": "“人工智能+”支持模型服务和应用生态；不是独享补贴或订单承诺。"
+    },
+    {
+      "name": "腾讯控股",
+      "ticker": "0700.HK",
+      "market": "港股",
+      "segment_id": "ads",
+      "tier": "领先",
+      "thesis": "微信、广告投放与商家链路使 AI 改善直接接入预算。",
+      "evidence": "Q2 营销服务收入同比增长 22%；公告将其与 AI 推荐优化及 AIM+ 升级等联系，未单列 AI 收入。",
+      "evidence_kind": "业务分部（非纯 AI）",
+      "evidence_period": "2026 Q2",
+      "source_ids": [
+        "tencent"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "新 AI 产品投入、平台监管、商业化与用户体验冲突。",
+      "next_check": "广告增效是否持续覆盖新增投入。",
+      "policy_context": "契合“人工智能+”消费与服务方向，仍受内容、平台和数据监管约束。"
+    },
+    {
+      "name": "Palantir",
+      "ticker": "PLTR",
+      "market": "美股",
+      "segment_id": "enterprise",
+      "tier": "观察",
+      "thesis": "企业数据、权限与动作连接，数据本体和行业交付可能形成锁定。",
+      "evidence": "Q3 美国商业收入 9.84 亿美元，同比增长 148%；为美国商业总收入，非 AIP 单独收入。",
+      "evidence_kind": "业务分部（非纯 AI）",
+      "evidence_period": "2026 Q3",
+      "source_ids": [
+        "pltr"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "估值敏感、客户集中、交付/合同兑现和股权激励。",
+      "next_check": "试点到续约、交付成本；不能以高增长代替估值研究。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "CrowdStrike",
+      "ticker": "CRWD",
+      "market": "美股",
+      "segment_id": "security",
+      "tier": "观察",
+      "thesis": "遥测与部署形成反馈，智能体身份和 AI 攻击防护增加需求。",
+      "evidence": "FY27 Q2 公告披露推出 Continuous Identity for AI Agents，并扩大 Falcon AI Detection and Response 网关合作。",
+      "evidence_kind": "产品落地（非收入证明）",
+      "evidence_period": "FY27 Q2（截至 2026-07-31）",
+      "source_ids": [
+        "crwd"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "系统可靠性、赔付及大平台捆绑竞争。",
+      "next_check": "AI 安全独立付费和续费；平台 ARR 不能冒充 AI ARR。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "金蝶国际",
+      "ticker": "0268.HK",
+      "market": "港股",
+      "segment_id": "enterprise",
+      "tier": "观察",
+      "thesis": "财务/供应链 ERP 的数据和流程粘性，适合可审计代理。",
+      "evidence": "中期公告披露 AI 原生产品（Lingee 与 Kingdee AI Suite）收入约 2.96 亿元，同比增长 189%；并非全部云订阅收入。",
+      "evidence_kind": "AI 原生产品收入",
+      "evidence_period": "2026 上半年",
+      "source_ids": [
+        "kingdee"
+      ],
+      "ai_revenue": "约 2.96 亿元人民币（半年；AI 原生产品，公司口径）",
+      "risks": "竞争、客户预算、实施成本与 AI 原生统计口径变化。",
+      "next_check": "AI 产品续约率、毛利和交付规模化。",
+      "policy_context": "契合服务业智能体、工业供应链与国产软件生态，仍需回款验证。"
+    },
+    {
+      "name": "金山办公",
+      "ticker": "688111.SH",
+      "market": "A股",
+      "segment_id": "office",
+      "tier": "观察",
+      "thesis": "WPS 文档入口、企业部署和本地化能力有利于分发。",
+      "evidence": "半年报介绍个人“订阅+AI 用量”及企业“席位+AI 用量”模式；不能把 WPS 365 收入全部计为 AI。",
+      "evidence_kind": "商业模式/产品",
+      "evidence_period": "2026 上半年",
+      "source_ids": [
+        "wps"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "免费替代、转化/推理成本、隐私要求。",
+      "next_check": "AI 独立付费、留存与客单价。",
+      "policy_context": "“人工智能+”智能代理与国产化采购可能推动需求，政策不等于付费转化。"
+    },
+    {
+      "name": "中控技术",
+      "ticker": "688777.SH",
+      "market": "A股",
+      "segment_id": "industrial",
+      "tier": "观察",
+      "thesis": "流程控制系统、工艺知识与实时数据结合，更接近生产闭环。",
+      "evidence": "半年报披露工业 AI 业务收入 38,461.92 万元，并推进 TPT 及 MaaS/RaaS 价值订阅模式。",
+      "evidence_kind": "工业 AI 业务收入",
+      "evidence_period": "2026 上半年",
+      "source_ids": [
+        "supcon"
+      ],
+      "ai_revenue": "38,461.92 万元人民币（半年；工业 AI 业务，公司口径）",
+      "risks": "项目定制、验收回款、安全与工业投资周期。",
+      "next_check": "订阅比例、跨工厂复制效率及现金回款。",
+      "policy_context": "政策明确推动工业设计、生产和运营全环节智能化；不保证中标或利润。"
+    },
+    {
+      "name": "科大讯飞",
+      "ticker": "002230.SZ",
+      "market": "A股",
+      "segment_id": "office",
+      "tier": "观察",
+      "thesis": "中文语音、教育/医疗与设备渠道积累，可能转为专用应用。",
+      "evidence": "半年报披露大模型 API 及 MaaS 平台服务收入同比增长约 70%；不能把硬件、项目和 MaaS 合并当纯 AI 订阅。",
+      "evidence_kind": "AI 服务收入增速",
+      "evidence_period": "2026 上半年",
+      "source_ids": [
+        "iflytek"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "硬件竞争、研发投入、政企回款、算力/供应链。",
+      "next_check": "毛利、MaaS 绝对收入和经营现金流。",
+      "policy_context": "教育、医疗与国产模型获政策场景支持，仍受隐私、未成年人保护及地方支付能力约束。"
+    },
+    {
+      "name": "Tempus AI",
+      "ticker": "TEM",
+      "market": "美股",
+      "segment_id": "health",
+      "tier": "高风险",
+      "thesis": "临床数据及诊断渠道支持药企授权与辅助，但不是 AI 新药收益已被证明。",
+      "evidence": "Q3 Data and Applications 收入 1.081 亿美元、同比增长 33%；分部含数据许可，非纯生成式 AI 收入，公司仍净亏损。",
+      "evidence_kind": "数据/应用混合分部",
+      "evidence_period": "2026 Q3",
+      "source_ids": [
+        "tem"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "临床验证、隐私报销、关联方收入、融资和整合。",
+      "next_check": "独立客户回款、GAAP 亏损与真实临床效益。",
+      "policy_context": "不适用（非中国上市主体）"
+    },
+    {
+      "name": "百度",
+      "ticker": "9888.HK / BIDU",
+      "market": "港股",
+      "segment_id": "autonomy",
+      "tier": "高风险",
+      "thesis": "Apollo Go 运营、地图与场景数据有价值，许可及成本决定盈利。",
+      "evidence": "Q2 公告披露 Apollo Go 在迪拜启动全无人商业运营；AI Applications 收入 25 亿元，不等于 Robotaxi 收入。",
+      "evidence_kind": "商业运营/混合分部",
+      "evidence_period": "2026 Q2",
+      "source_ids": [
+        "bidu"
+      ],
+      "ai_revenue": "无数据（本次核验资料未单独披露）",
+      "risks": "事故、牌照、重资产、搜索下滑和单体经济性未单列。",
+      "next_check": "单车利用率、剔除补贴的贡献利润与安全记录。",
+      "policy_context": "支持智能网联汽车；地方测试许可不等于无限制收费运营或全国通行。"
+    }
+  ],
+  "sources": [
+    {
+      "id": "policy",
+      "title": "国务院“人工智能+”行动意见",
+      "published_at": "2025-08-26",
+      "url": "https://www.gov.cn/zhengce/zhengceku/202508/content_7037862.htm",
+      "kind": "政策原文",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "msft",
+      "title": "微软 FY27 Q1 电话会",
+      "published_at": "2026-10-28",
+      "url": "https://www.microsoft.com/en-us/investor/events/fy-2027/earnings-fy-2027-q1",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "meta",
+      "title": "Meta 2026 Q3 公告",
+      "published_at": "2026-10-21",
+      "url": "https://investor.atmeta.com/investor-news/press-release-details/2026/Meta-Reports-Third-Quarter-2026-Results/default.aspx",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "now",
+      "title": "ServiceNow 2026 Q3 公告",
+      "published_at": "2026-10-28",
+      "url": "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-Reports-Third-Quarter-2026-Financial-Results/default.aspx",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "goog",
+      "title": "Alphabet 2026 Q3 CEO 讲话",
+      "published_at": "2026-10-28",
+      "url": "https://blog.google/company-news/inside-google/message-ceo/alphabet-earnings-q3-2026/",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "pltr",
+      "title": "Palantir 2026 Q3 公告",
+      "published_at": "2026-11-02",
+      "url": "https://investors.palantir.com/news-details/2026/Palantir-Reports-Q3-2026-U-S--Comm-Revenue-Growth-of-148-YY-and-Revenue-Growth-of-96-YY-Raises-FY-2026-Revenue-Guidance-to-91-YY-Growth-and-U-S--Comm-Revenue-Guidance-to-143-YY-Crushing-Consensus-Expectations",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "crwd",
+      "title": "CrowdStrike FY27 Q2 公告",
+      "published_at": "2026-08-26",
+      "url": "https://ir.crowdstrike.com/news-releases/news-release-details/crowdstrike-reports-second-quarter-fiscal-year-2027-financial/",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "baba",
+      "title": "阿里六月季度公告（Business Wire 转载）",
+      "published_at": "2026-08-20",
+      "url": "https://www.morningstar.com/news/business-wire/20260818525201/alibaba-group-announces-june-quarter-2026-results",
+      "kind": "公司公告转载",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "tencent",
+      "title": "腾讯 2026 Q2 公告",
+      "published_at": "2026-08-12",
+      "url": "https://www.tencent.com/wp-content/uploads/2026/08/腾讯公布二零二六年第二季业绩.pdf",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "kingdee",
+      "title": "金蝶 2026 中期公告",
+      "published_at": "2026-08-11",
+      "url": "https://www.kingdee.com/mo/en/blog/2026/08/11/kingdee-international-announces-2026-interim-resultsrevenue-up-13-6-year-on-year-ai-native-product-revenue-up-189-year-on-year/",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "wps",
+      "title": "金山办公 2026 半年报",
+      "published_at": "2026-08-20",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "supcon",
+      "title": "中控技术 2026 半年报",
+      "published_at": "2026-08-29",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531328.PDF",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "iflytek",
+      "title": "科大讯飞 2026 半年报",
+      "published_at": "2026-08-21",
+      "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2026-08-21/96392fda-b44a-43a9-9587-02f277a34e67.PDF",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "bidu",
+      "title": "百度 2026 Q2 公告",
+      "published_at": "2026-08-18",
+      "url": "https://ir.baidu.com/news-releases/news-release-details/baidu-announces-second-quarter-2026-results",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    },
+    {
+      "id": "tem",
+      "title": "Tempus 2026 Q3 公告",
+      "published_at": "2026-11-02",
+      "url": "https://investors.tempus.com/news/news-details/2026/Tempus-Reports-Third-Quarter-2026-Results/default.aspx",
+      "kind": "公司披露",
+      "accessed_at": "2026-11-11"
+    }
+  ],
+  "limitations": [
+    "未提供价格、估值、目标价、胜率或交易信号。商业赢家不一定是投资赢家。",
+    "未单列独立 AI 收入时，不用总收入、云收入或广告收入代替；无数据不代表零收入。",
+    "金融服务尚未筛出可比纯 AI 收入口径公司；通用人形机器人没有纳入确定性候选，不强行补齐。",
+    "不同公司 AI 相关、AI 原生、数据应用口径不一，不加总和直接横比；财报更新、重大事故或模式改变后需人工复核。"
+  ]
+}
