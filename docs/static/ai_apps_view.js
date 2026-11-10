@@ -21,16 +21,19 @@
   function filterCompanies(items, filters) {
     return items.filter(c => (!filters.market || filters.market === 'all' || c.market === filters.market)
       && (!filters.tier || filters.tier === 'all' || c.tier === filters.tier)
+      && (!filters.cap || filters.cap === 'all' || c.cap_group === filters.cap)
       && (!filters.segment || filters.segment === 'all' || c.segment_id === filters.segment));
   }
   function companyHTML(c, data) {
     const segment = data.segments.find(s => s.id === c.segment_id);
+    const capLabel = c.cap_group === '大盘' ? '大盘（原有组）' : `${c.cap_group} · ${c.cap_band}`;
     const tierClass = {'领先':'leader', '观察':'watch', '高风险':'risk'}[c.tier] || 'watch';
     return `<article class="ai-company panel">
-      <div class="ai-company-top"><span class="ai-tier ai-tier-${tierClass}">${esc(c.tier)}</span><span class="sub">${esc(c.market)} · ${esc(segment ? segment.name : '无数据')}</span></div>
+      <div class="ai-company-top"><span class="ai-tier ai-tier-${tierClass}">${esc(c.tier)}</span><span class="sub">${esc(c.market)} · ${esc(capLabel)} · ${esc(segment ? segment.name : '无数据')}</span></div>
       <h4>${esc(c.name)} <small>${esc(c.ticker)}</small></h4>
       <p><b>可能赢在哪里（判断）</b>${esc(c.thesis)}</p>
       <div class="ai-evidence"><b>已核验的披露</b><span class="sub">${esc(c.evidence_kind)} · ${esc(c.evidence_period)}</span><p>${esc(c.evidence)}</p>${sourceLinks(c.source_ids, data.sources)}</div>
+      <details class="ai-cap-details"><summary>市值规模与来源 · ${esc(c.cap_as_of)} JST</summary><p>${esc(c.cap_basis)}</p><p class="sub">实际分档：${esc(c.cap_band)}；总市值快照，非实时行情。</p>${sourceLinks(c.cap_source_ids, data.sources)}</details>
       <p class="ai-revenue"><b>独立 / 明确口径 AI 收入</b>${esc(c.ai_revenue)}</p>
       <details><summary>关键风险、验证点与政策</summary><p><b>风险</b>${esc(c.risks)}</p><p><b>下一步验证</b>${esc(c.next_check)}</p><p><b>中国政策语境</b>${esc(c.policy_context)}</p>${c.market !== '美股' ? sourceLinks(data.policy.source_ids, data.sources) : ''}</details>
     </article>`;
@@ -43,7 +46,7 @@
   let bound = false;
   const $ = id => document.getElementById(id);
   function renderCompanies() {
-    const list = filterCompanies(payload.companies, {market:$('ai-market').value, tier:$('ai-tier').value, segment:$('ai-segment').value});
+    const list = filterCompanies(payload.companies, {market:$('ai-market').value, tier:$('ai-tier').value, segment:$('ai-segment').value, cap:$('ai-cap').value});
     $('ai-count').textContent = `${list.length} / ${payload.companies.length} 家候选`;
     $('ai-companies').innerHTML = list.length ? list.map(c => companyHTML(c, payload)).join('') : '<p class="ai-notice">无数据：该筛选组合没有候选，不代表该板块没有潜力。</p>';
   }
@@ -52,7 +55,7 @@
     $('ai-summary').textContent = data.summary;
     $('ai-asof').textContent = `研究截至 ${data.as_of}（JST / Asia/Tokyo） · 人工快照 · ${data.segments.length} 个板块 / ${data.companies.length} 家候选 · 来源日期见各卡片`;
     $('ai-disclaimer').textContent = data.disclaimer;
-    $('ai-method-body').innerHTML = `<ul>${data.methodology.map(m => `<li>${esc(m)}</li>`).join('')}</ul><h4>中国政策背景</h4><p>${esc(data.policy.text)}</p>${sourceLinks(data.policy.source_ids, data.sources)}`;
+    $('ai-method-body').innerHTML = `<ul>${data.methodology.map(m => `<li>${esc(m)}</li>`).join('')}</ul><h4>中国政策背景</h4><p>${esc(data.policy.text)}</p>${sourceLinks(data.policy.source_ids, data.sources)}<h4>市值规模口径</h4><p>${esc(data.cap_methodology.group_note)}</p><p>${esc(data.cap_methodology.thresholds)}</p><p>${esc(data.cap_methodology.caveat)}</p>`;
     $('ai-segments').innerHTML = data.segments.map(s => segmentHTML(s, data)).join('');
     $('ai-segment').innerHTML = '<option value="all">全部板块</option>' + data.segments.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
     $('ai-sources').innerHTML = `<ul>${data.limitations.map(x => `<li>${esc(x)}</li>`).join('')}</ul><ol>${data.sources.map(s => `<li>${sourceLinks([s.id], data.sources)}<span class="sub"> · ${esc(s.kind)} · 核验 ${esc(s.accessed_at)} JST</span></li>`).join('')}</ol>`;
@@ -63,7 +66,7 @@
   async function load() {
     if (loading || payload || typeof document === 'undefined' || !$('ai-content')) return;
     if (!bound) {
-      ['ai-market', 'ai-tier', 'ai-segment'].forEach(id => $(id).addEventListener('change', renderCompanies));
+      ['ai-market', 'ai-tier', 'ai-segment', 'ai-cap'].forEach(id => $(id).addEventListener('change', renderCompanies));
       $('ai-retry').addEventListener('click', load);
       bound = true;
     }

@@ -429,7 +429,8 @@
       quoteMeta.title = data.note ? qMeta + " · " + data.note : qMeta;
       setStatus(true, "已连接 · 定时刷新");
       if (!state.selectedId && state.quotes.length) {
-        selectInstrument(state.quotes[0].id);
+        // Background initialization must not override the tab the user just selected.
+        selectInstrument(state.quotes[0].id, { activateView: false });
       } else if (state.selectedId) {
         renderTable();
       }
@@ -786,12 +787,12 @@
     state.chartOpen = false;
   }
 
-  async function selectInstrument(id) {
+  async function selectInstrument(id, { activateView = true } = {}) {
     state.selectedId = id;
     renderTable();
     renderExtremeCards(lowsCards, state.lows, "low");
     renderExtremeCards(highsCards, state.highs, "high");
-    if (state.view !== "watch") switchView("watch");
+    if (activateView && state.view !== "watch") switchView("watch");
     // analysis first so chart can draw cost lines
     await loadAnalysis(id);
     await loadHistory();

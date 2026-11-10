@@ -1988,3 +1988,4 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
   .ai-filters label { justify-content: space-between; }
   .ai-filters select { width: 70%; min-width: 0; }
 }
+.ai-cap-details { margin: 12px 0; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 8px; }

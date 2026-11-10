@@ -78,7 +78,7 @@ def test_ai_apps_endpoint_reads_local_snapshot_without_refresh(monkeypatch):
         assert response.is_json and response.get_json() == research()
         assert 'no-store' in response.headers['Cache-Control']
         html = client.get('/').get_data(as_text=True)
-        assert 'data-view="ai"' in html and '20261111ai1' in html
+        assert 'data-view="ai"' in html and '20261111ai2' in html
 
 
 def test_export_html_only_copies_curated_data(tmp_path, monkeypatch):
@@ -93,3 +93,32 @@ def test_export_html_only_copies_curated_data(tmp_path, monkeypatch):
     export.export_html()
     assert json.loads((tmp_path / 'api/ai_apps.json').read_text()) == research()
     assert (tmp_path / 'static/ai_apps_view.js').exists()
+
+
+def test_market_cap_groups_and_sourced_bands():
+    data = research()
+    sources = {s['id']: s for s in data['sources']}
+    assert all(data['cap_methodology'].values())
+    assert '未逐一复核' in data['cap_methodology']['group_note']
+    small = [c for c in data['companies'] if c['cap_group'] == '中小盘']
+    assert len(small) == 12
+    assert sum(c['market'] == '美股' for c in small) == 6
+    assert sum(c['market'] != '美股' for c in small) == 6
+    for c in data['companies']:
+        assert c['cap_group'] in {'大盘', '中小盘'}
+        assert c['cap_band'] in {'小盘', '中盘', '大盘', '无数据'}
+        assert date.fromisoformat(c['cap_as_of']) <= date.fromisoformat(data['as_of'])
+        assert c['cap_basis']
+        if c['cap_group'] == '中小盘':
+            assert c['cap_band'] in {'小盘', '中盘'}
+            assert c['cap_source_ids']
+            for sid in c['cap_source_ids']:
+                assert sources[sid]['url'].startswith('https://')
+                assert sources[sid]['date_type'] == 'snapshot'
+        else:
+            assert c['cap_band'] == '无数据'  # Legacy grouping is not a certified market-cap size.
+            assert '未复核' in c['cap_basis']
+    for path in ['templates/index.html', 'docs/index.html']:
+        html = (ROOT / path).read_text()
+        assert 'id="ai-cap"' in html
+        assert '<option value="中小盘">中小盘</option>' in html
