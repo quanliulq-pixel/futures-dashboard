@@ -1,0 +1,11 @@
+{
+  "retrieved_at": "2026-11-11T10:11:17+09:00",
+  "source": "Yahoo Finance adjusted daily OHLC",
+  "data_quality": [
+    "BOIL 不完整日线（未填充/未交易）：2026-11-10",
+    "KOLD 不完整日线（未填充/未交易）：2026-11-10"
+  ],
+  "start": "2016-01-04",
+  "end": "2026-11-09",
+  "rows": 2727
+}

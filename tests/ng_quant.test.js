@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const view = require('../static/ng_quant_view.js');
+assert.equal(view.pct(null),'无数据');
+assert.equal(view.pct(.25),'25.00%');
+assert.equal(view.num(undefined),'无数据');
+const chart=view.curveSvg([{date:'2024-01-02',strategy:1,BOIL:1,KOLD:1},{date:'2024-01-03',strategy:1.1,BOIL:.01,KOLD:2}]);
+assert.ok(chart.includes('对数纵轴'));
+assert.ok(!chart.includes('NaN'));
+const table=view.metricTable({start:'2024-01-02',end:'2024-01-03',sessions:2,metrics:{strategy:{total_return:.1,cagr:.1,max_drawdown:-.2,sharpe:null,win_rate:null,trade_count:0,avg_holding_days:null}}});
+assert.ok(table.includes('ngq-up'));
+assert.ok(table.includes('无数据'));
+console.log('ng_quant view tests passed');

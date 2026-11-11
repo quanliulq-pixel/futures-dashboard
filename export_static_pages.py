@@ -61,7 +61,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261111ai2")
+    html = html.replace("{{ asset_v }}", "20261111ng1")
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
@@ -72,6 +72,9 @@ def export_html() -> None:
     shutil.copytree(ROOT / "static", dst)
     # Copy only the curated research; never trigger market fetches here.
     dump(API / "ai_apps.json", json.loads((ROOT / "data/ai_apps.json").read_text(encoding="utf-8")))
+    # Keep the independently generated quant snapshot; never refetch the full market.
+    from ng_quant import snapshot
+    dump(API / "ng_boil_kold.json", snapshot())
     print("copied templates + static -> docs/")
 
 

@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261111ai2" />
+  <link rel="stylesheet" href="./static/style.css?v=20261111ng1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -743,6 +743,19 @@
     <!-- 美气 NG 专属看板 -->
     <section class="view view-ng" id="view-ng">
       <div class="ng-layout">
+        <section class="panel ngq-panel" aria-labelledby="ng-quant-title">
+          <h2 id="ng-quant-title">BOIL / KOLD 量化交易系统</h2>
+          <p class="ngq-warning">杠杆ETF每日重置，波动损耗与展期成本可能造成重大亏损，不适合长期持有。研究信号，不自动下单，不构成投资建议，历史表现不保证未来收益。</p>
+          <details>
+            <summary>透明规则与回测假设（固定参数）</summary>
+            <p>NG 收盘 &gt; MA20 &gt; MA60 且10日动量为正：做BOIL；反向排列且动量为负：做KOLD；其他情况空仓。NG 20日对数收益年化波动率超过90%则空仓。</p>
+            <p>前日收盘决定、次日开盘执行。止损距离2×ETF ATR14，跳空穿越止损按开盘价退出，入场当日也检查止损。最多持有10个交易日；信号改变次日开盘退出，退出当天不重新入场。不同时持有两只ETF。</p>
+            <p>仓位=min(25%，0.5%资金风险预算/止损幅度，15%目标年化波动/ETF HV20)。单边费用10bp（佣金与滑点合计），双边约20bp；闲置资金收益0；期末强平计费。胜率按扣费后完整交易，持有日按交易日；Sharpe无风险利率0，年化252日。</p>
+            <p>2016年数据用于预热，2017–2023样本内，2024起留出检验；固定规则未调参，但此划分是事后检验而非真实前瞻样本外。无历史发布时间快照的库存/CFTC不进入模型。</p>
+          </details>
+          <div id="ng-quant-content" aria-live="polite">等待加载 BOIL/KOLD 日线量化快照…</div>
+        </section>
+
         <!-- 顶部核心综合看板与交易指令卡 -->
         <div class="ng-banner panel">
           <div class="ng-banner-left">
@@ -1071,12 +1084,13 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=20261111ai2"></script>
-  <script src="./static/us_movers_view.js?v=20261111ai2"></script>
-  <script src="./static/fund_score_view.js?v=20261111ai2"></script>
-  <script src="./static/cn_option_candidates_view.js?v=20261111ai2"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261111ai2"></script>
-  <script src="./static/ai_apps_view.js?v=20261111ai2"></script>
-  <script src="./static/app.js?v=20261111ai2"></script>
+  <script src="./static/ng_option_judgment.js?v=20261111ng1"></script>
+  <script src="./static/us_movers_view.js?v=20261111ng1"></script>
+  <script src="./static/fund_score_view.js?v=20261111ng1"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261111ng1"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261111ng1"></script>
+  <script src="./static/ai_apps_view.js?v=20261111ng1"></script>
+  <script src="./static/ng_quant_view.js?v=20261111ng1"></script>
+  <script src="./static/app.js?v=20261111ng1"></script>
 </body>
 </html>
