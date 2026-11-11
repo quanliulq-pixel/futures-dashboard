@@ -8,3 +8,5 @@ data/ng/monthly_supply_last.json
 # NG quant runtime cache (static snapshot is committed)
 data/ng_quant/latest.json
 data/ng_quant/*.tmp
+
+data/ng_quant/put_latest.json

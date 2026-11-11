@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261111ng1" />
+  <link rel="stylesheet" href="./static/style.css?v=20261111ng2" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -756,6 +756,18 @@
           <div id="ng-quant-content" aria-live="polite">等待加载 BOIL/KOLD 日线量化快照…</div>
         </section>
 
+        <section class="panel ngq-panel" aria-labelledby="ng-put-quant-title">
+          <h2 id="ng-put-quant-title">BOIL / UNG 卖Put量化系统（现金担保）</h2>
+          <p class="ngq-warning">卖Put不是低风险收息。BOIL长期衰减、跳空及美式提前指派可造成重大亏损；接盘后可能继续下跌。研究系统，不自动下单，不构成投资建议。</p>
+          <details><summary>卖Put规则、仓位与执行纪律</summary>
+            <p>仅NG一致上升趋势、标的收盘高于MA20、HV20≤150%且不超过HV60的1.5倍时研究BOIL/UNG卖Put；真实期权IV至少为HV的1.10倍，21–45天到期、|Δ|约0.20–0.30、OI≥100且买卖价差/中价≤25%。真实链或事件日历无数据则不卖。</p>
+            <p>50%权利金止盈；期权价达到初始2.5倍、标的跌到行权价或趋势失效时退出；余期≤7天平仓，不自动滚仓追加风险。每周三开盘退出、周三/四不新开是EIA星期代理，不替代核验官方事件日历。分红/拆并股/异常公告先核验，无法核验则不卖。</p>
+            <p>入场时每标的担保金≤账户10%，组合≤20%，计划止损风险预算每笔≤0.5%。需要足额现金担保100股整数合约，资金不足不卖，不用裸卖保证金。最坏损失可能接近全部担保金，不受计划止损约束。</p>
+            <p>无真实历史期权序列：以下全部为「模型定价回测，非真实期权成交」。模型IV=前日HV20×1.20仅是假设，30天连续合成行权价，利率3%、股息率0；单边扣5%模型权利金及标的名义额5bp。模型不验证真实IV溢价，不能直接用于实盘收益预期。</p>
+          </details>
+          <div id="ng-put-quant-content" aria-live="polite">等待加载卖Put研究快照…</div>
+        </section>
+
         <!-- 顶部核心综合看板与交易指令卡 -->
         <div class="ng-banner panel">
           <div class="ng-banner-left">
@@ -1084,13 +1096,14 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=20261111ng1"></script>
-  <script src="./static/us_movers_view.js?v=20261111ng1"></script>
-  <script src="./static/fund_score_view.js?v=20261111ng1"></script>
-  <script src="./static/cn_option_candidates_view.js?v=20261111ng1"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261111ng1"></script>
-  <script src="./static/ai_apps_view.js?v=20261111ng1"></script>
-  <script src="./static/ng_quant_view.js?v=20261111ng1"></script>
-  <script src="./static/app.js?v=20261111ng1"></script>
+  <script src="./static/ng_option_judgment.js?v=20261111ng2"></script>
+  <script src="./static/us_movers_view.js?v=20261111ng2"></script>
+  <script src="./static/fund_score_view.js?v=20261111ng2"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261111ng2"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261111ng2"></script>
+  <script src="./static/ai_apps_view.js?v=20261111ng2"></script>
+  <script src="./static/ng_quant_view.js?v=20261111ng2"></script>
+  <script src="./static/ng_put_view.js?v=20261111ng2"></script>
+  <script src="./static/app.js?v=20261111ng2"></script>
 </body>
 </html>

@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const v=require('../static/ng_put_view.js');
+assert.equal(v.pct(null),'无数据');
+assert.ok(v.liveCard({symbol:'BOIL',action:'不卖',reason:'<script>',quote:null,chain_status:'无数据',spot:10,hv:.3}).includes('&lt;script&gt;'));
+assert.ok(v.liveCard({symbol:'UNG',action:'不卖',quote:null}).includes('不用模型报价冒充'));
+const svg=v.curve([{date:'2024-01-01',strategy:1,BOIL:1,UNG:1},{date:'2024-01-02',strategy:.99,BOIL:.9,UNG:.95}]);
+assert.ok(!svg.includes('NaN')&&svg.includes('对数纵轴'));
+const t=v.table({start:'2024-01-01',end:'2024-01-02',metrics:{strategy:{total_return:-.01,cagr:-.01,max_drawdown:-.02,sharpe:-.5,win_rate:.4,trade_count:2,assignment_count:0,worst_trade:-.1}}});
+assert.ok(t.includes('最差交易/担保金')&&t.includes('-10.00%'));
+console.log('ng_put_quant view tests passed');

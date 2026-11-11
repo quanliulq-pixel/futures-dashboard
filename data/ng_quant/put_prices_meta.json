@@ -1,0 +1,10 @@
+{
+  "retrieved_at": "2026-11-11T10:24:58+09:00",
+  "source": "Yahoo Finance; BOIL/NG from archived daily panel, UNG newly fetched",
+  "data_quality": [
+    "BOIL / NG日线使用原量化系统的最近完整归档，不强制刷新其他数据。",
+    "UNG不完整日线未填充：2026-11-10"
+  ],
+  "start": "2016-01-04",
+  "end": "2026-11-09"
+}
