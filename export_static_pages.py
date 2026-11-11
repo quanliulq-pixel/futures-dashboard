@@ -61,7 +61,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261111ng4")
+    html = html.replace("{{ asset_v }}", "20261111ng5")
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
@@ -77,6 +77,8 @@ def export_html() -> None:
     dump(API / "ng_boil_kold.json", snapshot())
     from ng_put_quant import snapshot as put_snapshot
     dump(API / "ng_sell_put.json", put_snapshot())
+    from ng_call_quant import snapshot as call_snapshot
+    dump(API / "ng_sell_call.json", call_snapshot())
     from ng_strategy_lab import snapshot as lab_snapshot
     dump(API / "ng_strategy_lab.json", lab_snapshot())
     from ng_strategy_lab2 import snapshot as lab2_snapshot

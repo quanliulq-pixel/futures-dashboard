@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261111ng4" />
+  <link rel="stylesheet" href="./static/style.css?v=20261111ng5" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -768,6 +768,17 @@
           <div id="ng-put-quant-content" aria-live="polite">等待加载卖Put研究快照…</div>
         </section>
 
+        <section class="panel ngq-panel" aria-labelledby="ng-call-quant-title">
+          <h2 id="ng-call-quant-title">UNG / BOIL 卖Call量化系统（看涨信用价差）</h2>
+          <p class="ngq-warning">纸面信号，不构成下单。卖低行权价Call同时买同到期高行权价Call，禁止裸卖；天然气暴涨、提前指派、分腿成交会造成重大风险。杠杆衰减不是无风险卖Call理由。</p>
+          <details><summary>卖Call入场、退出与风险上限</summary>
+            <p>NG收盘&lt;MA20&lt;MA60、10日动量为负且ETF低于MA20才研究；NG HV20≤90%、ETF HV20≤150%且≤1.5×HV60。短腿模型Δ0.25、30天到期，长腿高出前日标的收盘的10%，次日开盘入场；真实链与事件日历无数据则不卖。</p>
+            <p>净价差50%止盈、回购价达初始2.5倍/标的触及短腿/趋势失效/余期≤7天退出，不滚仓。周三清仓、周三四不新开仅是EIA星期代理。每标的初始最大模型损失预算0.5%、组合1%，真实须100股整数价差且同时成交，资金不足不卖。</p>
+            <p>模型定价回测，非真实期权成交；IV=前日HV20×1.20，单边费用=净价差5%+入场标的10bp，两腿执行成本可能更高。2017–2023样本内、2024起事后留出，所有组合和失败结果均保留；历史收益不能证明未来盈利。</p>
+          </details>
+          <div id="ng-call-quant-content" aria-live="polite">等待加载冻结卖Call研究快照…</div>
+        </section>
+
         <section class="panel ngq-panel" aria-labelledby="ng-strategy-lab-title">
           <h2 id="ng-strategy-lab-title">策略实验室 · 两轮12个NG假设验证</h2>
           <p class="ngq-warning">研究不等于找到稳定盈利系统。保留所有成功与失败结果，不承诺盈利，不自动交易，不构成投资建议。</p>
@@ -1112,16 +1123,17 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=20261111ng4"></script>
-  <script src="./static/us_movers_view.js?v=20261111ng4"></script>
-  <script src="./static/fund_score_view.js?v=20261111ng4"></script>
-  <script src="./static/cn_option_candidates_view.js?v=20261111ng4"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261111ng4"></script>
-  <script src="./static/ai_apps_view.js?v=20261111ng4"></script>
-  <script src="./static/ng_quant_view.js?v=20261111ng4"></script>
-  <script src="./static/ng_put_view.js?v=20261111ng4"></script>
-  <script src="./static/ng_strategy_lab_view.js?v=20261111ng4"></script>
-  <script src="./static/ng_strategy_lab2_view.js?v=20261111ng4"></script>
-  <script src="./static/app.js?v=20261111ng4"></script>
+  <script src="./static/ng_option_judgment.js?v=20261111ng5"></script>
+  <script src="./static/us_movers_view.js?v=20261111ng5"></script>
+  <script src="./static/fund_score_view.js?v=20261111ng5"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261111ng5"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261111ng5"></script>
+  <script src="./static/ai_apps_view.js?v=20261111ng5"></script>
+  <script src="./static/ng_quant_view.js?v=20261111ng5"></script>
+  <script src="./static/ng_put_view.js?v=20261111ng5"></script>
+  <script src="./static/ng_call_view.js?v=20261111ng5"></script>
+  <script src="./static/ng_strategy_lab_view.js?v=20261111ng5"></script>
+  <script src="./static/ng_strategy_lab2_view.js?v=20261111ng5"></script>
+  <script src="./static/app.js?v=20261111ng5"></script>
 </body>
 </html>
