@@ -1989,3 +1989,20 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
   .ai-filters select { width: 70%; min-width: 0; }
 }
 .ai-cap-details { margin: 12px 0; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 8px; }
+
+/* Scoped BOIL/KOLD research system */
+.ngq-panel { padding: 20px; min-width: 0; }
+.ngq-panel h2 { margin-top: 0; }
+.ngq-panel p, .ngq-panel li { line-height: 1.75; overflow-wrap: anywhere; }
+.ngq-signal { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; padding: 16px; background: var(--surface-inset); border-radius: 9px; }
+.ngq-signal strong { display: block; font-size: 1.25rem; margin-top: 8px; }
+.ngq-up { color: #f87171; }
+.ngq-down { color: #4ade80; }
+.ngq-table { width: 100%; min-width: 800px; white-space: nowrap; }
+.ngq-result { border-top: 1px solid var(--line-soft); margin-top: 20px; padding-top: 12px; }
+.ngq-result svg { width: 100%; max-height: 360px; background: var(--surface-inset); border-radius: 8px; }
+.ngq-warning { color: var(--warning); border-left: 3px solid var(--warning); padding-left: 12px; }
+@media(max-width: 760px) { .ngq-signal { grid-template-columns: repeat(2,minmax(0,1fr)); } .ngq-panel { padding: 14px; } }
+.ngq-put-card { border: 1px solid var(--line-soft); border-radius: 9px; margin: 16px 0; padding: 16px; min-width: 0; }
+
+.nglab-pass { border-color: var(--warning); box-shadow: inset 3px 0 var(--warning); }

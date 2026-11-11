@@ -741,6 +741,47 @@
     <!-- 美气 NG 专属看板 -->
     <section class="view view-ng" id="view-ng">
       <div class="ng-layout">
+        <section class="panel ngq-panel" aria-labelledby="ng-quant-title">
+          <h2 id="ng-quant-title">BOIL / KOLD 量化交易系统</h2>
+          <p class="ngq-warning">杠杆ETF每日重置，波动损耗与展期成本可能造成重大亏损，不适合长期持有。研究信号，不自动下单，不构成投资建议，历史表现不保证未来收益。</p>
+          <details>
+            <summary>透明规则与回测假设（固定参数）</summary>
+            <p>NG 收盘 &gt; MA20 &gt; MA60 且10日动量为正：做BOIL；反向排列且动量为负：做KOLD；其他情况空仓。NG 20日对数收益年化波动率超过90%则空仓。</p>
+            <p>前日收盘决定、次日开盘执行。止损距离2×ETF ATR14，跳空穿越止损按开盘价退出，入场当日也检查止损。最多持有10个交易日；信号改变次日开盘退出，退出当天不重新入场。不同时持有两只ETF。</p>
+            <p>仓位=min(25%，0.5%资金风险预算/止损幅度，15%目标年化波动/ETF HV20)。单边费用10bp（佣金与滑点合计），双边约20bp；闲置资金收益0；期末强平计费。胜率按扣费后完整交易，持有日按交易日；Sharpe无风险利率0，年化252日。</p>
+            <p>2016年数据用于预热，2017–2023样本内，2024起留出检验；固定规则未调参，但此划分是事后检验而非真实前瞻样本外。无历史发布时间快照的库存/CFTC不进入模型。</p>
+          </details>
+          <div id="ng-quant-content" aria-live="polite">等待加载 BOIL/KOLD 日线量化快照…</div>
+        </section>
+
+        <section class="panel ngq-panel" aria-labelledby="ng-put-quant-title">
+          <h2 id="ng-put-quant-title">BOIL / UNG 卖Put量化系统（现金担保）</h2>
+          <p class="ngq-warning">卖Put不是低风险收息。BOIL长期衰减、跳空及美式提前指派可造成重大亏损；接盘后可能继续下跌。研究系统，不自动下单，不构成投资建议。</p>
+          <details><summary>卖Put规则、仓位与执行纪律</summary>
+            <p>仅NG一致上升趋势、标的收盘高于MA20、HV20≤150%且不超过HV60的1.5倍时研究BOIL/UNG卖Put；真实期权IV至少为HV的1.10倍，21–45天到期、|Δ|约0.20–0.30、OI≥100且买卖价差/中价≤25%。真实链或事件日历无数据则不卖。</p>
+            <p>50%权利金止盈；期权价达到初始2.5倍、标的跌到行权价或趋势失效时退出；余期≤7天平仓，不自动滚仓追加风险。每周三开盘退出、周三/四不新开是EIA星期代理，不替代核验官方事件日历。分红/拆并股/异常公告先核验，无法核验则不卖。</p>
+            <p>入场时每标的担保金≤账户10%，组合≤20%，计划止损风险预算每笔≤0.5%。需要足额现金担保100股整数合约，资金不足不卖，不用裸卖保证金。最坏损失可能接近全部担保金，不受计划止损约束。</p>
+            <p>无真实历史期权序列：以下全部为「模型定价回测，非真实期权成交」。模型IV=前日HV20×1.20仅是假设，30天连续合成行权价，利率3%、股息率0；单边扣5%模型权利金及标的名义额5bp。模型不验证真实IV溢价，不能直接用于实盘收益预期。</p>
+          </details>
+          <div id="ng-put-quant-content" aria-live="polite">等待加载卖Put研究快照…</div>
+        </section>
+
+        <section class="panel ngq-panel" aria-labelledby="ng-strategy-lab-title">
+          <h2 id="ng-strategy-lab-title">策略实验室 · 两轮12个NG假设验证</h2>
+          <p class="ngq-warning">研究不等于找到稳定盈利系统。保留所有成功与失败结果，不承诺盈利，不自动交易，不构成投资建议。</p>
+          <h3>第一轮：价格、季节性与杠杆衰减</h3>
+          <details><summary>第一轮预注册规则、通过门槛和反过拟合纪律</summary>
+            <p>看本轮留出结果前冻结六个候选：月度双空BOIL/KOLD、UNG季节性、半年趋势切换、极端反转、月度小仓位卖空BOIL、防守型KOLD。完整参数与冻结数据哈希写入预注册文档。</p>
+            <p>2016预热，2017–2022样本内，2023验证，2024起留出只评估一次。通过条件：样本内累计正收益、留出正收益且Sharpe严格&gt;0.5、三个区间回撤均≤25%、无破产。不因0.49接近0.5而放宽门槛。</p>
+            <p>前日收盘信号、次日开盘执行；单边换仓费用10bp；空头借券费假设10%年化，预注册15%压力情景；现金/无风险收益0。借券可得性、召回与真实费率无数据，不能假设一定能做空。</p>
+            <p>两轮合计12次多重检验必须一起看；第一轮原始六重p保留冻结，展示统一12重Bonferroni式IID近似p值，但样本序列相关、负偏态和事后市场认知使它不是严格显著性证明。此前已看过该市场走势，不是全盲留出；需要真正前瞻验证。</p>
+          </details>
+          <div id="ng-strategy-lab-content" aria-live="polite">等待加载冻结的六策略实验结果…</div>
+          <h3>第二轮：免费基本面 · 库存 / 已实现天气 / COT</h3>
+          <p class="ngq-warning">先预注册后评估并冻结，不保证找到盈利策略；使用UNG多空，正常发布时间后保守多等2个交易日。五年平均不是市场共识，已实现天气不是预报。</p>
+          <div id="ng-strategy-lab2-content" aria-live="polite">等待加载第二轮六策略冻结结果…</div>
+        </section>
+
         <!-- 顶部核心综合看板与交易指令卡 -->
         <div class="ng-banner panel">
           <div class="ng-banner-left">
@@ -1075,6 +1116,10 @@
   <script src="/static/cn_option_candidates_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_fund_view.js?v={{ asset_v }}"></script>
   <script src="/static/ai_apps_view.js?v={{ asset_v }}"></script>
+  <script src="/static/ng_quant_view.js?v={{ asset_v }}"></script>
+  <script src="/static/ng_put_view.js?v={{ asset_v }}"></script>
+  <script src="/static/ng_strategy_lab_view.js?v={{ asset_v }}"></script>
+  <script src="/static/ng_strategy_lab2_view.js?v={{ asset_v }}"></script>
   <script src="/static/app.js?v={{ asset_v }}"></script>
 </body>
 </html>
