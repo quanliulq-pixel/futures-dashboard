@@ -78,7 +78,7 @@ def test_ai_apps_endpoint_reads_local_snapshot_without_refresh(monkeypatch):
         assert response.is_json and response.get_json() == research()
         assert 'no-store' in response.headers['Cache-Control']
         html = client.get('/').get_data(as_text=True)
-        assert 'data-view="ai"' in html and '20261111ng2' in html
+        assert 'data-view="ai"' in html and '20261111ng3' in html
 
 
 def test_export_html_only_copies_curated_data(tmp_path, monkeypatch):

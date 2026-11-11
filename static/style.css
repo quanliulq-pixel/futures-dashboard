@@ -2004,3 +2004,5 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .ngq-warning { color: var(--warning); border-left: 3px solid var(--warning); padding-left: 12px; }
 @media(max-width: 760px) { .ngq-signal { grid-template-columns: repeat(2,minmax(0,1fr)); } .ngq-panel { padding: 14px; } }
 .ngq-put-card { border: 1px solid var(--line-soft); border-radius: 9px; margin: 16px 0; padding: 16px; min-width: 0; }
+
+.nglab-pass { border-color: var(--warning); box-shadow: inset 3px 0 var(--warning); }
