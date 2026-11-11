@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261111ng3"
+    asset_v = "20261111ng4"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -540,6 +540,13 @@ def ng_strategy_lab_api():
     # Frozen one-shot research: never re-test holdout or start a market scan on GET.
     import ng_strategy_lab
     return jsonify(ng_strategy_lab.snapshot())
+
+
+@app.route("/api/ng-strategy-lab2")
+def ng_strategy_lab2_api():
+    # Frozen free-data experiment: no network or holdout evaluation on GET.
+    import ng_strategy_lab2
+    return jsonify(ng_strategy_lab2.snapshot())
 
 
 @app.route("/api/ng-sell-put")

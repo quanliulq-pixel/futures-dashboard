@@ -1,0 +1,15 @@
+{
+  "note": "首次进程因benchmark的只读NumPy视图写入失败；未输出任何策略绩效，规则、参数、输入哈希不变。机械技术重算一次，披露两次计算进程，不称字面单次计算。",
+  "original_input_hashes": {
+    "lab2_panel.json": "aae6c1b4f28f0286d19d64bc1ee6c30e05bdae1c6aad7630f0de8bb24d729c8f",
+    "lab2_prices.json": "5e5291de1fed5530d79c8364fae7e9bc078244ac197e60f6de6f865afa91607f",
+    "lab2_storage.csv": "8ae072d92401f94a274665fe2a6ca08ed0446fbc7c8b63fcc6c24ced1e0876f6",
+    "lab2_cot.csv": "4d775f3734c3678f7384ac9dabbd4b08ba4c50b65f72bdd5c11d88a5d5a82d79",
+    "lab2_weather.csv": "606852edc5f5b27ecb557a2df2545ab8dfbb8f6cb7e6561d4f25deb2f11ca29b",
+    "lab2_manifest.json": "2d089c48ce4bf54eb6d53bb73176560280acb4dce1f114f9ee968d77f789a068"
+  },
+  "core_before": "b2c0c21da5be616eaa7e61d73f81bc5543e2c0cad01ccce7974a9c0d0708ddc8",
+  "core_after": "b2c0c21da5be616eaa7e61d73f81bc5543e2c0cad01ccce7974a9c0d0708ddc8",
+  "error_log": "Traceback (most recent call last):\n  File \"/tmp/futures-ng/scripts/ng_research2.py\", line 18, in <module>\n    d=q.run_once()\n  File \"/tmp/futures-ng/ng_strategy_lab2.py\", line 189, in run_once\n    benchmark={k:benchmark(panel,*bounds) for k,bounds in PERIODS.items()},input_hashes=hashes,prereg_sha256=hashlib.sha256(PREREG.read_bytes()).hexdigest(),\n                 ~~~~~~~~~^^^^^^^^^^^^^^^\n  File \"/tmp/futures-ng/ng_strategy_lab2.py\", line 172, in benchmark\n    d=panel.loc[start:end];qty=1/(float(d.iloc[0].UNG_open)*(1+COST));vals=(d.UNG_close*qty).to_numpy();vals[-1]*=1-COST\n                                                                                                        ~~~~^^^^\nValueError: assignment destination is read-only\n",
+  "official_fix": "https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_numpy.html"
+}

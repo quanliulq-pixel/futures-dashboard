@@ -1,0 +1,331 @@
+{
+  "fetched_at": "2026-11-11T10:56:26+09:00",
+  "sources": [
+    {
+      "file": "cot_all.json",
+      "url": "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code=%27023651%27&$order=report_date_as_yyyy_mm_dd%20ASC&$limit=5000",
+      "sha256": "9e9795ea80909640c6c266c07ee4b4ac1ea2232f008827eb3dae625cbb70e343",
+      "bytes": 7312203
+    },
+    {
+      "file": "eia_archngshistory.xls",
+      "url": "https://ir.eia.gov/ngs/archngshistory.xls",
+      "sha256": "f3e4636fd209101cd8a39f0127665b3b9a6ef85092bdf11126ea3b341ac3cdac",
+      "bytes": 2049024
+    },
+    {
+      "file": "eia_archngsstats.xls",
+      "url": "https://ir.eia.gov/ngs/archngsstats.xls",
+      "sha256": "459889f846112e0b10dbd9bc123d0413716cbc3edd4e550266f9b62b2a126e48",
+      "bytes": 2680320
+    },
+    {
+      "file": "eia_archrevisions.xls",
+      "url": "https://ir.eia.gov/ngs/archrevisions.xls",
+      "sha256": "5bb9d57fa41eaf6090635f2be0dc98f321e72acf7aedbf8c4c9873225d8423e1",
+      "bytes": 1895424
+    },
+    {
+      "file": "eia_ngshistory.xls",
+      "url": "https://ir.eia.gov/ngs/ngshistory.xls",
+      "sha256": "740219b3c360502a6f134480aa7c72c1b3c7be453f76a6e290b8db5159c6beca",
+      "bytes": 787968
+    },
+    {
+      "file": "eia_ngsstats.xls",
+      "url": "https://ir.eia.gov/ngs/ngsstats.xls",
+      "sha256": "048b07b1953af214021cb705231f46e14bda429f0af3d1ffde1316e088af30ab",
+      "bytes": 199168
+    },
+    {
+      "file": "eia_revisions.xls",
+      "url": "https://ir.eia.gov/ngs/revisions.xls",
+      "sha256": "ee7c703c6d30176d0253b879aa4c8c6dc0178b411c36d73036d89aeff412dd3c",
+      "bytes": 121856
+    },
+    {
+      "file": "noaa_2004_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2004/Population.Cooling.txt",
+      "sha256": "a82643732e461281e4b0e841cc1facc6d563e1b5e59ad37dfb0fff26b6f18c02",
+      "bytes": 11198
+    },
+    {
+      "file": "noaa_2004_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2004/UtilityGas.Heating.txt",
+      "sha256": "0b4c1248c665555718e7f43875032ede772e4740069c7ea933911429ea2b740e",
+      "bytes": 12460
+    },
+    {
+      "file": "noaa_2005_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2005/Population.Cooling.txt",
+      "sha256": "6262cfb8b573948efbdfd354e3a74a81bd811da24fbcd839adaccc219eb058be",
+      "bytes": 11365
+    },
+    {
+      "file": "noaa_2005_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2005/UtilityGas.Heating.txt",
+      "sha256": "9109d5861174d499f25c437e0ee8a661ff6ee3434432817870ae973e5443781a",
+      "bytes": 12477
+    },
+    {
+      "file": "noaa_2006_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2006/Population.Cooling.txt",
+      "sha256": "a260892276cbfce8bb4adfe4cde7c7a9c77c09184f6a5a76deb7af96d3b84b75",
+      "bytes": 11278
+    },
+    {
+      "file": "noaa_2006_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2006/UtilityGas.Heating.txt",
+      "sha256": "9aec3733af76bff6832128412ceacb607011f962869f4e778f734d8f2942b7ca",
+      "bytes": 12475
+    },
+    {
+      "file": "noaa_2007_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2007/Population.Cooling.txt",
+      "sha256": "e5572c7bf163d9926eee16fcc853842062cc16c9d07952b29db643ba0718e478",
+      "bytes": 11319
+    },
+    {
+      "file": "noaa_2007_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2007/UtilityGas.Heating.txt",
+      "sha256": "b114c7ff10cf423bf9641f1c8a530d0f8673dbc658667f59bb19fea654480dad",
+      "bytes": 12363
+    },
+    {
+      "file": "noaa_2008_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2008/Population.Cooling.txt",
+      "sha256": "2153e9be2f683512622d80417eb5a3c90a3c71907b881abeafafef02de93db9a",
+      "bytes": 11243
+    },
+    {
+      "file": "noaa_2008_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2008/UtilityGas.Heating.txt",
+      "sha256": "ac568868568c4d9aeef41bee375502e5a3dcf8df6058f1a19edc18ed8f7f8089",
+      "bytes": 12538
+    },
+    {
+      "file": "noaa_2009_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2009/Population.Cooling.txt",
+      "sha256": "4c87353db08f268c6455fa3e1649be538c596cc8f3763255a3a2724159869cd3",
+      "bytes": 11163
+    },
+    {
+      "file": "noaa_2009_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2009/UtilityGas.Heating.txt",
+      "sha256": "7ef64d1ecc8182edd0339f08a907a1f23cd79153639a6cca7c37a25ec7e21a77",
+      "bytes": 12527
+    },
+    {
+      "file": "noaa_2010_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2010/Population.Cooling.txt",
+      "sha256": "20612a4c9c8394a7e8bcf6832c617adeaa74f48278ca72c0efd633fd5a90a277",
+      "bytes": 11387
+    },
+    {
+      "file": "noaa_2010_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2010/UtilityGas.Heating.txt",
+      "sha256": "0eedb2ae0fc5be2527a8930c1b7f47ecd50ced7b8ee94683d262f42dd0d705a1",
+      "bytes": 12471
+    },
+    {
+      "file": "noaa_2011_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2011/Population.Cooling.txt",
+      "sha256": "fe3a95867bf9ce37783120cc31331fd197ef972da38c25e923d2a9b8e8ea08ee",
+      "bytes": 11343
+    },
+    {
+      "file": "noaa_2011_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2011/UtilityGas.Heating.txt",
+      "sha256": "9b9b383aea0c31bc1961c5cee0fedd755c2f1ca1f786c90d21625071ced7305a",
+      "bytes": 12508
+    },
+    {
+      "file": "noaa_2012_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2012/Population.Cooling.txt",
+      "sha256": "a3d198dc2f50b04bb96b7dc709ea2435695abd82a6c87d596b00937209e3f227",
+      "bytes": 11371
+    },
+    {
+      "file": "noaa_2012_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2012/UtilityGas.Heating.txt",
+      "sha256": "1cb2cf429aa35d4f570e6642d96ee0e00f7e2c9b2f68c485bee7c2ed51f6c408",
+      "bytes": 12381
+    },
+    {
+      "file": "noaa_2013_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2013/Population.Cooling.txt",
+      "sha256": "ef5416718d33e3834359d13b1bc7b0abc64ec826efcd61efe4f5ae91f35301b3",
+      "bytes": 11285
+    },
+    {
+      "file": "noaa_2013_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2013/UtilityGas.Heating.txt",
+      "sha256": "f84e5dda9f25f7c22831cc972b61979e9d371022c0caad3f33b4d1dece8851d6",
+      "bytes": 12491
+    },
+    {
+      "file": "noaa_2014_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2014/Population.Cooling.txt",
+      "sha256": "71608b007f623c335bafa65ca98cdf654dc1baca4eda30cc9538048ad477ed72",
+      "bytes": 11200
+    },
+    {
+      "file": "noaa_2014_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2014/UtilityGas.Heating.txt",
+      "sha256": "5aef1ade6e8b3b0ef4e579152b0b5006909700cf1ef51a829f58b0d2175b9f02",
+      "bytes": 12482
+    },
+    {
+      "file": "noaa_2015_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2015/Population.Cooling.txt",
+      "sha256": "8eb28ebcca0c56ef516a8429fabccb890ac37e163dc6eaba1fa3c05ebc352bc9",
+      "bytes": 11306
+    },
+    {
+      "file": "noaa_2015_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2015/UtilityGas.Heating.txt",
+      "sha256": "0e4943eda31560f001749542e41e93055fb2fd0aaea2b14a23a826fc9fe52f1f",
+      "bytes": 12327
+    },
+    {
+      "file": "noaa_2016_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2016/Population.Cooling.txt",
+      "sha256": "a2dcfbbe4c502423eec381032a88807a0874578214f13a2f6d09d769e894899e",
+      "bytes": 11456
+    },
+    {
+      "file": "noaa_2016_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2016/UtilityGas.Heating.txt",
+      "sha256": "5a7eaad221617cba1a7f0f0f234d7254598907a8315b4453d120034c1e79d220",
+      "bytes": 12354
+    },
+    {
+      "file": "noaa_2017_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2017/Population.Cooling.txt",
+      "sha256": "c928d73177695b5f1819c8ed64d69dcc3dadaa5d109033dc7826e28fc5b4cd96",
+      "bytes": 11289
+    },
+    {
+      "file": "noaa_2017_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2017/UtilityGas.Heating.txt",
+      "sha256": "7819c5e87890228a5112624df181a5650fe65efae5b34f8d7b281c9c941c08c8",
+      "bytes": 12330
+    },
+    {
+      "file": "noaa_2018_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2018/Population.Cooling.txt",
+      "sha256": "7be9e021b9965cfe8924911267de78447b0138e7db989fb8fcdb20cddacb2185",
+      "bytes": 11450
+    },
+    {
+      "file": "noaa_2018_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2018/UtilityGas.Heating.txt",
+      "sha256": "90c055f0cb83a76f3e8184e1b3ff2d2e436f2156777b2b2b3d7d31988b899ceb",
+      "bytes": 12504
+    },
+    {
+      "file": "noaa_2019_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2019/Population.Cooling.txt",
+      "sha256": "8bf9b4df521765489d67e6da7718e9e42143a6c7d099a7ce91003387fa8ac8a6",
+      "bytes": 11362
+    },
+    {
+      "file": "noaa_2019_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2019/UtilityGas.Heating.txt",
+      "sha256": "0e4e83782e71abbf6e9c382740258968037f6c986592d2e970d305c864c7d70a",
+      "bytes": 12487
+    },
+    {
+      "file": "noaa_2020_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2020/Population.Cooling.txt",
+      "sha256": "ad648b452c277122d1d5d968488a7d8bd0e1180a123a2fd697b1eed1a189414c",
+      "bytes": 11369
+    },
+    {
+      "file": "noaa_2020_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2020/UtilityGas.Heating.txt",
+      "sha256": "3c71d5868bb383e73e18ea376a7e3c05beb53594d57e2da83c6fe50c6c94c146",
+      "bytes": 12506
+    },
+    {
+      "file": "noaa_2021_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2021/Population.Cooling.txt",
+      "sha256": "37ffe463cf6ea294e677169f2287d3473cf223f30c1851d5c3578ea2f7a591ff",
+      "bytes": 11326
+    },
+    {
+      "file": "noaa_2021_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2021/UtilityGas.Heating.txt",
+      "sha256": "006e7657e4a3b0662a88d36cb7a985262c3d48e82fcf4323114e547e9f16c307",
+      "bytes": 12401
+    },
+    {
+      "file": "noaa_2022_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2022/Population.Cooling.txt",
+      "sha256": "14b5c43e2d0f0a7d040c7ffec4f32fbefc20a8f36060fa474fc99d749dd79de8",
+      "bytes": 11324
+    },
+    {
+      "file": "noaa_2022_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2022/UtilityGas.Heating.txt",
+      "sha256": "ed1dc2ab80aa9433707824bc3df65348937bbe88bd6b41a6c8ddaed793cc0a3b",
+      "bytes": 12494
+    },
+    {
+      "file": "noaa_2023_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2023/Population.Cooling.txt",
+      "sha256": "9fd3095e9493cf57a0db24973de08a46b2a94064d885dd44517f41f36d7eba37",
+      "bytes": 11215
+    },
+    {
+      "file": "noaa_2023_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2023/UtilityGas.Heating.txt",
+      "sha256": "2c648f7a2cbadfb702ee5b940981d831ab02a62745629eec69abdc42beb5e71f",
+      "bytes": 12455
+    },
+    {
+      "file": "noaa_2024_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2024/Population.Cooling.txt",
+      "sha256": "ecd38f6152b9e53c268c5966df1914cf7fc4bccdfec446bf9eef60e036c4fdb6",
+      "bytes": 11347
+    },
+    {
+      "file": "noaa_2024_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2024/UtilityGas.Heating.txt",
+      "sha256": "d959f3af66894ea9a20b3499ef8a88ffca64d94eea19e07a344dc964863d869d",
+      "bytes": 12404
+    },
+    {
+      "file": "noaa_2025_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2025/Population.Cooling.txt",
+      "sha256": "ed19d9c3260ab4aff166946c6e5b49d456569a2f7bf66708e27b1151ef751f9b",
+      "bytes": 11298
+    },
+    {
+      "file": "noaa_2025_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2025/UtilityGas.Heating.txt",
+      "sha256": "2c7cd8ea0c9d29213fd069e8bc535c14b0b7af318bd9722de0e442a3508cdde8",
+      "bytes": 12410
+    },
+    {
+      "file": "noaa_2026_Population.Cooling.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2026/Population.Cooling.txt",
+      "sha256": "2f7e2b64994460ed35ccb30ac0935a8b2a023ea10a39a1b0c783b5420b7c521e",
+      "bytes": 9837
+    },
+    {
+      "file": "noaa_2026_UtilityGas.Heating.txt",
+      "url": "https://ftp.cpc.ncep.noaa.gov/htdocs/degree_days/weighted/daily_data/2026/UtilityGas.Heating.txt",
+      "sha256": "7fee99ee6f4fa71e992eb633cdf7b36caf4d58174b5464609e01e57c8b539170",
+      "bytes": 10287
+    },
+    {
+      "file": "ung_prices.json",
+      "url": "Yahoo Finance UNG chart via yfinance; 2007 start, end exclusive 2026-11-10",
+      "sha256": "5e5291de1fed5530d79c8364fae7e9bc078244ac197e60f6de6f865afa91607f",
+      "bytes": 634459
+    }
+  ],
+  "weather_aggregation": "fixed equal mean of Census divisions 1–9; each division already carries source UtilityGas/Population weights; require all9 in research",
+  "storage_original_share": 0.9772462077012836
+}
