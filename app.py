@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112idx5"
+    asset_v = "20261112idx6"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -797,11 +797,20 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         return payload
     try:
         from cn_index_flow import (
-            DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, ensure_etf_holders,
-            flow_bundle_age_hours, pick_flow_bundle,
+            DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, bundle_has_live_main,
+            coalesce_flow_bundles, ensure_etf_holders, flag_mains_from_snapshot,
+            flow_bundle_age_hours, flow_main_coverage, load_bundled_flow_seed,
         )
 
-        best = pick_flow_bundle(DEFAULT_FLOW_PROVIDER.get_cached(), payload.get("index_flows"))
+        cached = DEFAULT_FLOW_PROVIDER.get_cached()
+        seed = payload.get("index_flows")
+        if not isinstance(seed, dict) or not seed.get("indices"):
+            seed = load_bundled_flow_seed()
+        # CPU only: never prefer a newer all-missing 主力 cache over the snapshot seed;
+        # keep live ETF/两融/holders and fill 主力 from the last good snapshot.
+        best = coalesce_flow_bundles(cached, seed)
+        if best is not None and not bundle_has_live_main(cached) and flow_main_coverage(best) > 0:
+            best = flag_mains_from_snapshot(best)
         if kick is None:
             kick = _on_render() or os.environ.get("CN_INDEX_FLOW_AUTO") == "1"
         age = flow_bundle_age_hours(best)

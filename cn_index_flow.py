@@ -18,12 +18,14 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,18 @@ SRC = {
 }
 NORTHBOUND_REASON = "2024年8月起交易所不再披露北向资金每日净买额，免费源无可靠数据"
 NO_DATA = "无数据"
+
+ROOT = Path(__file__).resolve().parent
+FLOW_SEED_PATHS = (
+    ROOT / "docs" / "api" / "cn_indices.json",
+    ROOT / "data" / "cn_index_flows.json",
+)
+REMOTE_FLOW_SEED_URL = (
+    "https://raw.githubusercontent.com/quanliulq-pixel/futures-dashboard/main/docs/api/cn_indices.json"
+)
+REMOTE_FLOW_SEED_TIMEOUT = 5.0
+# 主力快照可用窗口：昨天的 asof（如 11-11 对 11-12）必须优于全空的新缓存。
+MAIN_SNAPSHOT_MAX_AGE_DAYS = 30
 
 
 # ---------------------------------------------------------------- helpers
@@ -506,8 +520,15 @@ def fetch_main_all() -> dict:
     return out
 
 
+def skip_push2() -> bool:
+    """Render 及显式 SKIP_PUSH2=1 时不请求东方财富 push2（该环境常被限流/封禁）。"""
+    return bool(os.environ.get("SKIP_PUSH2") or os.environ.get("RENDER"))
+
+
 def default_fetchers() -> dict[str, Callable[[], Any]]:
-    f: dict[str, Callable[[], Any]] = {"main_all": fetch_main_all}
+    f: dict[str, Callable[[], Any]] = {}
+    if not skip_push2():
+        f["main_all"] = fetch_main_all
     f["cal"] = lambda: [d for d, _ in fetch_sina_kline("sh000300", FLOW_LMT)]
     codes = [c for m in FLOW_INDICES for c, _ in m["etfs"]]
     f["etf_prices"] = lambda: {c: _safe_kline(f"sh{c}") for c in codes}
@@ -547,6 +568,318 @@ def _safe_sse(d: date) -> dict:
         return {}
 
 
+def main_is_ok(main: dict | None) -> bool:
+    """Usable 主力: status ok and at least an asof or a published net figure. Never invent numbers."""
+    if not isinstance(main, dict) or main.get("status") != "ok":
+        return False
+    if main.get("asof"):
+        return True
+    return any(main.get(k) is not None for k in ("net_1d", "net_5d", "net_20d"))
+
+
+def _main_asof_date(main: dict | None) -> date | None:
+    return _to_date((main or {}).get("asof")) if isinstance(main, dict) else None
+
+
+def _main_asof_age_days(main: dict | None, today: date | None = None) -> int | None:
+    d = _main_asof_date(main)
+    if d is None:
+        return None
+    today = today or datetime.now(CST).date()
+    return (today - d).days
+
+
+def _main_fresh_enough(main: dict | None, today: date | None = None,
+                       max_age_days: int = MAIN_SNAPSHOT_MAX_AGE_DAYS) -> bool:
+    if not main_is_ok(main):
+        return False
+    age = _main_asof_age_days(main, today)
+    if age is None:
+        return True
+    return 0 <= age <= max_age_days
+
+
+def _iter_mains(bundle: dict | None) -> list[tuple[str, dict]]:
+    out: list[tuple[str, dict]] = []
+    if not isinstance(bundle, dict):
+        return out
+    for iid, row in (bundle.get("indices") or {}).items():
+        if isinstance(row, dict) and isinstance(row.get("main"), dict):
+            out.append((str(iid), row["main"]))
+    mm = (bundle.get("market") or {}).get("main") if isinstance(bundle.get("market"), dict) else None
+    if isinstance(mm, dict):
+        out.append(("market", mm))
+    return out
+
+
+def flow_main_coverage(bundle: dict | None, *, today: date | None = None,
+                       max_age_days: int = MAIN_SNAPSHOT_MAX_AGE_DAYS,
+                       require_fresh: bool = False) -> int:
+    n = 0
+    for _, main in _iter_mains(bundle):
+        if require_fresh:
+            if _main_fresh_enough(main, today, max_age_days):
+                n += 1
+        elif main_is_ok(main):
+            n += 1
+    return n
+
+
+def flow_ok_coverage(bundle: dict | None) -> int:
+    """Count ok 主力 + ETF申赎 + 两融 + holders. Used as a secondary pick key."""
+    n = flow_main_coverage(bundle)
+    if not isinstance(bundle, dict):
+        return n
+    for row in (bundle.get("indices") or {}).values():
+        if not isinstance(row, dict):
+            continue
+        if (row.get("etf") or {}).get("status") == "ok":
+            n += 1
+        if (row.get("holders") or {}).get("status") == "ok":
+            n += 1
+    mk = bundle.get("market") or {}
+    if isinstance(mk, dict):
+        for k in ("margin_sh", "margin_sz", "margin_total"):
+            if (mk.get(k) or {}).get("status") == "ok":
+                n += 1
+    return n
+
+
+def _latest_main_asof(bundle: dict | None) -> date | None:
+    dates = [_main_asof_date(m) for _, m in _iter_mains(bundle)]
+    dates = [d for d in dates if d is not None]
+    return max(dates) if dates else None
+
+
+def _flow_seed_from_payload(data: Any) -> dict | None:
+    if not isinstance(data, dict):
+        return None
+    flows = data.get("index_flows") if isinstance(data.get("index_flows"), dict) else data
+    if isinstance(flows, dict) and flows.get("indices"):
+        return flows
+    return None
+
+
+def _load_flow_seed_from_paths(paths: tuple[Path, ...] | list[Path] = FLOW_SEED_PATHS) -> dict | None:
+    """Read bundled snapshot only (no network). Safe for the request thread."""
+    for path in paths:
+        try:
+            if not path.exists():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            flows = _flow_seed_from_payload(data)
+            if flows is not None:
+                return flows
+        except Exception:  # noqa: BLE001
+            logger.debug("flow seed read failed %s", path, exc_info=True)
+    return None
+
+
+def load_bundled_flow_seed() -> dict | None:
+    return _load_flow_seed_from_paths(FLOW_SEED_PATHS)
+
+
+def fetch_remote_flow_seed(timeout: float = REMOTE_FLOW_SEED_TIMEOUT) -> dict | None:
+    """Optional GitHub raw snapshot so Render can pick up Actions updates without auto-deploy.
+
+    Short timeout. On any failure return None (caller keeps the bundled seed). Never used
+    on the request path. Disabled when FLOW_SEED_REMOTE=0, and during pytest unless
+    FLOW_SEED_REMOTE=1 is set explicitly.
+    """
+    if os.environ.get("FLOW_SEED_REMOTE") == "0":
+        return None
+    if "PYTEST_CURRENT_TEST" in os.environ and os.environ.get("FLOW_SEED_REMOTE") != "1":
+        return None
+    try:
+        import requests
+
+        r = requests.get(REMOTE_FLOW_SEED_URL, timeout=timeout, headers={"User-Agent": UA})
+        r.raise_for_status()
+        flows = _flow_seed_from_payload(r.json())
+        if flows is not None and flow_main_coverage(flows) > 0:
+            return flows
+    except Exception as exc:  # noqa: BLE001
+        logger.info("remote flow seed fetch failed; keeping bundled seed: %s", exc)
+    return None
+
+
+def _bundle_fetched_at(bundle: dict | None) -> datetime | None:
+    if not isinstance(bundle, dict) or not bundle.get("fetched_at"):
+        return None
+    try:
+        ts = datetime.fromisoformat(str(bundle["fetched_at"]))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=CST)
+    return ts
+
+
+def remote_seed_is_newer(remote: dict | None, bundled: dict | None) -> bool:
+    """True iff remote has ok 主力 and is strictly newer than bundled (asof, then fetched_at)."""
+    if not isinstance(remote, dict) or flow_main_coverage(remote) <= 0:
+        return False
+    if not isinstance(bundled, dict):
+        return True
+    ra, ba = _latest_main_asof(remote), _latest_main_asof(bundled)
+    if ra and ba and ra != ba:
+        return ra > ba
+    rt, bt = _bundle_fetched_at(remote), _bundle_fetched_at(bundled)
+    if rt and bt:
+        return rt > bt
+    if rt and not bt:
+        return True
+    return False
+
+
+def _copy_bundle(bundle: dict) -> dict:
+    out = dict(bundle)
+    if isinstance(out.get("indices"), dict):
+        out["indices"] = {k: dict(v) if isinstance(v, dict) else v for k, v in out["indices"].items()}
+    if isinstance(out.get("market"), dict):
+        out["market"] = dict(out["market"])
+    if isinstance(out.get("errors"), dict):
+        out["errors"] = dict(out["errors"])
+    if isinstance(out.get("notes"), list):
+        out["notes"] = list(out["notes"])
+    return out
+
+
+def _snapshot_main(src: dict) -> dict:
+    copied = dict(src)
+    copied["from_snapshot"] = True
+    return copied
+
+
+def merge_main_from_fallback(bundle: dict | None, *fallbacks: dict | None,
+                             today: date | None = None,
+                             max_age_days: int = MAIN_SNAPSHOT_MAX_AGE_DAYS) -> dict | None:
+    """Fill missing/failed 主力 from earlier cache or snapshot seed. Keep live ETF/两融/holders.
+
+    Does not invent numbers: only copies status=ok 主力 that is still within the generous window.
+    Marks copied fields with from_snapshot so the UI can say 上次快照 + asof.
+    """
+    if not isinstance(bundle, dict):
+        return bundle
+    sources = [b for b in fallbacks if isinstance(b, dict)]
+    if not sources:
+        return bundle
+
+    def fallback_main(key: str) -> dict | None:
+        for fb in sources:
+            if key == "market":
+                cand = (fb.get("market") or {}).get("main") if isinstance(fb.get("market"), dict) else None
+            else:
+                row = (fb.get("indices") or {}).get(key)
+                cand = row.get("main") if isinstance(row, dict) else None
+            if _main_fresh_enough(cand, today, max_age_days):
+                return cand
+        return None
+
+    out = _copy_bundle(bundle)
+    indices = out.get("indices") if isinstance(out.get("indices"), dict) else {}
+    used = False
+    asofs: list[str] = []
+    for iid, row in list(indices.items()):
+        if not isinstance(row, dict):
+            continue
+        cur = row.get("main") if isinstance(row.get("main"), dict) else None
+        if _main_fresh_enough(cur, today, max_age_days):
+            continue
+        fb = fallback_main(iid)
+        if fb is None:
+            continue
+        row = dict(row)
+        row["main"] = _snapshot_main(fb)
+        indices[iid] = row
+        used = True
+        if fb.get("asof"):
+            asofs.append(str(fb["asof"]))
+    out["indices"] = indices
+
+    market = out.get("market") if isinstance(out.get("market"), dict) else {}
+    cur_m = market.get("main") if isinstance(market.get("main"), dict) else None
+    if not _main_fresh_enough(cur_m, today, max_age_days):
+        fb = fallback_main("market")
+        if fb is not None:
+            market = dict(market)
+            market["main"] = _snapshot_main(fb)
+            out["market"] = market
+            used = True
+            if fb.get("asof"):
+                asofs.append(str(fb["asof"]))
+
+    if used:
+        out["main_from_snapshot"] = True
+        snap_asof = max(asofs) if asofs else (out.get("main_snapshot_asof") or None)
+        if snap_asof:
+            out["main_snapshot_asof"] = snap_asof
+        if not out.get("asof") and snap_asof:
+            out["asof"] = snap_asof
+        notes = list(out.get("notes") or [])
+        note = f"主力净流入为上次快照（数据日期 {snap_asof or '—'}），因直播源不可用而未覆盖"
+        if note not in notes:
+            notes.append(note)
+        out["notes"] = notes
+    return out
+
+
+
+def bundle_has_live_main(bundle: dict | None) -> bool:
+    """True if any 主力 is ok and not flagged as a snapshot fallback."""
+    return any(main_is_ok(m) and not m.get("from_snapshot") for _, m in _iter_mains(bundle))
+
+
+def flag_mains_from_snapshot(bundle: dict | None) -> dict | None:
+    """Mark already-ok 主力 as 上次快照 without changing numbers (seed served as-is)."""
+    if not isinstance(bundle, dict) or flow_main_coverage(bundle) <= 0:
+        return bundle
+    out = _copy_bundle(bundle)
+    asofs: list[str] = []
+    indices = out.get("indices") if isinstance(out.get("indices"), dict) else {}
+    for iid, row in list(indices.items()):
+        if not isinstance(row, dict) or not main_is_ok(row.get("main")):
+            continue
+        row = dict(row)
+        row["main"] = _snapshot_main(row["main"])
+        indices[iid] = row
+        if row["main"].get("asof"):
+            asofs.append(str(row["main"]["asof"]))
+    out["indices"] = indices
+    market = out.get("market") if isinstance(out.get("market"), dict) else {}
+    if main_is_ok(market.get("main")):
+        market = dict(market)
+        market["main"] = _snapshot_main(market["main"])
+        out["market"] = market
+        if market["main"].get("asof"):
+            asofs.append(str(market["main"]["asof"]))
+    out["main_from_snapshot"] = True
+    if asofs:
+        out["main_snapshot_asof"] = max(asofs)
+    return out
+
+
+def coalesce_flow_bundles(*bundles: dict | None,
+                          today: date | None = None) -> dict | None:
+    """Request-path helper: pick a base, then fill missing 主力 from the other bundles.
+
+    Prefers a live bundle as the skeleton (so ETF申赎/两融/holders stay) when 主力 can be
+    filled from a snapshot. No network.
+    """
+    cands = [b for b in bundles if isinstance(b, dict) and (b.get("indices") or b.get("fetched_at"))]
+    if not cands:
+        return pick_flow_bundle(*bundles, today=today)
+    # Skeleton: keep richer non-main live fields; recency breaks ties.
+    def non_main(b: dict) -> int:
+        return max(0, flow_ok_coverage(b) - flow_main_coverage(b))
+
+    base = max(
+        cands,
+        key=lambda b: (non_main(b), -(flow_bundle_age_hours(b) if flow_bundle_age_hours(b) is not None else 1e9)),
+    )
+    return merge_main_from_fallback(_copy_bundle(base), *cands, today=today)
+
+
 class IndexFlowProvider:
     """Cached bundle. ``get_cached`` never touches the network; ``refresh`` is single-flight."""
 
@@ -580,6 +913,8 @@ class IndexFlowProvider:
         raw: dict[str, Any] = {}
         errors: dict[str, str] = {}
         jobs = self._fetchers if self._fetchers is not None else default_fetchers()
+        if skip_push2() and "main_all" not in jobs:
+            errors["main_all"] = "已跳过东方财富 push2（Render/SKIP_PUSH2），主力使用上次快照"
         pool = ThreadPoolExecutor(max_workers=FLOW_WORKERS)
         futs = {pool.submit(fn): k for k, fn in jobs.items()}
         done, not_done = wait(list(futs), timeout=FLOW_BATCH_TIMEOUT_SEC)
@@ -641,6 +976,25 @@ class IndexFlowProvider:
                 refresh_history_bundle(live_klines=True)
         except Exception:  # noqa: BLE001
             logger.warning("holder history refresh failed; keeping seed", exc_info=True)
+        prev = None
+        with self._lock:
+            if self._cache:
+                prev = self._cache[1]
+        fallbacks: list[dict] = []
+        if isinstance(prev, dict):
+            fallbacks.append(prev)
+        # Bundled snapshot: production refresh, or whenever 主力 came back empty.
+        # Injected-fetcher unit tests can monkeypatch load_bundled_flow_seed to isolate.
+        if self._fetchers is None or flow_main_coverage(bundle) == 0:
+            bundled = load_bundled_flow_seed()
+            if bundled is not None:
+                fallbacks.append(bundled)
+            if self._fetchers is None and (skip_push2() or flow_main_coverage(bundle) == 0):
+                remote = fetch_remote_flow_seed()
+                if remote is not None and remote_seed_is_newer(remote, bundled):
+                    fallbacks.append(remote)
+        if fallbacks:
+            bundle = merge_main_from_fallback(bundle, *fallbacks)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)
@@ -664,21 +1018,43 @@ def flow_bundle_age_hours(bundle: dict | None, now: datetime | None = None) -> f
     return max(0.0, (now - ts).total_seconds() / 3600.0)
 
 
-def pick_flow_bundle(*bundles: dict | None) -> dict | None:
-    best, best_age = None, None
+def pick_flow_bundle(*bundles: dict | None, now: datetime | None = None,
+                     today: date | None = None) -> dict | None:
+    """Prefer usable 主力 (and higher ok-coverage) over a newer all-missing bundle.
+
+    Recency is a tie-breaker among comparable coverage, or when the richer bundle's
+    主力 asof is unreasonably old (see MAIN_SNAPSHOT_MAX_AGE_DAYS). A 1-day-old asof
+    always beats an empty live cache.
+    """
+    today = today or (now.date() if now is not None else datetime.now(CST).date())
+    cands: list[dict] = []
     for b in bundles:
-        age = flow_bundle_age_hours(b)
-        if age is None:
+        if not isinstance(b, dict):
             continue
-        if best_age is None or age < best_age:
-            best, best_age = b, age
-    return best
+        if flow_bundle_age_hours(b, now=now) is None and not b.get("indices"):
+            continue
+        cands.append(b)
+    if not cands:
+        return None
+
+    def score(b: dict) -> tuple:
+        main_n = flow_main_coverage(b, today=today, require_fresh=True)
+        # 过期主力不计入覆盖，以免一张很旧的快照压过更新但主力为空的包
+        ok_n = flow_ok_coverage(b) - flow_main_coverage(b) + main_n
+        age = flow_bundle_age_hours(b, now=now)
+        # missing fetched_at sorts last among equal coverage
+        recency = -(age if age is not None else 1e9)
+        return (main_n, ok_n, recency)
+
+    return max(cands, key=score)
 
 
 __all__ = ["IndexFlowProvider", "DEFAULT_FLOW_PROVIDER", "build_flow_bundle", "parse_fflow",
            "parse_sse_etf_scale", "parse_sina_kline", "etf_flow", "margin_summary", "main_flow_summary",
            "pick_flow_bundle", "flow_bundle_age_hours", "FLOW_CACHE_TTL", "NO_DATA",
-           "attach_etf_holders", "ensure_etf_holders"]
+           "attach_etf_holders", "ensure_etf_holders", "skip_push2", "load_bundled_flow_seed",
+           "fetch_remote_flow_seed", "merge_main_from_fallback", "flag_mains_from_snapshot", "bundle_has_live_main", "coalesce_flow_bundles",
+           "flow_main_coverage", "flow_ok_coverage", "main_is_ok"]
 
 
 if __name__ == "__main__":
