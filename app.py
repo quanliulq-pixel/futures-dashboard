@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112idx5"
+    asset_v = "20261112ss1"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -527,6 +527,31 @@ def us_movers_api():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/us-superstocks")
+def us_superstocks_api():
+    """Serve cache/seed only. Never run a full Yahoo/SEC scan in the request."""
+    import us_superstocks
+
+    return jsonify(us_superstocks.snapshot(force=False))
+
+
+@app.route("/api/us-superstocks/refresh")
+def us_superstocks_refresh_api():
+    """Queue a background rebuild and return the current snapshot immediately."""
+    import us_superstocks
+
+    payload = dict(us_superstocks.snapshot(force=True))
+    status = _spawn_bg_refresh(
+        "us-superstocks",
+        lambda: us_superstocks.refresh(force=True),
+        min_interval=1800.0,
+        provider="yahoo",
+    )
+    payload["refresh"] = bg_tasks.refresh_meta(status)
+    payload["note"] = (payload.get("note") or "") + _queued_note(status, "后台 Superstocks 扫描")
+    return jsonify(payload)
+
+
 def _attach_ng_monthly(payload: dict, ng_mod) -> None:
     """Add EIA monthly supply from memory/last-success/seed (no network)."""
     try:
@@ -963,6 +988,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
     print(f"  期货看板  http://{host}:{port}")
-    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美气NG · 卖Put · 卖Call · A股指数")
+    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美股Superstocks · 美气NG · 卖Put · 卖Call · A股指数")
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)

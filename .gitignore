@@ -10,3 +10,7 @@ data/ng_quant/latest.json
 data/ng_quant/*.tmp
 
 data/ng_quant/put_latest.json
+
+# Superstocks runtime caches (seed snapshot is committed)
+data/us_superstocks/weekly.pkl
+data/us_superstocks/cache/

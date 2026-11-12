@@ -27,16 +27,16 @@ def test_pages_template_is_exact_static_transform():
         '<head>\n  <base href="/futures-dashboard/" />\n'
         '  <script>window.STATIC_MODE = true;</script>\n', 1,
     ).replace('"/static/', '"./static/').replace(
-        "{{ asset_v }}", "20261112idx5"
+        "{{ asset_v }}", "20261112ss1"
     ).replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     assert (ROOT / "docs/index.html").read_text() == expected
     assert '{{ asset_v }}' not in expected
-    assert './static/cn_index_fund_view.js?v=20261112idx5' in expected
+    assert './static/cn_index_fund_view.js?v=20261112ss1' in expected
 
 
 def test_asset_versions_agree():
     for path in ["app.py", "export_static_pages.py", "docs/index.html"]:
-        assert '20261112idx5' in (ROOT / path).read_text()
+        assert '20261112ss1' in (ROOT / path).read_text()
 
 
 def test_keyboard_scroll_regions_and_protected_tabs():
@@ -47,7 +47,7 @@ def test_keyboard_scroll_regions_and_protected_tabs():
     assert len(wrappers) == 14
     assert all(a.get('tabindex') == '0' and a.get('aria-label') for a in wrappers)
     views = [a.get('data-view') for t, a in parser.elements if t == 'button' and 'data-view' in a]
-    assert views == ['watch', 'extremes', 'supply', 'movers', 'put', 'call', 'cnidx', 'ng', 'ai']
+    assert views == ['watch', 'extremes', 'supply', 'movers', 'superstocks', 'put', 'call', 'cnidx', 'ng', 'ai']
     assert '通缩' not in html
     # No restoration of the removed domestic market toggles in option screens.
     for side in ('put', 'call'):
