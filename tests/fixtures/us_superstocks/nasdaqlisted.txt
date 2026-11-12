@@ -1,0 +1,7 @@
+Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
+ABCD|ABCD Inc. - Common Stock|Q|N|N|100|N|N
+WXYZ|WXYZ Warrant Exp 2028|Q|N|N|100|N|N
+QQQ|Invesco QQQ Trust|Q|N|N|100|Y|N
+TEST|Nasdaq Test Stock|Q|Y|N|100|N|N
+AAAA|AAAA Corp Common Stock|Q|N|N|100|N|N
+File Creation Time: 1112202618:01

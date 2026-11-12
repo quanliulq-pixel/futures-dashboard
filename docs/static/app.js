@@ -21,6 +21,8 @@
       '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
       '/api/ai-apps': './api/ai_apps.json',
+      '/api/us-superstocks': './api/us_superstocks.json',
+      '/api/us-superstocks/refresh': './api/us_superstocks.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -806,6 +808,7 @@
       b.classList.toggle("active", b.dataset.view === name);
     });
     if (name === "ai" && window.AIAppsView) window.AIAppsView.load();
+    if (name === "superstocks" && window.USSuperstocksView) window.USSuperstocksView.load();
     if (name === "watch") {
       setTimeout(resizeChart, 50);
       setTimeout(resizeChart, 250);
