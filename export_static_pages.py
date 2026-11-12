@@ -51,6 +51,27 @@ def slim_row(r: dict) -> dict:
     }
 
 
+
+def _with_holder_seed(payload: dict | None) -> dict | None:
+    """Embed 机构ETF持仓 into index_flows and copy the seed into docs/api. Never raises away the payload."""
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        from cn_index_etf_holders import load_seed_payload
+        from cn_index_flow import ensure_etf_holders
+
+        seed = load_seed_payload()
+        if seed is not None:
+            dump(API / "cn_index_etf_holders.json", seed)
+        flows = payload.get("index_flows")
+        if flows:
+            payload = dict(payload)
+            payload["index_flows"] = ensure_etf_holders(flows)
+    except Exception as exc:  # noqa: BLE001
+        print("etf holders seed attach failed:", exc)
+    return payload
+
+
 def export_html() -> None:
     html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     if "<base href=" not in html:
@@ -61,7 +82,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261112idx3")
+    html = html.replace("{{ asset_v }}", "20261112idx4")
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
@@ -250,11 +271,13 @@ def main() -> None:
         from cn_index_analysis import build_cn_index_analysis
 
         cn_idx_payload = build_cn_index_analysis(force=True)
+        cn_idx_payload = _with_holder_seed(cn_idx_payload)
         dump(API / "cn_indices.json", cn_idx_payload)
     except Exception as exc:
         print("cn indices failed:", exc)
         traceback.print_exc()
         cn_idx_payload = {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)}
+        cn_idx_payload = _with_holder_seed(cn_idx_payload)
         dump(API / "cn_indices.json", cn_idx_payload)
 
     print("cffex index options (IO/HO/MO)...")
@@ -281,7 +304,8 @@ def main() -> None:
         )
         # Re-write cn_indices with embedded advice for one-request UI
         if cn_idx_payload and cn_idx_payload.get("indices"):
-            dump(API / "cn_indices.json", attach_advice_to_indices(cn_idx_payload, cn_opt_payload, advice_bundle=advice))
+            attached = attach_advice_to_indices(cn_idx_payload, cn_opt_payload, advice_bundle=advice)
+            dump(API / "cn_indices.json", _with_holder_seed(attached))
         print("advice stances:", {k: v.get("stance_cn") for k, v in (advice.get("advices") or {}).items()})
     except Exception as exc:
         print("cn index advice failed:", exc)

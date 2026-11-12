@@ -19,6 +19,8 @@ on:
       - "cn_index_analysis.py"
       - "cn_index_advice.py"
       - "cn_index_flow.py"
+      - "cn_index_etf_holders.py"
+      - "data/cn_index_etf_holders.json"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A股指数资金进出：主力净流入 / 指数ETF份额申赎 / 两融融资余额 / 北向（只展示，不进评分）。
+"""A股指数资金进出：主力净流入 / 指数ETF份额申赎 / 两融融资余额 / 北向 / 机构ETF持仓（只展示，不进评分）。
 
 原则
 - 只用公开免费源，逐项带数据日期 asof、来源与 URL；取不到或过期 ⇒ status="missing"（前端显示「无数据」），绝不插补。
@@ -358,6 +358,48 @@ def _cal_from(*seqs: list[date]) -> list[date]:
     return []
 
 
+
+def attach_etf_holders(bundle: dict, holders: dict | None) -> dict:
+    """把机构ETF持仓挂到已有资金流 bundle 上；不改主力/ETF申赎/两融字段。"""
+    from cn_index_etf_holders import HOLDER_NOTES, SRC as HSRC
+
+    bundle = dict(bundle)
+    indices = {k: dict(v) for k, v in (bundle.get("indices") or {}).items()}
+    hidx = (holders or {}).get("indices") or {}
+    reason = (holders or {}).get("reason") or "无持仓数据"
+    for iid, row in indices.items():
+        h = hidx.get(iid)
+        row["holders"] = h if isinstance(h, dict) else {
+            "status": "missing", "reason": reason,
+            "source": HSRC["label"], "source_url": HSRC["url"],
+        }
+        indices[iid] = row
+    bundle["indices"] = indices
+    notes = list(bundle.get("notes") or [])
+    for n in HOLDER_NOTES:
+        if n not in notes:
+            notes.append(n)
+    bundle["notes"] = notes
+    if holders:
+        if holders.get("fetched_at"):
+            bundle["holders_fetched_at"] = holders.get("fetched_at")
+        bundle["holders_from_seed"] = bool(holders.get("from_seed"))
+    return bundle
+
+
+def ensure_etf_holders(bundle: dict | None, holders: dict | None = None) -> dict | None:
+    """若卡片还没有 holders 字段，用传入数据或本地种子补上。只读文件，不联网。"""
+    if not isinstance(bundle, dict) or not bundle.get("indices"):
+        return bundle
+    rows = [v for v in bundle["indices"].values() if isinstance(v, dict)]
+    if rows and all("holders" in r for r in rows):
+        return bundle
+    if holders is None:
+        from cn_index_etf_holders import load_holder_bundle
+        holders = load_holder_bundle()
+    return attach_etf_holders(bundle, holders)
+
+
 def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
     """纯函数：raw 来自 fetchers（或测试夹具），输出前端/快照用 bundle。"""
     indices: dict[str, dict] = {}
@@ -419,7 +461,7 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
     northbound = _missing(NORTHBOUND_REASON, source=SRC["northbound"]["label"], source_url=SRC["northbound"]["url"])
 
     asofs = [v["main"].get("asof") for v in indices.values() if v["main"].get("asof")]
-    return {
+    bundle = {
         "fetched_at": datetime.now(CST).isoformat(timespec="seconds"),
         "asof": max(asofs) if asofs else market_main.get("asof"),
         "unit": "亿元",
@@ -436,6 +478,9 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
             NORTHBOUND_REASON,
         ],
     }
+    if raw.get("etf_holders"):
+        bundle = attach_etf_holders(bundle, raw.get("etf_holders"))
+    return bundle
 
 
 FFLOW_SPACING_SEC = 1.2   # 东方财富 push2 对并发/高频很敏感：串行 + 间隔
@@ -572,6 +617,22 @@ class IndexFlowProvider:
             except Exception as exc:  # noqa: BLE001
                 errors["margin_sz"] = f"{type(exc).__name__}: {str(exc)[:80]}"
         bundle = build_flow_bundle(raw, errors, datetime.now(CST).date())
+        # 机构持仓单独取数：失败只回退种子，不得把主力/ETF申赎打成无数据。注入 fetchers 时不联网。
+        try:
+            if raw.get("etf_holders"):
+                holders = raw["etf_holders"]
+            elif self._fetchers is None:
+                from cn_index_etf_holders import refresh_holder_bundle
+                holders = refresh_holder_bundle(live=True)
+            else:
+                holders = None
+            bundle = ensure_etf_holders(bundle, holders)
+        except Exception:  # noqa: BLE001
+            logger.warning("etf holders attach failed; keeping flow bundle", exc_info=True)
+            try:
+                bundle = ensure_etf_holders(bundle)
+            except Exception:  # noqa: BLE001
+                logger.debug("etf holders seed attach also failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)
@@ -608,7 +669,8 @@ def pick_flow_bundle(*bundles: dict | None) -> dict | None:
 
 __all__ = ["IndexFlowProvider", "DEFAULT_FLOW_PROVIDER", "build_flow_bundle", "parse_fflow",
            "parse_sse_etf_scale", "parse_sina_kline", "etf_flow", "margin_summary", "main_flow_summary",
-           "pick_flow_bundle", "flow_bundle_age_hours", "FLOW_CACHE_TTL", "NO_DATA"]
+           "pick_flow_bundle", "flow_bundle_age_hours", "FLOW_CACHE_TTL", "NO_DATA",
+           "attach_etf_holders", "ensure_etf_holders"]
 
 
 if __name__ == "__main__":

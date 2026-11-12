@@ -1,0 +1,1 @@
+var apidata={ content:"<table class='w782 comm cyrjg'><thead><tr><th>公告日期</th><th>机构持有比例</th><th>个人持有比例</th><th>内部持有比例</th><th>总份额（亿份）</th></tr></thead><tbody><tr><td>2026-06-30</td><td class='tor'>45.56%</td><td class='tor'>54.44%</td><td class='tor'>11.94%</td><td class='tor'>2.31</td></tr></tbody></table>",summary:"x"};

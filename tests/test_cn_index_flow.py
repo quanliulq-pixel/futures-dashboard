@@ -157,6 +157,9 @@ def test_cn_indices_endpoint_attaches_flows_without_network(monkeypatch):
     data = r.get_json()
     assert data.get("index_flows") is not None
     assert "csi300" in data["index_flows"]["indices"]
+    holders = data["index_flows"]["indices"]["csi300"].get("holders") or {}
+    assert holders.get("status") == "ok" and holders.get("report_date") == "2026-06-30"
+    assert data["index_flows"]["indices"]["csi300"]["etf"]["status"] == "ok"
     # 资金流不进评分：建议对象里没有资金流字段
     for row in data.get("indices") or []:
         assert "flow" not in json.dumps(row.get("advice") or {}, ensure_ascii=False).lower()
