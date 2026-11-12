@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 import threading
 import time
@@ -35,6 +36,45 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 CACHE_TTL = 6 * 3600
 UNI_TTL = 7 * 24 * 3600
 INSIDER_TTL = 24 * 3600
+PROGRESS_PATH = DATA_DIR / "progress.json"
+WEEKLY_RESUME_MAX_AGE_SEC = 36 * 3600
+STALE_RUNNING_SEC = 15 * 60
+REMOTE_SEED_URL = (
+    "https://raw.githubusercontent.com/quanliulq-pixel/futures-dashboard/main/docs/api/us_superstocks.json"
+)
+REMOTE_SEED_TIMEOUT = 5.0
+REMOTE_SEED_TTL = 30 * 60
+
+# Saturday 08:00 Asia/Shanghai = 00:00 UTC Saturday (cron 0 0 * * 6).
+WEEKLY_SCAN_NOTE = (
+    "每周自动扫描：北京时间周六 08:00（UTC 周六 00:00）。"
+    "后台重算是按需补扫，全市场约五千只周线在网页进程内可能因限流或超时无法一次跑完；"
+    "完整名单以每周自动扫描写入的快照为准。"
+)
+WEEKLY_SCAN_INFO = {
+    "note": WEEKLY_SCAN_NOTE,
+    "cron_utc": "0 0 * * 6",
+    "local": "周六 08:00",
+    "timezone": "Asia/Shanghai (UTC+8)",
+}
+
+PHASE_LABELS = {
+    "queued": "排队中",
+    "universe": "宇宙名单",
+    "weekly": "周线行情",
+    "fundamentals": "基本面",
+    "insiders": "内部人申报",
+    "scoring": "打分与写快照",
+}
+# Inclusive overall percent span for each phase (determinate, not a spinner).
+PHASE_WEIGHTS = {
+    "queued": (0, 1),
+    "universe": (1, 5),
+    "weekly": (5, 75),
+    "fundamentals": (75, 88),
+    "insiders": (88, 97),
+    "scoring": (97, 100),
+}
 
 # Numeric defaults (documented in UI and docs/us_superstocks_method.md).
 DEFAULTS: dict[str, Any] = {
@@ -1353,6 +1393,7 @@ def empty_seed_payload(*, note: str | None = None, scanned: int = 0, universe: i
             "Yahoo 与 EDGAR 均有延迟，且可能限流；页签默认先展示快照，不在打开时强行全市场刷新。",
             "平台/突破/攻角是可检验的数值近似，不能替代看图，也不是对原书段落的逐字复制。",
             "本快照不是点对点历史回测，没有投资绩效承诺。",
+            "完整名单以每周六 08:00（北京时间，UTC 周六 00:00）自动扫描写入的快照为准；网页「后台重算」不一定能一次跑完全市场。",
         ],
         "note": note or "尚无实盘筛选结果，名单为空，不是编造的零收益。",
     }
@@ -1451,7 +1492,302 @@ def _normalize_row(row: Any, watch: set[str]) -> dict:
     return r
 
 
-def load_seed() -> dict | None:
+
+_progress_lock = threading.Lock()
+_progress_state: dict[str, Any] | None = None
+_job_running = False
+_refresh_gate = threading.Lock()
+_remote_lock = threading.Lock()
+_remote_next_check = 0.0
+_remote_fetching = False
+
+
+def empty_progress(*, state: str = "idle") -> dict:
+    return {
+        "ok": True,
+        "state": state,
+        "phase": None,
+        "phase_label": None,
+        "percent": 0,
+        "processed": 0,
+        "total": 0,
+        "message": "",
+        "started_at": None,
+        "updated_at": None,
+        "finished_at": None,
+        "error": None,
+        "job_id": None,
+        "last_run_at": None,
+        "last_run_state": None,
+    }
+
+
+def _clamp_pct(value: Any) -> int:
+    try:
+        n = int(round(float(value)))
+    except (TypeError, ValueError):
+        n = 0
+    return max(0, min(100, n))
+
+
+def phase_percent(phase: str | None, processed: int = 0, total: int = 0) -> int:
+    lo, hi = PHASE_WEIGHTS.get(phase or "queued", (0, 100))
+    if not total:
+        return int(lo)
+    frac = max(0.0, min(1.0, float(processed) / float(total)))
+    return _clamp_pct(lo + frac * (hi - lo))
+
+
+def _progress_from_disk() -> dict | None:
+    if not PROGRESS_PATH.exists():
+        return None
+    try:
+        data = json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {**empty_progress(), **data}
+    except Exception:
+        logger.debug("progress file unreadable", exc_info=True)
+    return None
+
+
+def _persist_progress(cur: dict) -> None:
+    global _progress_state
+    with _progress_lock:
+        _progress_state = dict(cur)
+        try:
+            PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(_progress_state, ensure_ascii=False, default=str), encoding="utf-8")
+            tmp.replace(PROGRESS_PATH)
+        except Exception:
+            logger.debug("progress write skipped", exc_info=True)
+
+
+def _updated_age_seconds(updated_at: Any) -> float | None:
+    ts = _parse_ts(updated_at)
+    if ts is None:
+        return None
+    return max(0.0, (datetime.now(SHANGHAI) - ts).total_seconds())
+
+
+def load_progress(*, persist_stale: bool = True) -> dict:
+    """Current job progress. Idle has no fake percent. Stale in-flight jobs are marked failed."""
+    global _progress_state
+    with _progress_lock:
+        cur = dict(_progress_state) if _progress_state else None
+    if cur is None:
+        cur = _progress_from_disk()
+    if cur is None:
+        cur = empty_progress()
+    if cur.get("state") == "running" and not _job_running:
+        age = _updated_age_seconds(cur.get("updated_at"))
+        if age is None or age > STALE_RUNNING_SEC:
+            cur["state"] = "error"
+            cur["error"] = "任务中断或进程已退出"
+            cur["message"] = "任务中断或进程已退出，未编造扫描结果。"
+            cur["finished_at"] = _iso_shanghai()
+            cur["last_run_at"] = cur["finished_at"]
+            cur["last_run_state"] = "error"
+            if persist_stale:
+                _persist_progress(cur)
+    with _progress_lock:
+        if _progress_state is None or persist_stale:
+            _progress_state = dict(cur)
+    return dict(cur)
+
+
+def set_progress(
+    *,
+    phase: str | None = None,
+    processed: int | None = None,
+    total: int | None = None,
+    message: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> dict:
+    cur = load_progress(persist_stale=False)
+    if state:
+        cur["state"] = state
+    if phase is not None:
+        cur["phase"] = phase
+        cur["phase_label"] = PHASE_LABELS.get(phase, phase)
+    if processed is not None:
+        cur["processed"] = int(processed)
+    if total is not None:
+        cur["total"] = int(total)
+    if message is not None:
+        cur["message"] = message
+    if error is not None:
+        cur["error"] = error
+    cur["updated_at"] = _iso_shanghai()
+    if cur.get("state") == "running":
+        cur["percent"] = phase_percent(cur.get("phase"), cur.get("processed") or 0, cur.get("total") or 0)
+    elif cur.get("state") == "done":
+        cur["percent"] = 100
+    _persist_progress(cur)
+    return dict(cur)
+
+
+def begin_job(job_id: str | None = None) -> dict:
+    global _job_running
+    prev = load_progress(persist_stale=False)
+    if _job_running and prev.get("state") == "running":
+        return dict(prev)
+    _job_running = True
+    now = _iso_shanghai()
+    cur = empty_progress(state="running")
+    cur["phase"] = "queued"
+    cur["phase_label"] = PHASE_LABELS["queued"]
+    cur["percent"] = 0
+    cur["message"] = "已开始后台扫描…"
+    cur["started_at"] = now
+    cur["updated_at"] = now
+    cur["job_id"] = job_id or now
+    cur["last_run_at"] = prev.get("last_run_at")
+    cur["last_run_state"] = prev.get("last_run_state")
+    _persist_progress(cur)
+    return dict(cur)
+
+
+def finish_job(*, ok: bool = True, message: str = "", error: str | None = None) -> dict:
+    global _job_running
+    cur = load_progress(persist_stale=False)
+    now = _iso_shanghai()
+    cur["finished_at"] = now
+    cur["updated_at"] = now
+    cur["last_run_at"] = now
+    if ok:
+        cur["state"] = "done"
+        cur["percent"] = 100
+        cur["phase"] = "scoring"
+        cur["phase_label"] = PHASE_LABELS["scoring"]
+        cur["message"] = message or "扫描完成"
+        cur["error"] = None
+        cur["last_run_state"] = "done"
+    else:
+        cur["state"] = "error"
+        cur["error"] = error or "扫描失败"
+        cur["message"] = message or (error or "扫描失败")
+        cur["last_run_state"] = "error"
+    _job_running = False
+    _persist_progress(cur)
+    return dict(cur)
+
+
+def is_job_running() -> bool:
+    return bool(_job_running)
+
+
+def _reset_progress_for_tests() -> None:
+    global _job_running, _progress_state, _remote_next_check, _remote_fetching
+    _job_running = False
+    _progress_state = None
+    _remote_next_check = 0.0
+    _remote_fetching = False
+    try:
+        if PROGRESS_PATH.exists():
+            PROGRESS_PATH.unlink()
+    except Exception:
+        pass
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=SHANGHAI)
+    return ts
+
+
+def seed_is_newer(candidate: dict | None, baseline: dict | None) -> bool:
+    """True iff candidate has a strictly newer updated_at than baseline (or baseline missing)."""
+    if not isinstance(candidate, dict):
+        return False
+    ta = _parse_ts(candidate.get("updated_at"))
+    if ta is None:
+        return False
+    if not isinstance(baseline, dict):
+        return True
+    tb = _parse_ts(baseline.get("updated_at"))
+    if tb is None:
+        return True
+    return ta > tb
+
+
+def _remote_seed_allowed() -> bool:
+    if os.environ.get("SS_SEED_REMOTE") == "0":
+        return False
+    if "PYTEST_CURRENT_TEST" in os.environ and os.environ.get("SS_SEED_REMOTE") != "1":
+        return False
+    return True
+
+
+def fetch_remote_seed(timeout: float = REMOTE_SEED_TIMEOUT) -> dict | None:
+    """Optional GitHub raw snapshot so Render can pick up weekly Actions seeds without a deploy.
+
+    Short timeout. On any failure return None (caller keeps the bundled seed).
+    Disabled when SS_SEED_REMOTE=0, and during pytest unless SS_SEED_REMOTE=1.
+    """
+    if not _remote_seed_allowed():
+        return None
+    try:
+        import requests
+
+        r = requests.get(
+            REMOTE_SEED_URL,
+            timeout=timeout,
+            headers={"User-Agent": "futures-dashboard us-superstocks research"},
+        )
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, dict) and "candidates" in data:
+            return data
+    except Exception as exc:  # noqa: BLE001
+        logger.info("remote superstocks seed fetch failed; keeping local: %s", exc)
+    return None
+
+
+def maybe_refresh_remote_seed(local: dict | None = None, *, blocking: bool = False) -> None:
+    """Kick a single-flight remote seed check. Does not invent candidates."""
+    if not _remote_seed_allowed():
+        return
+    global _remote_next_check, _remote_fetching
+    now = time.time()
+    with _remote_lock:
+        if _remote_fetching or now < _remote_next_check:
+            return
+        _remote_fetching = True
+
+    def _go() -> None:
+        global _remote_next_check, _remote_fetching
+        try:
+            remote = fetch_remote_seed()
+            current = local if local is not None else load_local_seed()
+            if remote is not None and seed_is_newer(remote, current):
+                try:
+                    write_seed(remote, SEED_PATH)
+                except Exception:
+                    logger.debug("remote seed local write skipped", exc_info=True)
+                _store_cache(remote)
+        finally:
+            _remote_next_check = time.time() + REMOTE_SEED_TTL
+            _remote_fetching = False
+
+    if blocking:
+        _go()
+        return
+    try:
+        threading.Thread(target=_go, name="ss-remote-seed", daemon=True).start()
+    except Exception:
+        _remote_fetching = False
+        logger.debug("remote seed thread failed to start", exc_info=True)
+
+
+def load_local_seed() -> dict | None:
     for path in (SEED_PATH, DOCS_SEED_PATH):
         if path.exists():
             try:
@@ -1463,26 +1799,44 @@ def load_seed() -> dict | None:
     return None
 
 
+def load_seed() -> dict | None:
+    local = load_local_seed()
+    maybe_refresh_remote_seed(local, blocking=False)
+    return local
+
+
 def write_seed(payload: dict, path: Path | None = None) -> None:
     target = path or SEED_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
 
 
+def _attach_meta(view: dict, *, force: bool = False) -> dict:
+    out = dict(view)
+    out["progress"] = load_progress()
+    out["weekly_scan"] = dict(WEEKLY_SCAN_INFO)
+    if force and "已请求后台重算" not in (out.get("note") or ""):
+        out["note"] = (out.get("note") or "") + " · 已请求后台重算，先返回快照"
+    return out
+
+
 def snapshot(force: bool = False) -> dict:
     """Return in-memory cache or the shipped seed. Never blocks on a full scan."""
     global _cache
-    with _lock:
-        if not force and _cache and time.time() - _cache[0] < CACHE_TTL:
-            return snapshot_view(dict(_cache[1]))
     seed = load_seed()
+    with _lock:
+        cached = _cache
+    if seed is not None and cached and seed_is_newer(seed, cached[1]):
+        view = snapshot_view(seed)
+        view["source"] = seed.get("source") or "seed"
+        return _attach_meta(view, force=force)
+    if not force and cached and time.time() - cached[0] < CACHE_TTL:
+        return _attach_meta(snapshot_view(dict(cached[1])), force=force)
     if seed is not None:
         view = snapshot_view(seed)
         view["source"] = seed.get("source") or "seed"
-        if force:
-            view["note"] = (view.get("note") or "") + " · 已请求后台重算，先返回快照"
-        return view
-    return snapshot_view(empty_seed_payload())
+        return _attach_meta(view, force=force)
+    return _attach_meta(snapshot_view(empty_seed_payload()), force=force)
 
 
 def _store_cache(payload: dict) -> dict:
@@ -1634,19 +1988,114 @@ def _extract_ohlcv(raw: pd.DataFrame, symbols: list[str]) -> dict[str, pd.DataFr
     return out
 
 
-def download_weekly_panel(symbols: list[str], *, period: str = "4y") -> dict[str, pd.DataFrame]:
+def _weekly_chunk_size() -> int:
+    try:
+        n = int(os.environ.get("SS_WEEKLY_CHUNK", "60"))
+    except (TypeError, ValueError):
+        n = 60
+    return max(5, min(n, 80))
+
+
+def _weekly_pause_seconds(pause: float | None = None) -> float:
+    if pause is not None:
+        return max(0.0, float(pause))
+    try:
+        n = float(os.environ.get("SS_WEEKLY_SLEEP", "1.0"))
+    except (TypeError, ValueError):
+        n = 1.0
+    return max(0.0, min(n, 10.0))
+
+
+def _write_weekly_checkpoint(weekly: dict[str, pd.DataFrame]) -> None:
+    if not weekly:
+        return
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = WEEKLY_PKL.with_suffix(".pkl.tmp")
+        pd.to_pickle(weekly, tmp)
+        tmp.replace(WEEKLY_PKL)
+    except Exception:
+        logger.debug("weekly checkpoint write skipped", exc_info=True)
+
+
+def _wait_yahoo_cooldown(max_wait: float = 1200.0) -> bool:
+    """Sleep through an in-process Yahoo cooldown. Return True if traffic is allowed."""
+    import bg_tasks
+
+    waited = 0.0
+    step = 15.0
+    while bg_tasks.in_cooldown("yahoo") and waited < max_wait:
+        time.sleep(step)
+        waited += step
+    return not bg_tasks.in_cooldown("yahoo")
+
+
+def load_weekly_checkpoint(*, max_age: float | None = WEEKLY_RESUME_MAX_AGE_SEC) -> dict[str, pd.DataFrame]:
+    if not WEEKLY_PKL.exists():
+        return {}
+    if max_age is not None:
+        try:
+            if time.time() - WEEKLY_PKL.stat().st_mtime > max_age:
+                return {}
+        except Exception:
+            return {}
+    try:
+        obj = pd.read_pickle(WEEKLY_PKL)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        logger.debug("weekly checkpoint unreadable", exc_info=True)
+    return {}
+
+
+def should_resume_weekly(force: bool, resume: bool | None = None) -> bool:
+    if resume is not None:
+        return bool(resume)
+    if not WEEKLY_PKL.exists():
+        return False
+    try:
+        age = time.time() - WEEKLY_PKL.stat().st_mtime
+    except Exception:
+        return False
+    if age <= WEEKLY_RESUME_MAX_AGE_SEC:
+        return True
+    return not force
+
+
+def download_weekly_panel(
+    symbols: list[str],
+    *,
+    period: str = "4y",
+    existing: dict[str, pd.DataFrame] | None = None,
+    on_progress=None,
+    pause: float | None = None,
+    retry_on_cooldown: bool | None = None,
+    checkpoint: bool = True,
+) -> dict[str, pd.DataFrame]:
     import net_limits
     import bg_tasks
 
+    if retry_on_cooldown is None:
+        retry_on_cooldown = os.environ.get("SS_WEEKLY_RETRY") == "1"
+    out: dict[str, pd.DataFrame] = dict(existing or {})
+    pending = [s for s in symbols if s not in out]
+    if not pending:
+        if on_progress:
+            on_progress(phase="weekly", processed=len(symbols), total=len(symbols) or 1,
+                        message="周线已从检查点恢复，无需再拉")
+        return out
     if bg_tasks.in_cooldown("yahoo"):
-        logger.warning("yahoo cooldown; skip weekly download")
-        return {}
-    out: dict[str, pd.DataFrame] = {}
-    chunk = 60
-    for i in range(0, len(symbols), chunk):
+        if not (retry_on_cooldown and _wait_yahoo_cooldown()):
+            logger.warning("yahoo cooldown; skip weekly download")
+            return out
+    chunk = _weekly_chunk_size()
+    sleep_s = _weekly_pause_seconds(pause)
+    done_prior = len(symbols) - len(pending)
+    for i in range(0, len(pending), chunk):
         if bg_tasks.in_cooldown("yahoo"):
-            break
-        batch = symbols[i : i + chunk]
+            if not (retry_on_cooldown and _wait_yahoo_cooldown()):
+                break
+        batch = pending[i : i + chunk]
         try:
             raw = net_limits.yf_download(
                 batch,
@@ -1661,9 +2110,39 @@ def download_weekly_panel(symbols: list[str], *, period: str = "4y") -> dict[str
         except Exception as exc:
             if bg_tasks.is_rate_limit_error(exc):
                 bg_tasks.note_rate_limited("yahoo")
-                break
-            logger.exception("weekly batch failed (%s…)", batch[0])
-        time.sleep(1.0)
+                if retry_on_cooldown and _wait_yahoo_cooldown():
+                    try:
+                        raw = net_limits.yf_download(
+                            batch,
+                            period=period,
+                            interval="1wk",
+                            auto_adjust=True,
+                            group_by="ticker",
+                            threads=False,
+                            progress=False,
+                        )
+                        out.update(_extract_ohlcv(raw, batch))
+                    except Exception as exc2:
+                        if bg_tasks.is_rate_limit_error(exc2):
+                            bg_tasks.note_rate_limited("yahoo")
+                            break
+                        logger.exception("weekly batch retry failed (%s…)", batch[0])
+                else:
+                    break
+            else:
+                logger.exception("weekly batch failed (%s…)", batch[0])
+        processed = done_prior + min(i + len(batch), len(pending))
+        if on_progress:
+            on_progress(
+                phase="weekly",
+                processed=processed,
+                total=len(symbols) or 1,
+                message=f"周线 {processed}/{len(symbols)}",
+            )
+        if checkpoint:
+            _write_weekly_checkpoint(out)
+        if sleep_s:
+            time.sleep(sleep_s)
     return out
 
 def _yahoo_fundamentals(symbol: str) -> dict:
@@ -1894,6 +2373,7 @@ def build_snapshot(
     fetch_live: bool = False,
     max_live_fund: int = 40,
     asof_session: str | None = None,
+    on_progress=None,
 ) -> dict:
     """Screen a universe. Live fetches are opt-in and bounded."""
     uni = universe if universe is not None else (load_universe() if fetch_live else [])
@@ -1930,13 +2410,33 @@ def build_snapshot(
 
     enrich = [r for r in pre if r["hard_pass"] or r["near"]][: max(0, int(max_live_fund))]
     if fetch_live:
+        need_fund = [r for r in enrich if r["symbol"] not in fund_map]
+        need_ins = [r for r in enrich if r["symbol"] not in insider_map]
+        for i, r in enumerate(need_fund, 1):
+            if on_progress:
+                on_progress(
+                    phase="fundamentals",
+                    processed=i - 1,
+                    total=len(need_fund) or 1,
+                    message=f"基本面 {i}/{len(need_fund)} {r['symbol']}",
+                )
+            fund_map[r["symbol"]] = _yahoo_fundamentals(r["symbol"])
+            time.sleep(0.4)
+        if need_fund and on_progress:
+            on_progress(phase="fundamentals", processed=len(need_fund), total=len(need_fund) or 1, message="基本面完成")
+        for i, r in enumerate(need_ins, 1):
+            if on_progress:
+                on_progress(
+                    phase="insiders",
+                    processed=i - 1,
+                    total=len(need_ins) or 1,
+                    message=f"内部人 {i}/{len(need_ins)} {r['symbol']}",
+                )
+            insider_map[r["symbol"]] = fetch_form4_transactions(r["symbol"])
+        if need_ins and on_progress:
+            on_progress(phase="insiders", processed=len(need_ins), total=len(need_ins) or 1, message="内部人申报完成")
         for r in enrich:
             sym = r["symbol"]
-            if sym not in fund_map:
-                fund_map[sym] = _yahoo_fundamentals(sym)
-                time.sleep(0.4)
-            if sym not in insider_map:
-                insider_map[sym] = fetch_form4_transactions(sym)
             info = meta.get(sym) or {"symbol": sym, "name": r.get("name"), "exchange": r.get("exchange")}
             df = weekly_map.get(sym)
             st, txs = insider_map.get(sym, ("无数据", []))
@@ -1951,6 +2451,8 @@ def build_snapshot(
             )
             r.clear()
             r.update(rebuilt)
+    if on_progress:
+        on_progress(phase="scoring", processed=0, total=1, message="正在汇总名单…")
 
     candidates = [r for r in pre if r.get("hard_pass")]
     near = [r for r in pre if r.get("near") and not r.get("hard_pass")]
@@ -1982,48 +2484,137 @@ def build_snapshot(
     return snapshot_view(payload)
 
 
-def refresh(force: bool = True) -> dict:
+def _progress_cb(**kwargs) -> dict:
+    kwargs.setdefault("state", "running")
+    return set_progress(**kwargs)
+
+
+def refresh(force: bool = True, *, resume: bool | None = None) -> dict:
     """Background rebuild. Respects Yahoo cooldowns; writes the seed snapshot."""
     import bg_tasks
 
-    uni = load_universe(force=False)
-    symbols = [r["symbol"] for r in uni]
-    weekly: dict[str, pd.DataFrame] = {}
-    if WEEKLY_PKL.exists() and not force:
-        try:
-            obj = pd.read_pickle(WEEKLY_PKL)
-            if isinstance(obj, dict):
-                weekly = obj
-        except Exception:
-            weekly = {}
-    if (force or not weekly) and not bg_tasks.in_cooldown("yahoo"):
-        weekly.update(download_weekly_panel([s for s in symbols if s not in weekly]))
-        try:
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            pd.to_pickle(weekly, WEEKLY_PKL)
-        except Exception:
-            logger.debug("weekly cache write skipped", exc_info=True)
-    priced = {}
-    for s, df in weekly.items():
-        frame = _as_weekly_frame(df)
-        if frame.empty:
-            continue
-        px = _num(frame["close"].iloc[-1])
-        if px is None:
-            continue
-        if 2.0 <= px <= 40.0:
-            priced[s] = frame
-    payload = build_snapshot(
-        symbols=list(priced),
-        weekly_map=priced,
-        universe=uni,
-        fetch_live=True,
-        max_live_fund=40,
-    )
-    payload["source"] = "live"
-    write_seed(payload, SEED_PATH)
+    if not _refresh_gate.acquire(blocking=False):
+        return snapshot()
     try:
-        write_seed(payload, DOCS_SEED_PATH)
-    except Exception:
-        logger.debug("docs seed write skipped", exc_info=True)
-    return _store_cache(payload)
+        if not _job_running:
+            begin_job()
+        set_progress(phase="universe", processed=0, total=1, message="正在加载 NYSE/Nasdaq 宇宙…", state="running")
+        uni = load_universe(force=False)
+        symbols = [r["symbol"] for r in uni]
+        set_progress(
+            phase="universe",
+            processed=1,
+            total=1,
+            message=f"宇宙 {len(symbols)} 只",
+            state="running",
+        )
+
+        weekly: dict[str, pd.DataFrame] = {}
+        if should_resume_weekly(force, resume):
+            weekly = load_weekly_checkpoint(max_age=None if resume else WEEKLY_RESUME_MAX_AGE_SEC)
+            if weekly:
+                set_progress(
+                    phase="weekly",
+                    processed=len(weekly),
+                    total=len(symbols) or 1,
+                    message=f"已从检查点恢复 {len(weekly)} 只周线",
+                    state="running",
+                )
+        missing = [s for s in symbols if s not in weekly]
+        retry = os.environ.get("SS_WEEKLY_RETRY") == "1"
+        if missing and (not bg_tasks.in_cooldown("yahoo") or retry):
+            weekly.update(
+                download_weekly_panel(
+                    symbols,
+                    existing=weekly,
+                    on_progress=_progress_cb,
+                    retry_on_cooldown=retry,
+                )
+            )
+            _write_weekly_checkpoint(weekly)
+        elif not missing:
+            set_progress(
+                phase="weekly",
+                processed=len(symbols),
+                total=len(symbols) or 1,
+                message="周线已齐全，进入价格过滤",
+                state="running",
+            )
+
+        set_progress(
+            phase="weekly",
+            processed=len(symbols) or len(weekly),
+            total=len(symbols) or 1,
+            message="按价格过滤 $2–$40…",
+            state="running",
+        )
+        priced = {}
+        for s, df in weekly.items():
+            frame = _as_weekly_frame(df)
+            if frame.empty:
+                continue
+            px = _num(frame["close"].iloc[-1])
+            if px is None:
+                continue
+            if 2.0 <= px <= 40.0:
+                priced[s] = frame
+        payload = build_snapshot(
+            symbols=list(priced),
+            weekly_map=priced,
+            universe=uni,
+            fetch_live=True,
+            max_live_fund=40,
+            on_progress=_progress_cb,
+        )
+        payload["source"] = "live"
+        write_seed(payload, SEED_PATH)
+        try:
+            write_seed(payload, DOCS_SEED_PATH)
+        except Exception:
+            logger.debug("docs seed write skipped", exc_info=True)
+        view = _store_cache(payload)
+        finish_job(ok=True, message=payload.get("note") or "扫描完成")
+        return _attach_meta(view)
+    except Exception as exc:  # noqa: BLE001
+        finish_job(
+            ok=False,
+            error=str(exc),
+            message=f"扫描失败：{exc}。未编造候选名单。",
+        )
+        raise
+    finally:
+        _refresh_gate.release()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI for the weekly GitHub Actions scan. Does not start a scan on import."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="US Superstocks research scan")
+    parser.add_argument("--weekly-scan", action="store_true", help="Full weekly universe scan; write seed JSON")
+    parser.add_argument("--resume", action="store_true", help="Resume from weekly.pkl if present")
+    args = parser.parse_args(argv)
+    if not args.weekly_scan:
+        parser.print_help()
+        return 2
+    os.environ.setdefault("SS_WEEKLY_CHUNK", "40")
+    os.environ.setdefault("SS_WEEKLY_SLEEP", "2")
+    os.environ.setdefault("SS_WEEKLY_RETRY", "1")
+    payload = refresh(force=True, resume=True)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "counts": payload.get("counts"),
+                "updated_at": payload.get("updated_at"),
+                "note": payload.get("note"),
+                "candidates": len(payload.get("candidates") or []),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

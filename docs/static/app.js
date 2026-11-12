@@ -23,6 +23,7 @@
       '/api/ai-apps': './api/ai_apps.json',
       '/api/us-superstocks': './api/us_superstocks.json',
       '/api/us-superstocks/refresh': './api/us_superstocks.json',
+      '/api/us-superstocks/progress': './api/us_superstocks.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };

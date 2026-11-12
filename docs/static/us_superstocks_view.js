@@ -261,10 +261,79 @@
       " · 严格候选 " + missingText(c.candidates) + " · 接近 " + missingText(c.near);
   }
 
+  const POLL_MS = 1500;
+
+  function emptyProgress() {
+    return { ok: true, state: "idle", phase: null, phase_label: null, percent: 0, processed: 0, total: 0, message: "", error: null };
+  }
+
+  function normalizeProgress(data) {
+    if (!data || typeof data !== "object") return emptyProgress();
+    if (data.progress && typeof data.progress === "object") return normalizeProgress(data.progress);
+    if (data.state && (data.state === "running" || data.state === "done" || data.state === "error" || data.state === "idle" || Object.prototype.hasOwnProperty.call(data, "percent") || data.phase || data.phase_label || data.last_run_at || data.error || data.message)) {
+      const out = emptyProgress();
+      Object.keys(out).forEach(function (k) { if (data[k] != null) out[k] = data[k]; });
+      out.state = data.state;
+      out.message = data.message || "";
+      out.error = data.error || null;
+      out.percent = data.percent;
+      out.processed = data.processed;
+      out.total = data.total;
+      out.phase = data.phase;
+      out.phase_label = data.phase_label;
+      out.last_run_at = data.last_run_at;
+      out.last_run_state = data.last_run_state;
+      return out;
+    }
+    return emptyProgress();
+  }
+
+  function progressPercent(p) {
+    const prog = normalizeProgress(p);
+    if (prog.state === "done") return 100;
+    const n = Number(prog.percent);
+    if (!isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
+  function shouldShowProgressBar(p) {
+    return normalizeProgress(p).state === "running";
+  }
+
+  function isButtonLatched(p, loadingFlag) {
+    return shouldShowProgressBar(p) || !!loadingFlag;
+  }
+
+  function shouldKeepPolling(p, expectJob) {
+    const st = normalizeProgress(p).state;
+    if (st === "running") return true;
+    if (expectJob && st === "idle") return true;
+    return false;
+  }
+
+  function progressLine(p) {
+    const prog = normalizeProgress(p);
+    if (prog.state === "idle" && !prog.last_run_at) return "";
+    if (prog.state === "error") return prog.message || prog.error || "扫描失败";
+    const bits = [];
+    if (prog.state === "running") bits.push("扫描进行中 " + progressPercent(prog) + "%");
+    if (prog.state === "done") bits.push("上次扫描已完成");
+    if (prog.state === "idle" && prog.last_run_at) {
+      bits.push("上次扫描 " + prog.last_run_at + (prog.last_run_state === "error" ? "（失败）" : ""));
+    }
+    if (prog.phase_label || prog.phase) bits.push(prog.phase_label || prog.phase);
+    if (prog.state === "running" && prog.total) bits.push((prog.processed || 0) + "/" + prog.total);
+    if (prog.message && prog.state === "running") bits.push(prog.message);
+    return bits.join(" · ");
+  }
+
   let payload = null;
   let loading = false;
   let bound = false;
   let selected = null;
+  let pollTimer = null;
+  let jobLatch = false;
+  let lastProgress = emptyProgress();
 
   function $(id) { return typeof document === "undefined" ? null : document.getElementById(id); }
 
@@ -287,6 +356,9 @@
     const data = applyWatch(payload, loadWatch());
     $("ss-meta").textContent = metaText(data);
     $("ss-note").textContent = data.note || "";
+    const weekly = $("ss-weekly-note");
+    if (weekly) weekly.textContent = (data.weekly_scan && data.weekly_scan.note) || weekly.textContent;
+    renderProgress(data.progress || lastProgress);
     $("ss-disclaimer").textContent = data.disclaimer || "";
     $("ss-table").innerHTML = tableHtml(filteredRows(data), "当前筛选下没有名字。空名单不是编造的收益。");
     const pick = selected && allRows(data).filter(function (r) { return r.symbol === selected; })[0];
@@ -330,7 +402,15 @@
     const retry = $("ss-retry");
     if (retry) retry.addEventListener("click", function () { payload = null; load(false); });
     const refresh = $("ss-refresh");
-    if (refresh) refresh.addEventListener("click", function () { load(true); });
+    if (refresh) refresh.addEventListener("click", function () {
+      if (jobLatch || shouldShowProgressBar(lastProgress)) {
+        setButtonLatched(true);
+        renderProgress(lastProgress);
+        startProgressPoll();
+        return;
+      }
+      load(true);
+    });
     const content = $("ss-content");
     if (content) {
       content.addEventListener("click", function (e) {
@@ -355,12 +435,106 @@
     }
   }
 
+  function setButtonLatched(on) {
+    jobLatch = !!on;
+    const btn = $("ss-refresh");
+    if (!btn) return;
+    btn.disabled = jobLatch;
+    btn.setAttribute("aria-disabled", jobLatch ? "true" : "false");
+    btn.textContent = jobLatch ? "后台重算进行中…" : "后台重算（不阻塞本页）";
+  }
+
+  function renderProgress(p) {
+    const prog = normalizeProgress(p);
+    lastProgress = prog;
+    const wrap = $("ss-progress");
+    const fill = $("ss-progress-fill");
+    const bar = $("ss-progress-bar");
+    const text = $("ss-progress-text");
+    const show = shouldShowProgressBar(prog);
+    if (wrap) wrap.hidden = !show;
+    const pct = show ? progressPercent(prog) : 0;
+    if (fill) fill.style.width = pct + "%";
+    if (bar) {
+      bar.setAttribute("aria-valuenow", String(pct));
+      bar.setAttribute("aria-valuetext", progressLine(prog) || "无进行中的扫描");
+    }
+    if (text) {
+      if (show || prog.state === "error") text.textContent = progressLine(prog);
+      else if (prog.last_run_at && prog.state !== "running") text.textContent = progressLine({ state: "idle", last_run_at: prog.last_run_at, last_run_state: prog.last_run_state });
+      else text.textContent = "";
+    }
+    // Stay latched while a poll is in flight (queued but progress file not yet running).
+    if (show || pollTimer) setButtonLatched(true);
+    else setButtonLatched(false);
+    return prog;
+  }
+
+  function stopProgressPoll() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function handleProgressTick(p, afterJob) {
+    const prog = renderProgress(p);
+    if (prog.state === "running") return "running";
+    setButtonLatched(false);
+    if (prog.state === "error") return "error";
+    if (prog.state === "done" && afterJob) return "done";
+    return prog.state || "idle";
+  }
+
+  async function pollProgressOnce() {
+    const path = typeof apiUrl === "function" ? apiUrl("/api/us-superstocks/progress") : "/api/us-superstocks/progress";
+    const res = await fetch(path, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return normalizeProgress(await res.json());
+  }
+
+  async function refreshSnapshotAfterJob() {
+    const path = typeof apiUrl === "function" ? apiUrl("/api/us-superstocks") : "/api/us-superstocks";
+    const res = await fetch(path, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!data || typeof data !== "object") throw new Error("bad payload");
+    payload = data;
+    paint();
+    return data;
+  }
+
+  function startProgressPoll() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function () {
+      pollProgressOnce().then(function (p) {
+        const st = handleProgressTick(p, true);
+        if (shouldKeepPolling(p, true)) return;
+        stopProgressPoll();
+        renderProgress(p);
+        if (st === "done") {
+          refreshSnapshotAfterJob().then(function () {
+            if ($("ss-status")) $("ss-status").textContent = "后台扫描已完成，已刷新名单。研究展示，不能下单。";
+            renderProgress(p);
+          }).catch(function (e) {
+            if ($("ss-status")) $("ss-status").textContent = "扫描已结束，但刷新名单失败：" + (e && e.message ? e.message : "无数据") + "。";
+          });
+        } else if (st === "error") {
+          if ($("ss-status")) $("ss-status").textContent = (p.message || p.error || "扫描失败") + " 未编造候选名单。研究展示，不能下单。";
+        }
+      }).catch(function () {
+        /* keep polling; a single failed tick is not a finished job */
+      });
+    }, POLL_MS);
+  }
+
   async function load(force) {
     if (typeof document === "undefined" || !$("ss-content")) return;
     bind();
     if (loading) return;
     if (payload && !force) {
       paint();
+      if (shouldShowProgressBar(payload.progress || lastProgress)) startProgressPoll();
       return;
     }
     loading = true;
@@ -375,7 +549,17 @@
       if (!data || typeof data !== "object") throw new Error("bad payload");
       payload = data;
       paint();
-      $("ss-status").textContent = (data.source === "seed" ? "已加载快照（可能不是此刻实时扫描）。" : "已加载研究数据。") + "研究展示，不能下单。";
+      const prog = normalizeProgress(data);
+      renderProgress(prog);
+      if (prog.state === "running" || (data.refresh && data.refresh.queued)) {
+        setButtonLatched(true);
+        $("ss-status").textContent = "后台扫描进行中，先展示当前快照。研究展示，不能下单。";
+        startProgressPoll();
+      } else if (prog.state === "error") {
+        $("ss-status").textContent = (prog.message || prog.error || "扫描失败") + " 研究展示，不能下单。";
+      } else {
+        $("ss-status").textContent = (data.source === "seed" ? "已加载快照（可能不是此刻实时扫描）。" : "已加载研究数据。") + "研究展示，不能下单。";
+      }
     } catch (e) {
       $("ss-status").textContent = "无数据：" + (e && e.message ? e.message : "加载失败") + "。";
       $("ss-retry").hidden = false;
@@ -398,6 +582,15 @@
     insiderBlock: insiderBlock,
     chartOption: chartOption,
     metaText: metaText,
+    emptyProgress: emptyProgress,
+    normalizeProgress: normalizeProgress,
+    progressPercent: progressPercent,
+    shouldShowProgressBar: shouldShowProgressBar,
+    isButtonLatched: isButtonLatched,
+    shouldKeepPolling: shouldKeepPolling,
+    progressLine: progressLine,
+    handleProgressTick: handleProgressTick,
+    renderProgress: renderProgress,
     load: load,
     paint: paint
   };

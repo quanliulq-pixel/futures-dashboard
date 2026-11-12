@@ -58,4 +58,34 @@ assert.ok(v.metaText({ updated_at: null, counts: {} }).includes("无数据") || 
 const meta = v.metaText({ updated_at: null, asof_session: null, counts: { universe: null, scanned: null, candidates: 0, near: 0 } });
 assert.ok(meta.includes("无数据") || meta.includes("0"));
 
+assert.strictEqual(v.shouldShowProgressBar({ state: "idle", percent: 0 }), false);
+assert.strictEqual(v.shouldShowProgressBar({ state: "done", percent: 100 }), false);
+assert.strictEqual(v.shouldShowProgressBar({ state: "running", percent: 40 }), true);
+assert.strictEqual(v.progressPercent({ state: "running", percent: 40.4 }), 40);
+assert.strictEqual(v.progressPercent({ state: "done", percent: 0 }), 100);
+assert.strictEqual(v.progressPercent(null), 0);
+assert.strictEqual(v.isButtonLatched({ state: "running", percent: 10 }, false), true);
+assert.strictEqual(v.isButtonLatched({ state: "idle" }, false), false);
+assert.strictEqual(v.isButtonLatched({ state: "idle" }, true), true);
+const line = v.progressLine({ state: "running", percent: 22, phase_label: "周线行情", processed: 120, total: 400, message: "周线 120/400" });
+assert.ok(line.includes("22%"));
+assert.ok(line.includes("周线行情"));
+assert.ok(line.includes("120/400"));
+assert.ok(v.progressLine({ state: "error", message: "扫描失败：yahoo down。未编造候选名单。" }).includes("yahoo down"));
+assert.ok(!v.progressLine({ state: "idle" }));
+const fromSnap = v.normalizeProgress({ candidates: [], progress: { state: "running", percent: 15, phase: "weekly" } });
+assert.strictEqual(fromSnap.state, "running");
+assert.strictEqual(v.shouldShowProgressBar(fromSnap), true);
+// Static Pages snapshot has no progress object and must not show a fake bar.
+assert.strictEqual(v.shouldShowProgressBar({ candidates: [], updated_at: "2026-11-12" }), false);
+assert.strictEqual(v.handleProgressTick({ state: "running", percent: 30, phase_label: "周线行情" }, true), "running");
+assert.strictEqual(v.handleProgressTick({ state: "done", percent: 100 }, true), "done");
+assert.strictEqual(v.handleProgressTick({ state: "error", message: "失败" }, true), "error");
+assert.strictEqual(v.handleProgressTick({ state: "idle" }, false), "idle");
+assert.strictEqual(v.shouldKeepPolling({ state: "running" }, false), true);
+assert.strictEqual(v.shouldKeepPolling({ state: "idle" }, true), true);
+assert.strictEqual(v.shouldKeepPolling({ state: "idle" }, false), false);
+assert.strictEqual(v.shouldKeepPolling({ state: "done" }, true), false);
+assert.strictEqual(v.shouldKeepPolling({ state: "error" }, true), false);
+
 console.log("us_superstocks_view tests passed");

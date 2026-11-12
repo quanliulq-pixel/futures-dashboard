@@ -323,13 +323,15 @@ def test_otc_excluded():
     assert any("OTC" in x or "Pink" in x for x in ev["fail_reasons"])
 
 
-def test_api_serves_seed_without_network(monkeypatch):
+def test_api_serves_seed_without_network(monkeypatch, tmp_path):
     import os
     os.environ["SKIP_BG_WARMUP"] = "1"
     import bg_tasks
     import app as app_mod
     import us_superstocks as ss_mod
 
+    monkeypatch.setattr(ss_mod, "PROGRESS_PATH", tmp_path / "progress.json")
+    ss_mod._reset_progress_for_tests()
     bg_tasks._reset_for_tests(max_tasks=2)
     monkeypatch.setattr(ss_mod, "refresh", lambda force=True: (_ for _ in ()).throw(RuntimeError("refresh must not run in request")))
     client = app_mod.app.test_client()
