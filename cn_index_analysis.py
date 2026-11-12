@@ -300,7 +300,7 @@ def _index_fundamentals() -> dict | None:
 
 
 def _index_flows() -> dict | None:
-    """A股指数资金进出 bundle（主力净流入/ETF申赎/两融/北向）；只做展示，失败不致命。只在后台/导出路径调用。"""
+    """A股指数资金进出 bundle（主力净流入/ETF申赎/两融/北向/机构ETF持仓）；只做展示，失败不致命。只在后台/导出路径调用。"""
     import os
 
     if os.environ.get("SKIP_INDEX_FLOW") == "1":
@@ -384,7 +384,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
     flows = _index_flows()
     if flows is not None:
         payload["index_flows"] = flows
-        payload["method"]["flows"] = "资金进出：东方财富主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额；只展示，不计入评分"
+        payload["method"]["flows"] = "资金进出：东方财富主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额、基金半年报/年报机构ETF持仓；只展示，不计入评分"
     _cache = (time.time(), payload)
     return payload
 

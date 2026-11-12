@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112idx3"
+    asset_v = "20261112idx4"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -796,7 +796,10 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
     if not isinstance(payload, dict):
         return payload
     try:
-        from cn_index_flow import DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, flow_bundle_age_hours, pick_flow_bundle
+        from cn_index_flow import (
+            DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, ensure_etf_holders,
+            flow_bundle_age_hours, pick_flow_bundle,
+        )
 
         best = pick_flow_bundle(DEFAULT_FLOW_PROVIDER.get_cached(), payload.get("index_flows"))
         if kick is None:
@@ -804,6 +807,8 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         age = flow_bundle_age_hours(best)
         if kick and (age is None or age * 3600 > FLOW_CACHE_TTL) and os.environ.get("SKIP_INDEX_FLOW") != "1":
             _spawn_bg_refresh("cn-index-flow", DEFAULT_FLOW_PROVIDER.refresh, min_interval=1800.0, provider="eastmoney-flow")
+        if best is not None:
+            best = ensure_etf_holders(best)
         if best is not None and best is not payload.get("index_flows"):
             payload = dict(payload)
             payload["index_flows"] = best
