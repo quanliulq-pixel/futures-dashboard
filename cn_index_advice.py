@@ -402,6 +402,19 @@ def advice_for_index(row: dict, options_payload: dict | None = None, fund_bundle
         logger.debug("index fundamentals failed for %s", row.get("id"), exc_info=True)
         out.setdefault("fund_status", "not_computed")
         out.setdefault("fund_status_cn", "基本面未计算")
+    # Concrete reference levels for the (final, fundamentals-adjusted) option bias. Pure CPU on the
+    # cached chain snapshot; missing chain/quotes → 无数据, never fabricated.
+    try:
+        from cn_index_option_levels import build_option_levels, etf_options_note
+
+        out["option_levels"] = build_option_levels(
+            row.get("id") or "", out.get("option_bias_cn") or "", options_payload, levels, _f(row.get("price"))
+        )
+        out["option_levels"]["etf_note_cn"] = etf_options_note(row.get("id") or "")
+    except Exception:  # noqa: BLE001 — levels never break the advice
+        logger.debug("option levels failed for %s", row.get("id"), exc_info=True)
+        out["option_levels"] = {"status": "nodata", "reason_cn": "无数据（价位计算失败）",
+                                "label_cn": "参考价位，不构成下单建议"}
     return out
 
 
@@ -440,6 +453,7 @@ def build_cn_index_advice(
             "score": "dir(-50..50:均线/RSI/涨跌/距52周/bias) + 0.35*vol_overlay(-20..20: VRP与HV分位)；stance 另据规则覆盖",
             "stances": "卖波动 | 防守区间 | 观望高波 | 偏多 | 偏空",
             "options": "近月链 ATM IV 与 ATM 带 Call/Put 持仓比（中金所新浪转播）",
+            "option_levels": "期权倾向→参考价位：真实挂牌行权价，支撑/阻力、|Δ|≤0.25、1σ 外取最保守档；止损破位或权利金2倍，止盈衰减50%（参考价位，不构成下单建议）",
             "fundamental": METHOD_TEXT,
         },
         "fund_asof": (fund_bundle or {}).get("fetched_at"),
