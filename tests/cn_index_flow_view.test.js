@@ -67,4 +67,31 @@ const cxCard = v.cardHtml(cx, "chinext");
 assert.ok(cxCard.includes("ETF净申赎") && cxCard.includes("无数据（深交所不提供历史份额）"));
 assert.ok(cxCard.includes("104.86亿份") && cxCard.includes("报告期 2026-06-30"));
 assert.ok(cxCard.includes('class="up">+1.20') && cxCard.includes('href="https://fundf10.eastmoney.com/cyrjg_159915.html"'));
+
+// 主力来自上次快照：仍显示红绿数字，并注明上次快照与 asof；北向/创业板申赎仍为无数据
+const snap = JSON.parse(JSON.stringify(b));
+snap.main_from_snapshot = true;
+snap.main_snapshot_asof = "2026-11-11";
+snap.indices.csi300.main.from_snapshot = true;
+snap.market.main.from_snapshot = true;
+snap.indices.sse50.main = { status: "ok", asof: "2026-11-11", net_1d: -0.45, net_5d: 1.2, net_20d: null, from_snapshot: true };
+const snapCard = v.cardHtml(snap, "csi300");
+assert.ok(snapCard.includes('class="up">+110.13'));
+assert.ok(snapCard.includes("上次快照"));
+assert.ok(snapCard.includes("2026-11-11"));
+assert.ok(!snapCard.includes("无数据（限流）"));
+const snapSum = v.summaryHtml(snap);
+assert.ok(snapSum.includes("沪深两市主力净流入"));
+assert.ok(snapSum.includes('class="up">+198.47') || snapSum.includes('class="up">+198.47'.replace("+198.47", "+198.47")));
+assert.ok(snapSum.includes("+198.47"));
+assert.ok(snapSum.includes("上次快照"));
+assert.ok(snapSum.includes("主力为上次快照（2026-11-11）"));
+assert.ok(snapSum.includes("北向资金净买额</strong>：无数据（停止披露）"));
+assert.ok(snapSum.includes('class="down">-0.45'));
+const cxSnap = JSON.parse(JSON.stringify(cx));
+cxSnap.indices.chinext.main = { status: "ok", asof: "2026-11-11", net_1d: 92.89, from_snapshot: true };
+const cxSnapCard = v.cardHtml(cxSnap, "chinext");
+assert.ok(cxSnapCard.includes('class="up">+92.89') && cxSnapCard.includes("上次快照"));
+assert.ok(cxSnapCard.includes("ETF净申赎") && cxSnapCard.includes("无数据（深交所不提供历史份额）"));
+
 console.log("cn_index_flow_view tests passed");

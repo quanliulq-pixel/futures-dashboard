@@ -163,3 +163,207 @@ def test_cn_indices_endpoint_attaches_flows_without_network(monkeypatch):
     # 资金流不进评分：建议对象里没有资金流字段
     for row in data.get("indices") or []:
         assert "flow" not in json.dumps(row.get("advice") or {}, ensure_ascii=False).lower()
+
+def _ok_main(net=110.13, asof="2026-11-11"):
+    return {"status": "ok", "asof": asof, "net_1d": net, "net_5d": None, "net_20d": None, "unit": "亿元"}
+
+
+def _miss_main(reason="东方财富 push2 断开连接（疑似限流），本轮停止请求"):
+    return {"status": "missing", "reason": reason, "asof": None}
+
+
+def test_pick_flow_bundle_prefers_usable_main_over_newer_missing():
+    seed = {
+        "fetched_at": "2026-11-12T06:00:00+08:00",
+        "asof": "2026-11-11",
+        "indices": {"csi300": {"name": "沪深300", "main": _ok_main(), "etf": {"status": "ok", "asof": "2026-11-11"}}},
+        "market": {"main": _ok_main(198.47), "margin_sh": {"status": "ok"}},
+    }
+    cache = {
+        "fetched_at": "2026-11-12T14:48:23+08:00",
+        "asof": None,
+        "indices": {"csi300": {"name": "沪深300", "main": _miss_main(), "etf": {"status": "ok", "asof": "2026-11-11"}}},
+        "market": {"main": _miss_main(), "margin_sh": {"status": "ok"}},
+    }
+    assert F.pick_flow_bundle(cache, seed) is seed
+    # 两者都有可用主力时，覆盖相当则取较新
+    live = {
+        "fetched_at": "2026-11-12T15:00:00+08:00",
+        "asof": "2026-11-12",
+        "indices": {"csi300": {"name": "沪深300", "main": _ok_main(50.0, "2026-11-12"), "etf": {"status": "ok"}}},
+        "market": {"main": _ok_main(80.0, "2026-11-12"), "margin_sh": {"status": "ok"}},
+    }
+    assert F.pick_flow_bundle(live, seed) is live
+
+
+def test_pick_flow_bundle_stale_main_does_not_beat_empty_when_unreasonably_old():
+    stale = {
+        "fetched_at": "2026-08-01T09:00:00+08:00",
+        "asof": "2026-08-01",
+        "indices": {"csi300": {"main": _ok_main(1.0, "2026-08-01")}},
+        "market": {"main": _ok_main(1.0, "2026-08-01")},
+    }
+    empty = {
+        "fetched_at": "2026-11-12T14:48:23+08:00",
+        "asof": None,
+        "indices": {"csi300": {"main": _miss_main()}},
+        "market": {"main": _miss_main()},
+    }
+    now = __import__("datetime").datetime(2026, 11, 12, 14, 50, tzinfo=F.CST)
+    # 主力 asof 已超过宽限窗口，退化为按覆盖/新旧挑选，空的新缓存可以胜出
+    assert F.pick_flow_bundle(empty, stale, now=now) is empty
+
+
+def test_merge_main_from_fallback_keeps_live_etf_and_flags_snapshot():
+    raw = _raw_fixture()
+    for k in [k for k in raw if str(k).startswith("main:")]:
+        raw.pop(k)
+    errs = {f"main:{m['id']}": "限流" for m in F.FLOW_INDICES}
+    errs["main:market"] = "限流"
+    live = F.build_flow_bundle(raw, errs, TODAY)
+    assert live["indices"]["csi300"]["main"]["status"] == "missing"
+    seed = F.build_flow_bundle(_raw_fixture(), {}, TODAY)
+    merged = F.merge_main_from_fallback(live, seed, today=TODAY)
+    m = merged["indices"]["csi300"]["main"]
+    assert m["status"] == "ok" and m["from_snapshot"] is True
+    assert m["net_1d"] == pytest.approx(110.13, abs=0.01)
+    assert m["asof"] == "2026-11-11"
+    assert merged["main_from_snapshot"] is True
+    assert merged["main_snapshot_asof"] == "2026-11-11"
+    assert merged["indices"]["csi300"]["etf"]["status"] == "ok"
+    assert merged["market"]["northbound"]["status"] == "missing"
+    assert "2024年8月" in merged["market"]["northbound"]["reason"]
+    assert merged["indices"]["chinext"]["etf"]["status"] == "missing"
+    assert "深交所" in (merged["indices"]["chinext"]["etf"].get("reason") or "")
+    # 不改写种子对象
+    assert "from_snapshot" not in seed["indices"]["csi300"]["main"]
+    # 无可用回退时不编造数字
+    blank = F.merge_main_from_fallback(live, {"indices": {}}, today=TODAY)
+    assert blank["indices"]["csi300"]["main"]["status"] == "missing"
+    assert blank["indices"]["csi300"]["main"].get("net_1d") is None
+
+
+def test_refresh_failing_fflow_keeps_previous_main(monkeypatch):
+    monkeypatch.setattr(F, "load_bundled_flow_seed", lambda: None)
+    monkeypatch.setattr(F, "fetch_remote_flow_seed", lambda *a, **k: None)
+    raw = _raw_fixture()
+    raw["main:market"] = list(raw["main:csi300"])
+    good = F.build_flow_bundle(raw, {}, TODAY)
+    limited = {"errors": {f"main:{m['id']}": "东方财富 push2 断开连接（疑似限流），本轮停止请求"
+                          for m in F.FLOW_INDICES}}
+    limited["errors"]["main:market"] = "东方财富 push2 断开连接（疑似限流），本轮停止请求"
+    p = F.IndexFlowProvider(fetchers={
+        "main_all": lambda: limited,
+        "cal": lambda: [date(2026, 11, 9), date(2026, 11, 10), date(2026, 11, 11)],
+        "etf_prices": lambda: {"510300": F.parse_sina_kline(_load("cn_flow_sina_kline.json"))},
+        "etf_shares": lambda: {
+            date(2026, 11, 11): {"510300": (date(2026, 11, 11), 46.0e8)},
+            date(2026, 11, 10): {"510300": (date(2026, 11, 10), 45.0e8)},
+        },
+        "margin_sh": lambda: [(date(2026, 11, 11), 11700.0)],
+        "margin_sz": lambda: [(date(2026, 11, 11), 10800.0)],
+    })
+    p._cache = (__import__("time").time(), good)
+    b = p.refresh(force=True)
+    assert b["indices"]["csi300"]["main"]["status"] == "ok"
+    assert b["indices"]["csi300"]["main"]["from_snapshot"] is True
+    assert b["indices"]["csi300"]["main"]["net_1d"] == pytest.approx(110.13, abs=0.01)
+    assert b["market"]["main"]["status"] == "ok"
+    assert b["market"]["northbound"]["status"] == "missing"
+    assert "2024年8月" in b["market"]["northbound"]["reason"]
+    assert b["indices"]["chinext"]["etf"]["status"] == "missing"
+
+
+def test_refresh_skipped_fflow_merges_bundled_seed(monkeypatch):
+    seed = F.build_flow_bundle(_raw_fixture(), {}, TODAY)
+    monkeypatch.setattr(F, "load_bundled_flow_seed", lambda: seed)
+    monkeypatch.setattr(F, "fetch_remote_flow_seed", lambda *a, **k: None)
+    monkeypatch.setattr(F, "skip_push2", lambda: True)
+    p = F.IndexFlowProvider(fetchers={
+        "cal": lambda: [date(2026, 11, 9), date(2026, 11, 10), date(2026, 11, 11)],
+        "etf_prices": lambda: {"510300": F.parse_sina_kline(_load("cn_flow_sina_kline.json"))},
+        "etf_shares": lambda: {
+            date(2026, 11, 11): {"510300": (date(2026, 11, 11), 46.0e8)},
+            date(2026, 11, 10): {"510300": (date(2026, 11, 10), 45.0e8)},
+        },
+        "margin_sh": lambda: [(date(2026, 11, 11), 11700.0)],
+        "margin_sz": lambda: [(date(2026, 11, 11), 10800.0)],
+    })
+    b = p.refresh(force=True)
+    assert b["indices"]["csi300"]["main"]["status"] == "ok"
+    assert b["indices"]["csi300"]["main"]["from_snapshot"] is True
+    assert b["indices"]["csi300"]["main"]["net_1d"] == pytest.approx(110.13, abs=0.01)
+    assert b["indices"]["csi300"]["etf"]["status"] == "ok"
+    assert b["market"]["northbound"]["status"] == "missing"
+    assert b["indices"]["chinext"]["etf"]["status"] == "missing"
+    assert "深交所" in (b["indices"]["chinext"]["etf"].get("reason") or "")
+
+
+def test_default_fetchers_skip_push2_on_render_or_flag(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("SKIP_PUSH2", raising=False)
+    assert "main_all" in F.default_fetchers()
+    monkeypatch.setenv("SKIP_PUSH2", "1")
+    f = F.default_fetchers()
+    assert "main_all" not in f
+    assert "cal" in f and "etf_prices" in f and "margin_sh" in f
+    monkeypatch.delenv("SKIP_PUSH2")
+    monkeypatch.setenv("RENDER", "true")
+    assert "main_all" not in F.default_fetchers()
+
+
+def test_load_bundled_flow_seed_has_ok_main():
+    seed = F._load_flow_seed_from_paths(F.FLOW_SEED_PATHS)
+    assert seed is not None
+    assert F.flow_main_coverage(seed) >= 6
+    assert seed["market"]["main"]["status"] == "ok"
+    assert seed["market"]["main"]["asof"] == "2026-11-11"
+    assert seed["market"]["northbound"]["status"] == "missing"
+    assert seed["indices"]["chinext"]["etf"]["status"] == "missing"
+
+
+def test_with_cn_flows_does_not_serve_wiped_cache_over_seed(monkeypatch):
+    os.environ["SKIP_BG_WARMUP"] = "1"
+    import app as app_mod
+
+    def deny(*a, **k):
+        raise OSError("network disabled")
+
+    monkeypatch.setattr(socket.socket, "connect", deny)
+    monkeypatch.setattr(socket, "create_connection", deny)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("CN_INDEX_FLOW_AUTO", raising=False)
+    raw = _raw_fixture()
+    raw["main:market"] = list(raw["main:csi300"])
+    seed = F.build_flow_bundle(raw, {}, TODAY)
+    wiped = {
+        "fetched_at": "2026-11-12T14:48:23+08:00",
+        "asof": None,
+        "indices": {m["id"]: {"id": m["id"], "name": m["name"], "tracked": m["tracked"],
+                              "main": _miss_main(),
+                              "etf": {"status": "missing", "reason": "未刷新"}}
+                    for m in F.FLOW_INDICES},
+        "market": {"main": _miss_main(),
+                   "northbound": {"status": "missing", "reason": F.NORTHBOUND_REASON},
+                   "margin_sh": {"status": "ok", "asof": "2026-11-11", "balance": 11700.0},
+                   "margin_sz": {"status": "ok", "asof": "2026-11-11", "balance": 10800.0},
+                   "margin_total": {"status": "ok", "asof": "2026-11-11", "balance": 22500.0}},
+        "notes": [],
+        "errors": {"main:csi300": "限流"},
+    }
+    # 给创业板保留「深交所不提供历史份额」以便断言
+    wiped["indices"]["chinext"]["etf"] = {"status": "missing", "reason": "创业板ETF在深交所上市，深交所不提供历史份额，无法计算申赎"}
+    monkeypatch.setattr(F.DEFAULT_FLOW_PROVIDER, "_cache", (__import__("time").time(), wiped))
+    payload = {"index_flows": seed, "indices": []}
+    out = app_mod._with_cn_flows(payload, kick=False)
+    flows = out["index_flows"]
+    assert flows["indices"]["csi300"]["main"]["status"] == "ok"
+    assert flows["indices"]["csi300"]["main"]["net_1d"] == pytest.approx(110.13, abs=0.01)
+    assert flows["indices"]["csi300"]["main"].get("from_snapshot") is True
+    assert flows["market"]["main"]["status"] == "ok"
+    # 直播两融保留
+    assert flows["market"]["margin_sh"]["status"] == "ok"
+    assert flows["market"]["northbound"]["status"] == "missing"
+    assert "2024年8月" in flows["market"]["northbound"]["reason"]
+    assert flows["indices"]["chinext"]["etf"]["status"] == "missing"
+    assert "深交所" in (flows["indices"]["chinext"]["etf"].get("reason") or "")
