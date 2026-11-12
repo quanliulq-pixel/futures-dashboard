@@ -373,8 +373,10 @@ def test_pick_bundle_freshest():
 
 
 def test_static_docs_sync_and_script_order_for_index_view():
-    for name in ("cn_index_fund_view.js", "app.js", "style.css"):
+    for name in ("cn_index_fund_view.js", "cn_index_holders_charts.js", "app.js", "style.css"):
         assert (ROOT / "static" / name).read_bytes() == (ROOT / "docs" / "static" / name).read_bytes(), name
     for html, prefix in ((ROOT / "templates" / "index.html", "/static/"), (ROOT / "docs" / "index.html", "./static/")):
         t = html.read_text(encoding="utf-8")
         assert t.index(prefix + "cn_index_fund_view.js") < t.index(prefix + "app.js")
+        assert t.index(prefix + "cn_index_holders_charts.js") < t.index(prefix + "app.js")
+        assert t.index(prefix + "cn_index_flow_view.js") < t.index(prefix + "cn_index_holders_charts.js")

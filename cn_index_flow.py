@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -633,6 +634,13 @@ class IndexFlowProvider:
                 bundle = ensure_etf_holders(bundle)
             except Exception:  # noqa: BLE001
                 logger.debug("etf holders seed attach also failed", exc_info=True)
+        # 持仓对照历史：用已有 F10 行 + 新浪指数日线尽力重建；失败保留种子，不影响主力/申赎/holders。
+        try:
+            if self._fetchers is None and os.environ.get("SKIP_INDEX_HOLDERS") != "1":
+                from cn_index_etf_holders_history import refresh_history_bundle
+                refresh_history_bundle(live_klines=True)
+        except Exception:  # noqa: BLE001
+            logger.warning("holder history refresh failed; keeping seed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)

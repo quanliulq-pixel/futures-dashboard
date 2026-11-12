@@ -19,6 +19,7 @@
       '/api/cn-indices': './api/cn_indices.json',
       '/api/cn-indices/refresh': './api/cn_indices.json',
       '/api/cn-index-advice': './api/cn_index_advice.json',
+      '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
       '/api/ai-apps': './api/ai_apps.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
@@ -827,6 +828,10 @@
     if (name === "cnidx") {
       state.cnidxLoading = false;
       loadCnIndices(false);
+      setTimeout(resizeHolderHistoryCharts, 50);
+      setTimeout(resizeHolderHistoryCharts, 250);
+    } else if (window.cnIndexHoldersCharts) {
+      window.cnIndexHoldersCharts.dispose();
     }
   }
 
@@ -3529,6 +3534,24 @@
     }).join("");
   }
 
+  function renderHolderHistoryCharts(data) {
+    const host = $("#cnidx-holders-charts");
+    if (!host || !window.cnIndexHoldersCharts) return;
+    const hist = data && data.holder_history;
+    if (hist && window.cnIndexHoldersCharts.hasSeries(hist)) {
+      window.cnIndexHoldersCharts.mount(host, hist);
+      return;
+    }
+    fetch(apiUrl("/api/cn-index-etf-holders-history"), { signal: AbortSignal.timeout(15000) })
+      .then((res) => res.ok ? res.json() : null)
+      .then((h) => { window.cnIndexHoldersCharts.mount(host, h); })
+      .catch(() => { window.cnIndexHoldersCharts.mount(host, null); });
+  }
+
+  function resizeHolderHistoryCharts() {
+    if (window.cnIndexHoldersCharts) window.cnIndexHoldersCharts.resize();
+  }
+
   async function loadCnIndices(force = false) {
     if (state.cnidxLoading && !force) return;
     state.cnidxLoading = true;
@@ -3665,6 +3688,7 @@
     }
     const flowBody = $("#cnidx-flow-body");
     if (flowBody && window.cnIndexFlowView) flowBody.innerHTML = window.cnIndexFlowView.summaryHtml(data.index_flows);
+    renderHolderHistoryCharts(data);
     const satBody = $("#cnidx-sat-body");
     if (satBody) {
       const sats = data.satellites || [];
