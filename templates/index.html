@@ -363,6 +363,13 @@
         <button type="button" class="btn btn-tiny" id="ss-refresh">后台重算（不阻塞本页）</button>
         <div class="meta" id="ss-meta">打开本页加载</div>
       </div>
+      <p id="ss-weekly-note" class="ss-weekly-note">每周自动扫描：北京时间周六 08:00（UTC 周六 00:00）。后台重算是按需补扫，全市场扫描可能因限流或超时无法在本页一次跑完，完整名单以每周自动扫描为准。</p>
+      <div id="ss-progress" class="ss-progress" hidden>
+        <div class="ss-progress-track" id="ss-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Superstocks 扫描进度">
+          <div class="ss-progress-fill" id="ss-progress-fill"></div>
+        </div>
+        <p id="ss-progress-text" class="ss-progress-text"></p>
+      </div>
       <p id="ss-status" role="status" aria-live="polite">打开本页加载研究快照…</p>
       <p id="ss-note" class="sub"></p>
       <div id="ss-content" hidden>

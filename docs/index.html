@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261112ss2" />
+  <link rel="stylesheet" href="./static/style.css?v=20261112ss3" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -364,6 +364,13 @@
         <button type="button" class="btn btn-tiny" id="ss-retry">重新加载快照</button>
         <button type="button" class="btn btn-tiny" id="ss-refresh">后台重算（不阻塞本页）</button>
         <div class="meta" id="ss-meta">打开本页加载</div>
+      </div>
+      <p id="ss-weekly-note" class="ss-weekly-note">每周自动扫描：北京时间周六 08:00（UTC 周六 00:00）。后台重算是按需补扫，全市场扫描可能因限流或超时无法在本页一次跑完，完整名单以每周自动扫描为准。</p>
+      <div id="ss-progress" class="ss-progress" hidden>
+        <div class="ss-progress-track" id="ss-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Superstocks 扫描进度">
+          <div class="ss-progress-fill" id="ss-progress-fill"></div>
+        </div>
+        <p id="ss-progress-text" class="ss-progress-text"></p>
       </div>
       <p id="ss-status" role="status" aria-live="polite">打开本页加载研究快照…</p>
       <p id="ss-note" class="sub"></p>
@@ -1164,20 +1171,20 @@
       </div>
     </div>
 
-  <script src="./static/ng_option_judgment.js?v=20261112ss2"></script>
-  <script src="./static/us_movers_view.js?v=20261112ss2"></script>
-  <script src="./static/fund_score_view.js?v=20261112ss2"></script>
-  <script src="./static/cn_option_candidates_view.js?v=20261112ss2"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261112ss2"></script>
-  <script src="./static/cn_index_flow_view.js?v=20261112ss2"></script>
-  <script src="./static/cn_index_holders_charts.js?v=20261112ss2"></script>
-  <script src="./static/cn_index_option_levels_view.js?v=20261112ss2"></script>
-  <script src="./static/ai_apps_view.js?v=20261112ss2"></script>
-  <script src="./static/us_superstocks_view.js?v=20261112ss2"></script>
-  <script src="./static/ng_quant_view.js?v=20261112ss2"></script>
-  <script src="./static/ng_put_view.js?v=20261112ss2"></script>
-  <script src="./static/ng_strategy_lab_view.js?v=20261112ss2"></script>
-  <script src="./static/ng_strategy_lab2_view.js?v=20261112ss2"></script>
-  <script src="./static/app.js?v=20261112ss2"></script>
+  <script src="./static/ng_option_judgment.js?v=20261112ss3"></script>
+  <script src="./static/us_movers_view.js?v=20261112ss3"></script>
+  <script src="./static/fund_score_view.js?v=20261112ss3"></script>
+  <script src="./static/cn_option_candidates_view.js?v=20261112ss3"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261112ss3"></script>
+  <script src="./static/cn_index_flow_view.js?v=20261112ss3"></script>
+  <script src="./static/cn_index_holders_charts.js?v=20261112ss3"></script>
+  <script src="./static/cn_index_option_levels_view.js?v=20261112ss3"></script>
+  <script src="./static/ai_apps_view.js?v=20261112ss3"></script>
+  <script src="./static/us_superstocks_view.js?v=20261112ss3"></script>
+  <script src="./static/ng_quant_view.js?v=20261112ss3"></script>
+  <script src="./static/ng_put_view.js?v=20261112ss3"></script>
+  <script src="./static/ng_strategy_lab_view.js?v=20261112ss3"></script>
+  <script src="./static/ng_strategy_lab2_view.js?v=20261112ss3"></script>
+  <script src="./static/app.js?v=20261112ss3"></script>
 </body>
 </html>

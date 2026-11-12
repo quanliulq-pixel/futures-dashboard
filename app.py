@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112ss2"
+    asset_v = "20261112ss3"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -536,19 +536,32 @@ def us_superstocks_api():
     return jsonify(us_superstocks.snapshot(force=False))
 
 
+@app.route("/api/us-superstocks/progress")
+def us_superstocks_progress_api():
+    """Lightweight poll for the in-flight Superstocks rebuild."""
+    import us_superstocks
+
+    return jsonify(us_superstocks.load_progress())
+
+
 @app.route("/api/us-superstocks/refresh")
 def us_superstocks_refresh_api():
     """Queue a background rebuild and return the current snapshot immediately."""
     import us_superstocks
 
     payload = dict(us_superstocks.snapshot(force=True))
-    status = _spawn_bg_refresh(
-        "us-superstocks",
-        lambda: us_superstocks.refresh(force=True),
-        min_interval=1800.0,
-        provider="yahoo",
-    )
+    if us_superstocks.is_job_running():
+        status = "running"
+    else:
+        status = _spawn_bg_refresh(
+            "us-superstocks",
+            lambda: us_superstocks.refresh(force=True),
+            min_interval=1800.0,
+            provider="yahoo",
+        )
     payload["refresh"] = bg_tasks.refresh_meta(status)
+    payload["progress"] = us_superstocks.load_progress()
+    payload["weekly_scan"] = dict(us_superstocks.WEEKLY_SCAN_INFO)
     payload["note"] = (payload.get("note") or "") + _queued_note(status, "后台 Superstocks 扫描")
     return jsonify(payload)
 

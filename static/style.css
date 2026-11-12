@@ -2050,6 +2050,13 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .ss-warning, .ss-disclaimer, .ss-sizing, .ss-edge { color: var(--warning); font-size: 12.5px; line-height: 1.6; margin: 4px 0; }
 .ss-toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .ss-toolbar .meta, #ss-meta, #ss-status, #ss-note { color: var(--muted); font-size: 12.5px; }
+
+.ss-weekly-note { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 2px 0 6px; }
+.ss-progress { margin: 4px 0 8px; max-width: 560px; }
+.ss-progress-track { height: 10px; border-radius: 999px; background: rgba(121,184,255,0.16); overflow: hidden; border: 1px solid var(--border); }
+.ss-progress-fill { height: 100%; width: 0; background: #79b8ff; border-radius: 999px; transition: width 0.25s ease; }
+.ss-progress-text { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
+#ss-refresh:disabled { opacity: 0.65; cursor: not-allowed; }
 .ss-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ss-table th, .ss-table td, .ss-ins-table th, .ss-ins-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
 .ss-table th.num, .ss-table td.num, .ss-ins-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
