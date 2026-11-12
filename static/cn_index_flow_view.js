@@ -58,6 +58,26 @@
     return o && o.reason ? `（${esc(o.reason)}）` : "";
   }
 
+  function fromSnapshot(o) {
+    return !!(o && (o.from_snapshot || o.from_seed));
+  }
+
+  /** Short note when 主力 is served from the last snapshot rather than a live push2 refresh. */
+  function snapNote(o) {
+    if (!fromSnapshot(o)) return "";
+    const asof = o && o.asof ? String(o.asof) : "";
+    return asof ? `上次快照 ${esc(asof)}` : "上次快照";
+  }
+
+  function dataSrcLine(o) {
+    const bits = [];
+    if (o && o.asof) bits.push("数据 " + esc(o.asof));
+    if (fromSnapshot(o)) bits.push("上次快照");
+    const src = srcLink(o);
+    if (src) bits.push(src);
+    return bits.length ? `<div class="cnflow-src">${bits.join(" · ")}</div>` : "";
+  }
+
   /** Per-index block inside an A股指数 card. */
   function cardHtml(bundle, indexId) {
     const row = bundle && bundle.indices ? bundle.indices[indexId] : null;
@@ -69,7 +89,7 @@
     const h = row.holders || {};
     const mainLine = ok(m)
       ? `<div class="cnflow-row"><span class="l">主力净流入</span>今日 ${cell(m.net_1d)} · 5日 ${cell(m.net_5d)} · 20日 ${cell(m.net_20d)}</div>` +
-        `<div class="cnflow-src">数据 ${esc(m.asof || "—")} · ${srcLink(m)}</div>`
+        dataSrcLine(m)
       : `<div class="cnflow-row"><span class="l">主力净流入</span>${NO_DATA}${reasonTxt(m)}</div>`;
     const etfLine = ok(e)
       ? `<div class="cnflow-row"><span class="l">ETF净申赎<em>估算</em></span>1日 ${cell(e.net_1d)} · 5日 ${cell(e.net_5d)} · 20日 ${cell(e.net_20d)}</div>` +
@@ -110,8 +130,9 @@
     const mk = bundle.market || {};
     const mm = mk.main || {};
     const nb = mk.northbound || {};
+    const mainSnap = fromSnapshot(mm) || !!(bundle && bundle.main_from_snapshot && ok(mm));
     const mainTxt = ok(mm)
-      ? `今日 ${cell(mm.net_1d)} · 5日 ${cell(mm.net_5d)} · 20日 ${cell(mm.net_20d)} 亿元 <span class="cnflow-src">数据 ${esc(mm.asof || "—")} · ${srcLink(mm)}</span>`
+      ? `今日 ${cell(mm.net_1d)} · 5日 ${cell(mm.net_5d)} · 20日 ${cell(mm.net_20d)} 亿元 <span class="cnflow-src">数据 ${esc(mm.asof || "—")}${mainSnap ? " · 上次快照" : ""}${mm.source ? " · " + srcLink(mm) : ""}</span>`
       : `${NO_DATA}${reasonTxt(mm)}`;
     const top = `<div class="cnflow-market">` +
       `<div><strong>沪深两市主力净流入</strong>：${mainTxt}</div>` +
@@ -128,10 +149,12 @@
       const m = r.main || {};
       const e = r.etf || {};
       const d = [ok(m) ? m.asof : null, ok(e) ? e.asof : null].filter(Boolean);
+      const dateTxt = d.length ? esc(Array.from(new Set(d)).join(" / ")) : NO_DATA;
+      const snap = ok(m) && fromSnapshot(m) ? " · 上次快照" : "";
       return `<tr><td><strong>${esc(r.name || id)}</strong>${r.tracked ? "" : ' <span class="tag-pill">总览</span>'}</td>` +
         `<td class="num">${ok(m) ? cell(m.net_1d) : NO_DATA}</td><td class="num">${ok(m) ? cell(m.net_5d) : NO_DATA}</td><td class="num">${ok(m) ? cell(m.net_20d) : NO_DATA}</td>` +
         `<td class="num">${ok(e) ? cell(e.net_1d) : NO_DATA}</td><td class="num">${ok(e) ? cell(e.net_5d) : NO_DATA}</td><td class="num">${ok(e) ? cell(e.net_20d) : NO_DATA}</td>` +
-        `<td>${d.length ? esc(Array.from(new Set(d)).join(" / ")) : NO_DATA}</td></tr>`;
+        `<td>${dateTxt}${snap}</td></tr>`;
     }).join("");
     const table = `<table class="put-table cnflow-table"><thead><tr><th>指数</th>` +
       `<th class="num">主力今日</th><th class="num">主力5日</th><th class="num">主力20日</th>` +
@@ -161,7 +184,10 @@
       `<th class="num">较上期(亿份)</th><th class="num">较上期(百分点)</th><th>覆盖ETF</th>` +
       `</tr></thead><tbody>${hrows}</tbody></table>`;
     const notes = (bundle.notes || []).map((n) => `<li>${esc(n)}</li>`).join("");
-    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}</div>`;
+    const snapMeta = bundle.main_from_snapshot
+      ? ` · 主力为上次快照（${esc(bundle.main_snapshot_asof || (mk.main && mk.main.asof) || "—")}）`
+      : "";
+    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>${meta}` +
