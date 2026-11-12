@@ -453,7 +453,7 @@ def build_cn_index_advice(
             "score": "dir(-50..50:均线/RSI/涨跌/距52周/bias) + 0.35*vol_overlay(-20..20: VRP与HV分位)；stance 另据规则覆盖",
             "stances": "卖波动 | 防守区间 | 观望高波 | 偏多 | 偏空",
             "options": "近月链 ATM IV 与 ATM 带 Call/Put 持仓比（中金所新浪转播）",
-            "option_levels": "期权倾向→参考价位：真实挂牌行权价，支撑/阻力、|Δ|≤0.25、1σ 外取最保守档；止损破位或权利金2倍，止盈衰减50%（参考价位，不构成下单建议）",
+            "option_levels": "期权倾向→参考价位：真实挂牌行权价，支撑/阻力、|Δ|≤0.25、1σ 外取最保守档；止损仅按权利金涨到2倍，止盈衰减50%（参考价位，不构成下单建议）",
             "fundamental": METHOD_TEXT,
         },
         "fund_asof": (fund_bundle or {}).get("fetched_at"),

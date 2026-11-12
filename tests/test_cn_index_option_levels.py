@@ -60,7 +60,10 @@ def test_sell_put_uses_real_strike_and_most_conservative_rule():
     h_iv = L.implied_vol("put", round((hq["bid"] + hq["ask"]) / 2, 2), month["spot"], higher, t)
     h_delta = abs(L.bs_delta("put", month["spot"], higher, t, h_iv))
     assert higher > sigma_raw or higher > 4000.0 or h_delta > 0.25
-    assert "2倍" in leg["stop_cn"] and "50%" in leg["take_profit_cn"]
+    assert "50%" in leg["take_profit_cn"]
+    # stop is premium-only: 2x entry, no index break condition
+    assert leg["stop_cn"] == f"权利金升至 {leg['premium'] * 2:.1f} 点（开仓价 2 倍）止损"
+    assert "收盘" not in leg["stop_cn"] and "支撑" not in leg["stop_cn"]
     sp = leg["spread"]
     assert sp["buy_strike"] < leg["strike"] and sp["buy_strike"] in real
     assert math.isclose(sp["max_loss_pts"], sp["width"] - sp["net_credit"], abs_tol=0.01)
@@ -82,6 +85,10 @@ def test_condor_combines_both_spreads():
     assert o["defined_risk_required"] is True
     assert math.isclose(c["net_credit"], p["spread"]["net_credit"] + k["spread"]["net_credit"], abs_tol=0.01)
     assert c["breakeven_low"] < p["strike"] and c["breakeven_high"] > k["strike"]
+    assert c["stop_cn"] == f"组合净权利金升至 {c['net_credit'] * 2:.1f} 点（2 倍）止损"
+    for leg in (p, k):
+        assert f"{leg['spread']['net_credit'] * 2:.1f} 点（2 倍）止损" in leg["spread"]["stop_cn"]
+        assert "收盘" not in leg["stop_cn"]
 
 
 def test_missing_chain_or_quotes_gives_nodata_not_fabricated():

@@ -54,7 +54,7 @@
     const thin = leg.thin_cn ? `<div class="optlv-warn">${esc(leg.thin_cn)}</div>` : "";
     const sp = leg.spread;
     const spread = sp
-      ? `<div class="optlv-row"><span class="l">保护腿</span>买 <code>${esc(sp.buy_code)}</code> 行权 ${esc(k(sp.buy_strike))} @ ${esc(f(sp.buy_premium))}；净收 ${esc(f(sp.net_credit))} 点，最大亏损 ${esc(f(sp.max_loss_pts))} 点（约 ${esc(f(sp.max_loss_yuan, 0))} 元/组），盈亏平衡 ${esc(k(sp.breakeven))}</div>`
+      ? `<div class="optlv-row"><span class="l">保护腿</span>买 <code>${esc(sp.buy_code)}</code> 行权 ${esc(k(sp.buy_strike))} @ ${esc(f(sp.buy_premium))}；净收 ${esc(f(sp.net_credit))} 点，最大亏损 ${esc(f(sp.max_loss_pts))} 点（约 ${esc(f(sp.max_loss_yuan, 0))} 元/组），盈亏平衡 ${esc(k(sp.breakeven))}${sp.stop_cn ? "；" + esc(sp.stop_cn) : ""}</div>`
       : `<div class="optlv-row"><span class="l">保护腿</span>${NO_DATA}</div>`;
     return `<div class="optlv-leg">
       <div class="optlv-row"><span class="optlv-side">${side}</span><code>${esc(leg.code || NO_DATA)}</code> 行权 <strong>${esc(k(leg.strike))}</strong> · 距现价 ${pct(leg.dist_pct)} · Δ≈${esc(delta)}</div>

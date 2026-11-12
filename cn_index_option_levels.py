@@ -11,7 +11,7 @@
     且该档 bid>0（可成交）。
   * 卖 Call：镜像——≥ 最近阻力、Δ≤0.25、≥ 现价×(1+1σ)，取满足全部条件的最低档。
   * 保护腿（价差）：向虚值方向再走约 WING_STEPS 个挂牌档位，买入同月同类型期权。
-  * 止损：标的收盘跌破支撑（Put）/ 突破阻力（Call），或权利金涨到开仓价 STOP_MULT 倍，先到先执行。
+  * 止损：只看权利金——涨到开仓价 STOP_MULT 倍即止损（价差/铁秃鹰按净权利金 STOP_MULT 倍）；不再用标的破位止损。
   * 止盈：权利金衰减 TAKE_PROFIT_PCT（买回价 = 开仓价×(1−50%)）；剩余 DTE≤EXIT_DTE 平仓不博到期。
 """
 from __future__ import annotations
@@ -42,7 +42,8 @@ RULES_CN = [
     f"卖Call：行权价 ≥ 最近阻力、Δ≤{DELTA_MAX}、≥ 现价×(1+{SIGMA_MULT:g}σ)，三条同时满足取最低档",
     "σ = ATM IV × √(DTE/365)；Δ 用 Black-Scholes（欧式、r=1.5%），IV 由该档中间价反解，反解失败用 ATM IV",
     f"保护腿：向虚值方向再走 {WING_STEPS} 档买入同月期权，组成价差（最大亏损有限）",
-    f"止损：标的收盘破支撑/阻力，或权利金涨到开仓价 {STOP_MULT:g} 倍；止盈：权利金衰减 {int(TAKE_PROFIT_PCT*100)}%；剩余≤{EXIT_DTE} 天平仓",
+    f"止损：仅按权利金——涨到开仓价 {STOP_MULT:g} 倍止损（价差/铁秃鹰按净权利金 {STOP_MULT:g} 倍）",
+    f"止盈：权利金衰减 {int(TAKE_PROFIT_PCT*100)}%；剩余≤{EXIT_DTE} 天平仓",
 ]
 
 BIAS_PLAN = {
@@ -259,11 +260,8 @@ def _leg_plan(kind: str, legs: list[dict], spot: float, atm_iv: float, dte: int,
         "iv_src": short.get("iv_src"),
         "premium_yuan": round(prem * mult, 0),
         "bounds": {"sigma": round(bounds["sigma"], 2), "sigma_pct": bounds["sigma_pct"], "level": level},
-        "take_profit_cn": f"权利金回落至 {prem * (1 - TAKE_PROFIT_PCT):.1f} 点附近（衰减{int(TAKE_PROFIT_PCT*100)}%）买回",
-        "stop_cn": (
-            (f"标的收盘跌破支撑 {_fmt_k(level)}" if kind == "put" else f"标的收盘突破阻力 {_fmt_k(level)}")
-            if level is not None else ("标的收盘跌破行权价" if kind == "put" else "标的收盘突破行权价")
-        ) + f"，或权利金升至 {prem * STOP_MULT:.1f} 点（{STOP_MULT:g}倍）；剩余≤{EXIT_DTE}天平仓",
+        "take_profit_cn": f"权利金回落至 {prem * (1 - TAKE_PROFIT_PCT):.1f} 点附近（衰减{int(TAKE_PROFIT_PCT*100)}%）买回；剩余≤{EXIT_DTE}天平仓",
+        "stop_cn": f"权利金升至 {prem * STOP_MULT:.1f} 点（开仓价 {STOP_MULT:g} 倍）止损",
     }
     if prem < MIN_PREMIUM_PTS:
         plan["thin_cn"] = f"权利金仅 {prem:g} 点，过薄，性价比低"
@@ -281,6 +279,7 @@ def _leg_plan(kind: str, legs: list[dict], spot: float, atm_iv: float, dte: int,
                 "max_loss_pts": round(width - credit, 2),
                 "max_loss_yuan": round((width - credit) * mult, 0),
                 "breakeven": round(k - credit if kind == "put" else k + credit, 2),
+                "stop_cn": f"价差净权利金升至 {credit * STOP_MULT:.1f} 点（{STOP_MULT:g} 倍）止损",
             }
     return plan
 
@@ -378,7 +377,7 @@ def build_option_levels(index_id: str, option_bias: str, options_payload: dict |
                 "breakeven_low": round(p["strike"] - credit, 2),
                 "breakeven_high": round(c["strike"] + credit, 2),
                 "take_profit_cn": f"组合权利金回落至 {credit * (1 - TAKE_PROFIT_PCT):.1f} 点附近买回",
-                "stop_cn": f"任一侧标的收盘破短腿所依托的支撑/阻力，或组合权利金升至 {credit * STOP_MULT:.1f} 点",
+                "stop_cn": f"组合净权利金升至 {credit * STOP_MULT:.1f} 点（{STOP_MULT:g} 倍）止损",
             }
     if all((legs.get(s) or {}).get("status") != "ok" for s in plan_sides):
         base["status"] = "none"
