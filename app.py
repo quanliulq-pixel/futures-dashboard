@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112flow1"
+    asset_v = "20261112idx2"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -759,60 +759,6 @@ def short_call_refresh_api():
         logger.exception("short call refresh failed")
         return jsonify({"error": str(exc)}), 500
 
-
-
-@app.route("/api/cn-index-options")
-def cn_index_options_api():
-    force = request.args.get("force") == "1"
-    try:
-        import os
-        from cffex_options import build_cn_index_options, load_seed
-
-        seed = load_seed() or _read_api_seed("cn_index_options.json")
-        if seed is not None and (os.environ.get("RENDER") or not force):
-            seed = dict(seed)
-            seed["source"] = seed.get("source") or "seed"
-            seed.setdefault("served_from", "seed")
-            return jsonify(seed)
-
-        payload = build_cn_index_options()
-        return jsonify(payload)
-    except Exception as exc:
-        logger.exception("cn index options failed")
-        seed = _read_api_seed("cn_index_options.json")
-        if seed:
-            seed = dict(seed)
-            seed["source"] = "seed"
-            seed["note"] = (seed.get("note") or "") + f" · live失败: {exc}"
-            return jsonify(seed)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/cn-index-options/refresh")
-def cn_index_options_refresh_api():
-    try:
-        import os
-        from cffex_options import build_cn_index_options, load_seed, write_snapshot
-
-        seed = load_seed() or _read_api_seed("cn_index_options.json")
-        if seed is not None and os.environ.get("RENDER"):
-            status = _spawn_bg_refresh("cn_index_options", write_snapshot, min_interval=300.0, provider="cffex")
-            seed = dict(seed)
-            seed["source"] = "seed"
-            seed["note"] = _queued_note(status, "后台抓取中金所/新浪期权链").lstrip(" ·")
-            seed["refresh"] = bg_tasks.refresh_meta(status)
-            return jsonify(seed)
-
-        payload = write_snapshot()
-        return jsonify(payload)
-    except Exception as exc:
-        logger.exception("cn index options refresh failed")
-        seed = _read_api_seed("cn_index_options.json")
-        if seed:
-            seed = dict(seed)
-            seed["source"] = "seed"
-            return jsonify(seed)
-        return jsonify({"error": str(exc)}), 500
 
 
 def _cn_index_fund_bundle(payload: dict | None, *, kick: bool | None = None) -> dict | None:

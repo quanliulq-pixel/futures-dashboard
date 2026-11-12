@@ -18,8 +18,6 @@
       '/api/short-call/refresh': './api/short_call.json',
       '/api/cn-indices': './api/cn_indices.json',
       '/api/cn-indices/refresh': './api/cn_indices.json',
-      '/api/cn-index-options': './api/cn_index_options.json',
-      '/api/cn-index-options/refresh': './api/cn_index_options.json',
       '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/ai-apps': './api/ai_apps.json',
       '/api/health': './api/health.json',
@@ -3549,17 +3547,7 @@
       }
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "cn indices failed");
-      // Options chain is independent — don't block HV cards if it fails.
-      let opt = null;
-      try {
-        const ou = force ? "/api/cn-index-options/refresh" : "/api/cn-index-options";
-        const ores = await fetch(apiUrl(ou), { signal: AbortSignal.timeout(20000) });
-        if (ores.ok) opt = await ores.json();
-      } catch (oe) {
-        console.warn("cn index options:", oe);
-      }
-      state.cnidxOptions = opt;
-      renderCnIndices(data, opt);
+      renderCnIndices(data);
     } catch (err) {
       console.error("loadCnIndices error:", err);
       const el = $("#cnidx-cards");
@@ -3572,59 +3560,9 @@
       }
     }
   }
-  function _cnOptBoard(optPayload, indexId) {
-    if (!optPayload) return null;
-    const by = optPayload.by_index || {};
-    if (by[indexId]) return by[indexId];
-    const list = optPayload.products || [];
-    return list.find((b) => b.index_id === indexId) || null;
-  }
-  function _cnOptSnippet(board) {
-    if (!board) {
-      return `<div class="cnidx-opt">期权链：暂无快照（中金所官网海外常不可达，可稍后重试）</div>`;
-    }
-    const months = board.months || [];
-    const m0 = months[0];
-    if (!m0) {
-      const err = (board.errors || []).slice(0, 1).join("；") || "无近月合约";
-      return `<div class="cnidx-opt">期权链：${esc(board.short || "")} 暂无数据（${esc(err)}）</div>`;
-    }
-    const band = m0.atm_band || [];
-    const src = board.source === "sina" || String(board.source || "").includes("sina")
-      ? "中金所（新浪转播）"
-      : esc(board.source || "—");
-    const head =
-      `期权链：${src} · 近月 <strong>${esc(m0.code || "")}</strong>` +
-      ` · 到期 ${esc(m0.expire || "—")}（${m0.days != null ? m0.days + "天" : "—"}）` +
-      (m0.spot != null ? ` · 标的约 ${fmt(m0.spot, 2)}` : "") +
-      (m0.atm_iv_est != null ? ` · ATM IV≈${fmt(m0.atm_iv_est, 1)}%` : "");
-    if (!band.length) {
-      return `<div class="cnidx-opt"><div class="cnidx-opt-head">${head}</div></div>`;
-    }
-    const rows = band.map((s) => {
-      const c = s.call || {};
-      const p = s.put || {};
-      const isAtm = m0.atm_strike != null && Number(s.strike) === Number(m0.atm_strike);
-      return `<tr class="${isAtm ? "atm" : ""}">
-        <td class="num">${fmt(s.strike, 0)}</td>
-        <td class="num">${c.last != null ? fmt(c.last, 1) : "—"}</td>
-        <td class="num">${c.oi != null ? fmt(c.oi, 0) : "—"}</td>
-        <td class="num">${p.last != null ? fmt(p.last, 1) : "—"}</td>
-        <td class="num">${p.oi != null ? fmt(p.oi, 0) : "—"}</td>
-      </tr>`;
-    }).join("");
-    return `<div class="cnidx-opt">
-      <div class="cnidx-opt-head">${head}</div>
-      <table class="cnidx-opt-table">
-        <thead><tr><th>行权价</th><th>Call</th><th>C持仓</th><th>Put</th><th>P持仓</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }
-
   function _cnAdviceSnippet(advice) {
     if (!advice) {
-      return `<div class="cnidx-advice empty">交易建议：暂无（刷新后由指数+近月期权链生成）</div>`;
+      return `<div class="cnidx-advice empty">交易建议：暂无（刷新后由指数技术面与基本面生成）</div>`;
     }
     const stance = advice.stance_cn || "—";
     const score = advice.score;
@@ -3659,34 +3597,21 @@
     </div>`;
   }
 
-  function renderCnIndices(data, optPayload) {
+  function renderCnIndices(data) {
     if (!data) return;
     state.cnidxPayload = data;
-    if (optPayload === undefined) optPayload = state.cnidxOptions;
     const meta = $("#cnidx-meta");
-    const frontCodes = [];
-    if (optPayload && optPayload.products) {
-      for (const b of optPayload.products) {
-        const m0 = (b.months || [])[0];
-        if (m0 && m0.code) frontCodes.push(m0.code);
-      }
-    }
-    const optLine = frontCodes.length
-      ? `期权链：中金所（新浪转播）· ${frontCodes.join("/")}`
-      : "期权链快照待更新";
-    if (meta) meta.textContent = `更新 ${data.updated_at || "—"} · ${optLine}`;
+    if (meta) meta.textContent = `更新 ${data.updated_at || "—"}`;
     const method = $("#cnidx-method");
     if (method && data.method) {
       const m = data.method;
-      const optMethod = (optPayload && optPayload.method && optPayload.method.live)
-        ? optPayload.method.live
-        : (m.options || "");
       const am = data.advice_method || {};
       method.innerHTML = [
         `<strong>目标</strong>：${esc(m.goal || "")}`,
         `<strong>数据</strong>：${esc(m.source || "")}`,
-        `<strong>期权</strong>：${esc(optMethod || "中金所 IO/HO/MO（新浪转播延时）")}`,
+        m.options ? `<strong>建议输入</strong>：${esc(m.options)}` : "",
         `<strong>指标</strong>：${esc(m.stats || "")}`,
+        m.flows ? `<strong>资金进出</strong>：${esc(m.flows)}` : "",
         am.score ? `<strong>建议评分</strong>：${esc(am.score)}` : "",
         am.fundamental ? `<strong>基本面</strong>：${esc(am.fundamental)}` : "",
         (data.advice_fund_notes || []).length ? `<strong>数据说明</strong>：${esc((data.advice_fund_notes || []).join("；"))}` : "",
@@ -3705,11 +3630,6 @@
         const futTxt = fut && fut.price != null
           ? `${esc(fut.name || fut.id)} 约 ${fmt(fut.price, 2)}${fut.change_pct != null ? "（" + fmt(fut.change_pct, 2) + "%）" : ""}`
           : `${esc(r.futures_name || r.futures_id || "股指期货")}：当前看板商品池未纳入报价`;
-        const board = _cnOptBoard(optPayload, r.id);
-        const optHtml = _cnOptSnippet(board);
-        const note = board && (board.months || []).length
-          ? `场内期权：${esc((board.months[0] || {}).code || board.short || "")}（新浪转播中金所）`
-          : (r.options_note || "场内期权链见下方近月摘要");
         return `<article class="put-card">
           <div class="put-card-top">
             <div>
@@ -3739,8 +3659,6 @@
           <div class="cnidx-fut">${futTxt}</div>
           ${window.cnIndexFlowView ? window.cnIndexFlowView.cardHtml(data.index_flows, r.id) : ""}
           ${_cnAdviceSnippet(r.advice || (data.advices || {})[r.id])}
-          ${optHtml}
-          <div class="put-action">${esc(note)}</div>
         </article>`;
       }).join("");
     }

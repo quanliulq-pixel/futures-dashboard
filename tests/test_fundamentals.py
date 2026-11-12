@@ -349,4 +349,4 @@ def test_static_and_docs_in_sync_and_script_order():
     for html, prefix in ((ROOT / "templates" / "index.html", "/static/"), (ROOT / "docs" / "index.html", "./static/")):
         t = html.read_text(encoding="utf-8")
         assert t.index(prefix + "fund_score_view.js") < t.index(prefix + "cn_option_candidates_view.js") < t.index(prefix + "app.js")
-    assert 'asset_v = "20261112flow1"' in (ROOT / "app.py").read_text(encoding="utf-8")
+    assert 'asset_v = "20261112idx2"' in (ROOT / "app.py").read_text(encoding="utf-8")

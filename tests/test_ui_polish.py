@@ -27,16 +27,16 @@ def test_pages_template_is_exact_static_transform():
         '<head>\n  <base href="/futures-dashboard/" />\n'
         '  <script>window.STATIC_MODE = true;</script>\n', 1,
     ).replace('"/static/', '"./static/').replace(
-        "{{ asset_v }}", "20261112flow1"
+        "{{ asset_v }}", "20261112idx2"
     ).replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     assert (ROOT / "docs/index.html").read_text() == expected
     assert '{{ asset_v }}' not in expected
-    assert './static/cn_index_fund_view.js?v=20261112flow1' in expected
+    assert './static/cn_index_fund_view.js?v=20261112idx2' in expected
 
 
 def test_asset_versions_agree():
     for path in ["app.py", "export_static_pages.py", "docs/index.html"]:
-        assert '20261112flow1' in (ROOT / path).read_text()
+        assert '20261112idx2' in (ROOT / path).read_text()
 
 
 def test_keyboard_scroll_regions_and_protected_tabs():
@@ -78,3 +78,19 @@ def test_method_disclosures_default_closed_and_keep_content_ids():
     disclosures = [a for t, a in parser.elements if t == 'details' and a.get('class') == 'method-details']
     assert len(disclosures) == 2 and all('open' not in a for a in disclosures)
     assert 'id="put-method"' in html and 'id="call-method"' in html
+
+def test_cnidx_tab_drops_option_chain_ui_but_keeps_advice():
+    html = (ROOT / "templates/index.html").read_text()
+    section = html.split('id="view-cnidx"', 1)[1].split('</section>', 1)[0]
+    assert '近月期权链' not in section
+    assert '资金进出' in section and 'id="cnidx-flow-panel"' in section
+    js = (ROOT / "static/app.js").read_text()
+    assert '_cnOptSnippet' not in js
+    assert 'cnidx-opt-table' not in js
+    assert '/api/cn-index-options' not in js
+    assert 'option_bias_cn' in js
+    assert 'data-option-bias="${esc(bias)}">${esc(bias)}</strong>' in js
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert '@app.route("/api/cn-index-options")' not in app
+    assert '@app.route("/api/cn-index-advice")' in app
+    assert (ROOT / "cffex_options.py").is_file()
