@@ -680,11 +680,12 @@
         <div class="panel" id="cnidx-flow-panel">
           <div class="panel-head">
             <div>
-              <h2>资金进出 · 主力 / ETF申赎 / 两融 / 北向</h2>
-              <p class="sub">单位亿元；红=流入/增加，绿=流出/减少；只展示，不计入评分</p>
+              <h2>资金进出 · 主力 / ETF申赎 / 两融 / 北向 / 机构持仓对照</h2>
+              <p class="sub">单位亿元（机构持仓为亿份）；红=流入/增加/上涨，绿=流出/减少/下跌；只展示，不计入评分</p>
             </div>
           </div>
           <div id="cnidx-flow-body"><div class="empty-card">加载中…</div></div>
+          <div id="cnidx-holders-charts" class="cnidx-holders-charts"></div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -1125,6 +1126,7 @@
   <script src="/static/cn_option_candidates_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_fund_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_flow_view.js?v={{ asset_v }}"></script>
+  <script src="/static/cn_index_holders_charts.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_option_levels_view.js?v={{ asset_v }}"></script>
   <script src="/static/ai_apps_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_quant_view.js?v={{ asset_v }}"></script>

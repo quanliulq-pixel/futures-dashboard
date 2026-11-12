@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112idx4"
+    asset_v = "20261112idx5"
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
 
@@ -812,6 +812,11 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         if best is not None and best is not payload.get("index_flows"):
             payload = dict(payload)
             payload["index_flows"] = best
+        try:
+            from cn_index_etf_holders_history import attach_holder_history
+            payload = attach_holder_history(payload)
+        except Exception:
+            logger.debug("attach holder history failed", exc_info=True)
         return payload
     except Exception:
         logger.debug("attach cn flows failed", exc_info=True)
@@ -885,6 +890,18 @@ def cn_indices_refresh_api():
             seed["source"] = "seed"
             return jsonify(_with_cn_advice(seed))
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/cn-index-etf-holders-history")
+def cn_index_etf_holders_history_api():
+    """Serve the seeded holdings-vs-index history. Request thread: seed only, never network."""
+    try:
+        from cn_index_etf_holders_history import load_history_bundle, missing_history
+        data = load_history_bundle() or missing_history()
+        return jsonify(data)
+    except Exception as exc:
+        logger.debug("holder history api failed", exc_info=True)
+        return jsonify({"status": "missing", "reason": str(exc)[:120], "indices": {}, "in_score": False}), 200
 
 
 @app.route("/api/cn-index-advice")

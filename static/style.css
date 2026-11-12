@@ -2021,3 +2021,21 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .optlv-warn { color: #f59e0b; font-size: 11.5px; }
 .optlv-rules summary { cursor: pointer; color: var(--muted, #94a3b8); font-size: 11.5px; }
 .optlv-rules ul { margin: 4px 0 0 16px; padding: 0; font-size: 11.5px; }
+
+/* 机构持仓 vs 指数涨跌（资金进出面板内） */
+.cnhold-wrap { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(139,155,176,0.18); overflow-x: auto; overscroll-behavior-x: contain; }
+.cnhold-h { font-weight: 600; margin-bottom: 8px; color: var(--muted, #94a3b8); font-size: 13px; }
+.cnhold-h em { font-style: normal; font-size: 10.5px; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid currentColor; }
+.cnhold-miss { font-size: 13px; color: var(--muted, #94a3b8); padding: 8px 0 4px; }
+.cnhold-switch, .cnhold-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.cnhold-lab { font-size: 11px; color: var(--muted, #94a3b8); margin-right: 2px; }
+.cnhold-btn { background: rgba(255,255,255,0.04); color: var(--muted, #94a3b8); border: 1px solid rgba(139,155,176,0.28); border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
+.cnhold-btn.active { color: #e5efff; border-color: #7eb6ff; background: rgba(126,182,255,0.12); }
+.cnhold-btn:focus-visible { outline: 2px solid #7eb6ff; outline-offset: 2px; }
+.cnhold-chart { width: 100%; min-width: 280px; height: 280px; }
+.cnhold-cap { font-size: 11.5px; color: var(--muted, #94a3b8); line-height: 1.6; margin: 4px 0 10px; }
+.cnhold-notes { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--muted, #94a3b8); line-height: 1.65; }
+@media (max-width: 640px) {
+  .cnhold-chart { height: 240px; }
+  .cnhold-btn { font-size: 11px; padding: 3px 7px; }
+}
