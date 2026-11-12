@@ -18,6 +18,7 @@ on:
       - "cffex_options.py"
       - "cn_index_analysis.py"
       - "cn_index_advice.py"
+      - "cn_index_flow.py"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"

@@ -300,6 +300,21 @@ def _index_fundamentals() -> dict | None:
         return None
 
 
+def _index_flows() -> dict | None:
+    """A股指数资金进出 bundle（主力净流入/ETF申赎/两融/北向）；只做展示，失败不致命。只在后台/导出路径调用。"""
+    import os
+
+    if os.environ.get("SKIP_INDEX_FLOW") == "1":
+        return None
+    try:
+        from cn_index_flow import DEFAULT_FLOW_PROVIDER
+
+        return DEFAULT_FLOW_PROVIDER.refresh()
+    except Exception:  # noqa: BLE001
+        logger.warning("cn index flows failed", exc_info=True)
+        return None
+
+
 def build_cn_index_analysis(force: bool = False) -> dict:
     global _cache
     if not force and _cache and time.time() - _cache[0] < CACHE_TTL:
@@ -342,6 +357,9 @@ def build_cn_index_analysis(force: bool = False) -> dict:
             fund = _index_fundamentals()
             if fund is not None:
                 seed["index_fundamentals"] = fund
+            flows = _index_flows()
+            if flows is not None:
+                seed["index_flows"] = flows
             _cache = (time.time(), seed)
             return seed
 
@@ -364,6 +382,10 @@ def build_cn_index_analysis(force: bool = False) -> dict:
     if fund is not None:
         payload["index_fundamentals"] = fund
         payload["method"]["fundamental"] = "政策/估值/流动性/宏观四组基本面（见建议评分说明），数据日期逐项标注"
+    flows = _index_flows()
+    if flows is not None:
+        payload["index_flows"] = flows
+        payload["method"]["flows"] = "资金进出：东方财富主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额；只展示，不计入评分"
     _cache = (time.time(), payload)
     return payload
 

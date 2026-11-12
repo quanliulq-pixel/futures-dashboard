@@ -3737,12 +3737,15 @@
             <div class="put-metric"><span class="l">距52周低</span><span class="v">${r.from_52w_low_pct == null ? "—" : fmt(r.from_52w_low_pct, 2) + "%"}</span></div>
           </div>
           <div class="cnidx-fut">${futTxt}</div>
+          ${window.cnIndexFlowView ? window.cnIndexFlowView.cardHtml(data.index_flows, r.id) : ""}
           ${_cnAdviceSnippet(r.advice || (data.advices || {})[r.id])}
           ${optHtml}
           <div class="put-action">${esc(note)}</div>
         </article>`;
       }).join("");
     }
+    const flowBody = $("#cnidx-flow-body");
+    if (flowBody && window.cnIndexFlowView) flowBody.innerHTML = window.cnIndexFlowView.summaryHtml(data.index_flows);
     const satBody = $("#cnidx-sat-body");
     if (satBody) {
       const sats = data.satellites || [];
