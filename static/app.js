@@ -3587,6 +3587,7 @@
         <span class="cnidx-score">评分 ${esc(scoreTxt)} · 置信 ${conf != null ? conf : "—"}</span>
       </div>
       <div class="cnidx-opt-bias">期权偏向：<strong class="strategy-badge" data-option-bias="${esc(bias)}">${esc(bias)}</strong></div>
+      ${window.cnIndexOptionLevelsView ? window.cnIndexOptionLevelsView.blockHtml(advice) : ""}
       ${window.cnIndexFundView ? window.cnIndexFundView.blockHtml(advice) : ""}
       <ul class="cnidx-bullets">${bullets || "<li>暂无细则</li>"}</ul>
       <div class="cnidx-levels">

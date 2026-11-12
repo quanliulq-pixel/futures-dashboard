@@ -2006,3 +2006,18 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .cnflow-table { margin-bottom: 10px; }
 .cnflow-notes { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--muted, #94a3b8); line-height: 1.6; }
 .nodata { color: var(--muted, #94a3b8); }
+
+/* 期权参考价位（A股指数卡 · 期权倾向下） */
+.optlv-card { margin: 6px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-inset, rgba(255,255,255,0.03)); font-size: 12.5px; line-height: 1.6; }
+.optlv-h { font-weight: 600; margin-bottom: 4px; }
+.optlv-h em { font-style: normal; font-weight: 400; font-size: 11px; color: var(--muted, #94a3b8); margin-left: 6px; }
+.optlv-meta, .optlv-src { color: var(--muted, #94a3b8); font-size: 11.5px; }
+.optlv-struct { margin: 2px 0 4px; }
+.optlv-leg { margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(148,163,184,0.25); }
+.optlv-leg.miss, .optlv-miss { color: var(--muted, #94a3b8); }
+.optlv-side { display: inline-block; min-width: 56px; font-weight: 600; margin-right: 6px; }
+.optlv-row .l { display: inline-block; min-width: 64px; color: var(--muted, #94a3b8); }
+.optlv-row code { font-size: 12px; }
+.optlv-warn { color: #f59e0b; font-size: 11.5px; }
+.optlv-rules summary { cursor: pointer; color: var(--muted, #94a3b8); font-size: 11.5px; }
+.optlv-rules ul { margin: 4px 0 0 16px; padding: 0; font-size: 11.5px; }
