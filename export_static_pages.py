@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261113rm1")
+    html = html.replace("{{ asset_v }}", "20261113au1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -101,10 +101,6 @@ def export_html() -> None:
         shutil.rmtree(dst)
     shutil.copytree(ROOT / "static", dst)
     # Copy only curated local snapshots; never trigger market fetches here.
-    ss_path = ROOT / "data" / "us_superstocks.json"
-    if ss_path.is_file():
-        dump(API / "us_superstocks.json", json.loads(ss_path.read_text(encoding="utf-8")))
-
     hist_path = ROOT / "data" / "cn_index_etf_holders_history.json"
     if hist_path.is_file():
         dump(API / "cn_index_etf_holders_history.json", json.loads(hist_path.read_text(encoding="utf-8")))
@@ -295,6 +291,21 @@ def main() -> None:
             API / "cn_index_advice.json",
             {"advices": {}, "updated_at": now, "error": str(exc), "disclaimer_cn": "研究用途，非投资建议"},
         )
+
+    print("gold (黄金页)...")
+    try:
+        import gold
+
+        # Per-block fallback to the committed docs/api/gold.json seed lives inside gold.refresh().
+        gold_payload = gold.refresh(use_remote=False)
+        if gold_payload.get("status") == "ok":
+            dump(API / "gold.json", gold_payload)
+            print("gold errors:", gold_payload.get("errors") or {})
+        else:
+            print("gold refresh returned no data; keep previous docs/api/gold.json")
+    except Exception as exc:
+        print("gold failed:", exc)
+        traceback.print_exc()
 
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})
     dump(API / "analysis_one_empty.json", {"analysis": None, "note": "静态站请看高低位总表"})

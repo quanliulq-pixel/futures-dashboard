@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261113rm1"
+    asset_v = "20261113au1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -366,52 +366,6 @@ def us_movers_api():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/api/us-superstocks")
-def us_superstocks_api():
-    """Serve cache/seed only. Never run a full Yahoo/SEC scan in the request."""
-    import us_superstocks
-
-    return jsonify(us_superstocks.snapshot(force=False))
-
-
-@app.route("/api/us-superstocks/progress")
-def us_superstocks_progress_api():
-    """Lightweight poll for the in-flight Superstocks rebuild."""
-    import us_superstocks
-
-    return jsonify(us_superstocks.load_progress())
-
-
-@app.route("/api/us-superstocks/refresh")
-def us_superstocks_refresh_api():
-    """Queue a background rebuild and return the current snapshot immediately."""
-    import us_superstocks
-
-    payload = dict(us_superstocks.snapshot(force=True))
-    if us_superstocks.is_job_running():
-        status = "running"
-    else:
-        status = _spawn_bg_refresh(
-            "us-superstocks",
-            lambda: us_superstocks.refresh(force=True),
-            min_interval=1800.0,
-            provider="yahoo",
-        )
-    payload["refresh"] = bg_tasks.refresh_meta(status)
-    payload["progress"] = us_superstocks.load_progress()
-    payload["weekly_scan"] = dict(us_superstocks.WEEKLY_SCAN_INFO)
-    payload["note"] = (payload.get("note") or "") + _queued_note(status, "后台 Superstocks 扫描")
-    return jsonify(payload)
-
-
-def _attach_ng_monthly(payload: dict, ng_mod) -> None:
-    """Add EIA monthly supply from memory/last-success/seed (no network)."""
-    try:
-        payload["monthly_supply"] = ng_mod.overlay_monthly_supply(payload.get("monthly_supply"))
-    except Exception:
-        logger.debug("ng monthly snapshot failed", exc_info=True)
-
-
 @app.route("/api/ng-strategy-lab")
 def ng_strategy_lab_api():
     # Frozen one-shot research: never re-test holdout or start a market scan on GET.
@@ -433,6 +387,30 @@ def ng_sell_put_api():
     if ng_put_quant.needs_refresh(data):
         data["refresh_status"] = _spawn_bg_refresh(
             "ng-sell-put", ng_put_quant.refresh, min_interval=1800.0, provider="yahoo")
+    return jsonify(data)
+
+
+@app.route("/api/gold")
+def gold_api():
+    """黄金页：快照秒回（内存→运行时缓存→Pages 种子），过期时后台单飞刷新。"""
+    import gold
+
+    data = gold.snapshot()
+    if gold.needs_refresh(data):
+        data["refresh_status"] = _spawn_bg_refresh("gold", gold.refresh, min_interval=900.0, provider=None)
+    return jsonify(data)
+
+
+@app.route("/api/gold/refresh")
+def gold_refresh_api():
+    """手动后台重算：不阻塞请求，先返回当前快照。"""
+    import gold
+
+    status = _spawn_bg_refresh("gold", gold.refresh, min_interval=300.0, provider=None)
+    data = gold.snapshot()
+    data["refresh_status"] = status
+    data["refresh"] = bg_tasks.refresh_meta(status)
+    data["note"] = (data.get("note") or "").lstrip(" ·") + _queued_note(status, "后台黄金数据刷新")
     return jsonify(data)
 
 
@@ -795,6 +773,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
     print(f"  期货看板  http://{host}:{port}")
-    print("  大宗商品 · 高低位/成本 · 涨跌榜 · 美股Superstocks · A股指数 · 美气NG")
+    print("  大宗商品 · 高低位/成本 · 涨跌榜 · A股指数 · 美气NG · 黄金")
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)
