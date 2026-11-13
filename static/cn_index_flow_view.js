@@ -93,7 +93,7 @@
       : `<div class="cnflow-row"><span class="l">主力净流入</span>${NO_DATA}${reasonTxt(m)}</div>`;
     const etfLine = ok(e)
       ? `<div class="cnflow-row"><span class="l">ETF净申赎<em>估算</em></span>1日 ${cell(e.net_1d)} · 5日 ${cell(e.net_5d)} · 20日 ${cell(e.net_20d)}</div>` +
-        `<div class="cnflow-src">数据 ${esc(e.asof || "—")} · ${esc(e.coverage || "")} · ${(e.items || []).filter(ok).map((i) => esc(i.code)).join("/")} · ${srcLink(e)}</div>`
+        `<div class="cnflow-src">数据 ${esc(e.asof || "—")}${fromSnapshot(e) ? " · 上次快照" : ""} · ${esc(e.coverage || "")} · ${(e.items || []).filter(ok).map((i) => esc(i.code)).join("/")} · ${srcLink(e)}</div>`
       : `<div class="cnflow-row"><span class="l">ETF净申赎</span>${NO_DATA}${reasonTxt(e)}</div>`;
     let holdersLine;
     if (ok(h)) {
@@ -150,7 +150,7 @@
       const e = r.etf || {};
       const d = [ok(m) ? m.asof : null, ok(e) ? e.asof : null].filter(Boolean);
       const dateTxt = d.length ? esc(Array.from(new Set(d)).join(" / ")) : NO_DATA;
-      const snap = ok(m) && fromSnapshot(m) ? " · 上次快照" : "";
+      const snap = (ok(m) && fromSnapshot(m)) || (ok(e) && fromSnapshot(e)) ? " · 上次快照" : "";
       return `<tr><td><strong>${esc(r.name || id)}</strong>${r.tracked ? "" : ' <span class="tag-pill">总览</span>'}</td>` +
         `<td class="num">${ok(m) ? cell(m.net_1d) : NO_DATA}</td><td class="num">${ok(m) ? cell(m.net_5d) : NO_DATA}</td><td class="num">${ok(m) ? cell(m.net_20d) : NO_DATA}</td>` +
         `<td class="num">${ok(e) ? cell(e.net_1d) : NO_DATA}</td><td class="num">${ok(e) ? cell(e.net_5d) : NO_DATA}</td><td class="num">${ok(e) ? cell(e.net_20d) : NO_DATA}</td>` +
@@ -187,7 +187,10 @@
     const snapMeta = bundle.main_from_snapshot
       ? ` · 主力为上次快照（${esc(bundle.main_snapshot_asof || (mk.main && mk.main.asof) || "—")}）`
       : "";
-    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}</div>`;
+    const etfSnapMeta = bundle.etf_from_snapshot
+      ? ` · ETF申赎为上次快照（${esc(bundle.etf_snapshot_asof || "—")}）`
+      : "";
+    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>${meta}` +

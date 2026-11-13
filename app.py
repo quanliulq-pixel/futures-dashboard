@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261112ss3"
+    asset_v = "20261113etf1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -837,21 +837,30 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
     try:
         from cn_index_flow import (
             DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, bundle_has_live_main,
-            coalesce_flow_bundles, ensure_etf_holders, flag_mains_from_snapshot,
-            flow_bundle_age_hours, flow_main_coverage, load_bundled_flow_seed,
+            coalesce_flow_bundles, ensure_etf_holders, flag_etf_from_snapshot, flag_mains_from_snapshot,
+            flow_bundle_age_hours, flow_main_coverage, get_cached_remote_flow_seed,
+            load_bundled_flow_seed, refresh_remote_flow_seed,
         )
 
         cached = DEFAULT_FLOW_PROVIDER.get_cached()
         seed = payload.get("index_flows")
         if not isinstance(seed, dict) or not seed.get("indices"):
             seed = load_bundled_flow_seed()
-        # CPU only: never prefer a newer all-missing 主力 cache over the snapshot seed;
-        # keep live ETF/两融/holders and fill 主力 from the last good snapshot.
-        best = coalesce_flow_bundles(cached, seed)
+        # GitHub raw snapshot (Actions refreshes it; Render does not redeploy for it). Memory only here.
+        remote = get_cached_remote_flow_seed()
+        # CPU only: never prefer a newer all-missing 主力/ETF cache over the snapshot seed;
+        # keep live 两融/holders and fill 主力 / ETF申赎 from the freshest good snapshot.
+        best = coalesce_flow_bundles(cached, seed, remote)
         if best is not None and not bundle_has_live_main(cached) and flow_main_coverage(best) > 0:
             best = flag_mains_from_snapshot(best)
+        if best is not None and (not isinstance(cached, dict) or best.get("fetched_at") != cached.get("fetched_at")):
+            # The skeleton is a snapshot, not this process's live fetch: label its ETF申赎 honestly.
+            best = flag_etf_from_snapshot(best)
         if kick is None:
             kick = _on_render() or os.environ.get("CN_INDEX_FLOW_AUTO") == "1"
+        if kick and os.environ.get("SKIP_INDEX_FLOW") != "1" and os.environ.get("FLOW_SEED_REMOTE") != "0":
+            # Cheap (one GitHub raw GET, 5s timeout); cold starts pick up the latest Actions snapshot.
+            _spawn_bg_refresh("cn-index-flow-seed", refresh_remote_flow_seed, min_interval=900.0, provider=None)
         age = flow_bundle_age_hours(best)
         if kick and (age is None or age * 3600 > FLOW_CACHE_TTL) and os.environ.get("SKIP_INDEX_FLOW") != "1":
             _spawn_bg_refresh("cn-index-flow", DEFAULT_FLOW_PROVIDER.refresh, min_interval=1800.0, provider="eastmoney-flow")
