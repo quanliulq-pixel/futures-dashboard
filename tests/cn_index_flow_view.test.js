@@ -94,4 +94,24 @@ const cxSnapCard = v.cardHtml(cxSnap, "chinext");
 assert.ok(cxSnapCard.includes('class="up">+92.89') && cxSnapCard.includes("上次快照"));
 assert.ok(cxSnapCard.includes("ETF净申赎") && cxSnapCard.includes("无数据（深交所不提供历史份额）"));
 
+// ETF申赎来自上次快照：显示数字 + 「数据 asof · 上次快照」；总览表日期列与元信息也注明
+const etfSnap = JSON.parse(JSON.stringify(b));
+etfSnap.etf_from_snapshot = true;
+etfSnap.etf_snapshot_asof = "2026-11-12";
+etfSnap.indices.sse50.main = { status: "ok", asof: "2026-11-12", net_1d: -4.02, net_5d: -28.87, net_20d: -150.88 };
+etfSnap.indices.sse50.etf = { status: "ok", asof: "2026-11-12", net_1d: -9.7, net_5d: 5.68, net_20d: 255.44,
+  coverage: "2/2 只有数据", items: [{ status: "ok", code: "510050" }, { status: "ok", code: "510100" }],
+  source: "上交所 ETF 规模（份额）+ 新浪日线收盘价", source_url: "https://www.sse.com.cn/assortment/fund/etf/list/scale/",
+  from_snapshot: true };
+const etfSnapCard = v.cardHtml(etfSnap, "sse50");
+assert.ok(etfSnapCard.includes('class="down">-9.70') && etfSnapCard.includes('class="up">+255.44'));
+assert.ok(etfSnapCard.includes("数据 2026-11-12 · 上次快照 · 2/2 只有数据"));
+assert.ok(!etfSnapCard.includes("上交所ETF份额接口无返回"));
+const etfSnapSum = v.summaryHtml(etfSnap);
+assert.ok(etfSnapSum.includes("ETF申赎为上次快照（2026-11-12）"));
+// 未标快照的实时 ETF 不出现「上次快照」
+const etfLive = JSON.parse(JSON.stringify(etfSnap));
+delete etfLive.indices.sse50.etf.from_snapshot;
+assert.ok(!v.cardHtml(etfLive, "sse50").includes("上次快照"));
+
 console.log("cn_index_flow_view tests passed");
