@@ -114,4 +114,12 @@ const etfLive = JSON.parse(JSON.stringify(etfSnap));
 delete etfLive.indices.sse50.etf.from_snapshot;
 assert.ok(!v.cardHtml(etfLive, "sse50").includes("上次快照"));
 
+// 两融来自快照：数据日期后注明 上次快照；有变化时显示红绿数字
+const mgSnap = JSON.parse(JSON.stringify(b));
+mgSnap.market.margin_sz = { status: "ok", asof: "2026-11-12", balance: 10883.9, chg_1d: -5.0, chg_5d: 16.4, chg_20d: -1290.1,
+  source: "深交所 融资融券汇总", source_url: "https://www.szse.cn/disclosure/margin/margin/index.html", from_snapshot: true };
+const mgSum = v.summaryHtml(mgSnap);
+assert.ok(mgSum.includes("10883.9") && mgSum.includes('class="down">-5.0') && mgSum.includes('class="up">+16.4'));
+assert.ok(mgSum.includes("2026-11-12 · 上次快照 · "));
+
 console.log("cn_index_flow_view tests passed");

@@ -119,7 +119,7 @@
     }
     return `<tr><td>${esc(label)}</td><td class="num">${o.balance == null ? NO_DATA : esc(Number(o.balance).toFixed(1))}</td>` +
       `<td class="num">${cell(o.chg_1d, 1)}</td><td class="num">${cell(o.chg_5d, 1)}</td><td class="num">${cell(o.chg_20d, 1)}</td>` +
-      `<td>${esc(o.asof || "—")}${o.source ? " · " + srcLink(o) : ""}</td></tr>`;
+      `<td>${esc(o.asof || "—")}${fromSnapshot(o) ? " · 上次快照" : ""}${o.source ? " · " + srcLink(o) : ""}</td></tr>`;
   }
 
   /** Market summary + all-index table for the 资金进出 panel. */

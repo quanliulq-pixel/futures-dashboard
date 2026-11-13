@@ -284,6 +284,24 @@ def margin_summary(series: list[tuple[date, float]], today: date, src_key: str,
     return out
 
 
+def margin_total_summary(sh_series: list[tuple[date, float]], sz_series: list[tuple[date, float]],
+                         today: date, cal: list[date] | None = None) -> dict:
+    """沪深合计：在两市都有数据的最新同一天合计（上交所常比深交所早一天发布），变化也按同一天对齐。"""
+    sh_by, sz_by = dict(sh_series or []), dict(sz_series or [])
+    common = sorted(set(sh_by) & set(sz_by))
+    if not common:
+        return _missing("沪深两市日期不一致或有一方缺失，不合计")
+    d = common[-1]
+    if _stale(d, today):
+        return _missing(f"数据过期（最新 {d.isoformat()}）", asof=_iso(d))
+    both = [(x, sh_by[x] + sz_by[x]) for x in common]
+    out = margin_summary(both, today, "margin_sh", cal)
+    out.pop("source", None)
+    out.pop("source_url", None)
+    out["method"] = "上交所+深交所 同一交易日融资余额合计"
+    return out
+
+
 # ---------------------------------------------------------------- network fetchers (background only)
 class SourceRateLimited(RuntimeError):
     """东方财富 push2 断开连接 = 临时限流；立即停止后续请求，避免延长封禁。"""
@@ -363,6 +381,35 @@ def fetch_margin_sz(dates: list[date]) -> list[tuple[date, float]]:
         if v is not None:
             out.append((d, v))   # 深交所接口单位已是亿元
     return sorted(out)
+
+
+SZSE_MARGIN_MAX_LAG = 3   # 深交所当日数据次日才发布：最多向前找 3 个交易日作为最新
+
+
+def szse_margin_dates(cal: list[date], latest_idx: int) -> list[date]:
+    """以深交所实际最新日为 T，取 T-1/T-5/T-20（按交易日历，和 margin_summary 的取数一致）。"""
+    return [cal[latest_idx - n] for n in WINDOWS if latest_idx - n >= 0]
+
+
+def fetch_margin_sz_aligned(cal: list[date],
+                            fetch_day: Callable[[list[date]], list[tuple[date, float]]] | None = None
+                            ) -> list[tuple[date, float]]:
+    """深交所融资余额：先找到实际已发布的最新交易日，再按它取 T-1/T-5/T-20。
+
+    旧逻辑按日历最后一天（往往是当天、深交所尚未发布）取 T-1/T-5/T-20，而实际最新是前一交易日，
+    导致 1/5/20 日变化对应的那天从未抓取 ⇒ 全部「无数据」、沪深合计也无变化。
+    """
+    fetch_day = fetch_day or fetch_margin_sz
+    cal = sorted(set(cal or []))
+    if not cal:
+        return []
+    for lag in range(min(SZSE_MARGIN_MAX_LAG, len(cal))):
+        idx = len(cal) - 1 - lag
+        latest = fetch_day([cal[idx]])
+        if latest:
+            rest = fetch_day(szse_margin_dates(cal, idx))
+            return sorted(set(latest) | set(rest))
+    return []
 
 
 # ---------------------------------------------------------------- bundle
@@ -464,14 +511,7 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
     sz = margin_summary(raw.get("margin_sz") or [], today, "margin_sz", cal)
     if not raw.get("margin_sz") and errors.get("margin_sz"):
         sz["reason"] = errors["margin_sz"]
-    total: dict[str, Any]
-    if sh.get("status") == "ok" and sz.get("status") == "ok" and sh.get("asof") == sz.get("asof"):
-        total = {"status": "ok", "asof": sh["asof"], "unit": "亿元", "balance": _r(sh["balance"] + sz["balance"], 1)}
-        for n in WINDOWS:
-            a, b = sh.get(f"chg_{n}d"), sz.get(f"chg_{n}d")
-            total[f"chg_{n}d"] = _r(a + b, 1) if a is not None and b is not None else None
-    else:
-        total = _missing("沪深两市日期不一致或有一方缺失，不合计")
+    total = margin_total_summary(raw.get("margin_sh") or [], raw.get("margin_sz") or [], today, cal)
 
     northbound = _missing(NORTHBOUND_REASON, source=SRC["northbound"]["label"], source_url=SRC["northbound"]["url"])
 
@@ -643,6 +683,39 @@ def flow_ok_coverage(bundle: dict | None) -> int:
             if (mk.get(k) or {}).get("status") == "ok":
                 n += 1
     return n
+
+
+MARGIN_KEYS = ("margin_sh", "margin_sz", "margin_total")
+
+
+def margin_has_changes(m: dict | None) -> bool:
+    return isinstance(m, dict) and m.get("status") == "ok" and bool(m.get("asof")) and \
+        any(m.get(f"chg_{n}d") is not None for n in WINDOWS)
+
+
+def _margin_fresh_enough(m: dict | None, today: date | None = None) -> bool:
+    if not margin_has_changes(m):
+        return False
+    d = _to_date(m.get("asof"))
+    today = today or datetime.now(CST).date()
+    return d is not None and d <= today and not _stale(d, today)
+
+
+def flag_margin_from_snapshot(bundle: dict | None) -> dict | None:
+    """Mark ok 两融 rows as 上次快照 without changing numbers (seed / GitHub snapshot served as-is)."""
+    if not isinstance(bundle, dict) or not isinstance(bundle.get("market"), dict):
+        return bundle
+    mk = bundle["market"]
+    if not any(isinstance(mk.get(k), dict) and mk[k].get("status") == "ok" for k in MARGIN_KEYS):
+        return bundle
+    out = _copy_bundle(bundle)
+    market = dict(out["market"])
+    for k in MARGIN_KEYS:
+        if isinstance(market.get(k), dict) and market[k].get("status") == "ok":
+            market[k] = dict(market[k], from_snapshot=True)
+    out["market"] = market
+    out["margin_from_snapshot"] = True
+    return out
 
 
 def etf_is_ok(etf: dict | None) -> bool:
@@ -908,6 +981,32 @@ def merge_main_from_fallback(bundle: dict | None, *fallbacks: dict | None,
             if fb.get("asof"):
                 asofs.append(str(fb["asof"]))
 
+    # 两融：本轮缺失或 1/5/20 日变化全空时，回退到不早于当前 asof、≤10 天、带变化的快照，标 上次快照。
+    margin_asofs: list[str] = []
+    for mkey in MARGIN_KEYS:
+        cur_mg = market.get(mkey) if isinstance(market.get(mkey), dict) else None
+        if _margin_fresh_enough(cur_mg, today):
+            continue
+        cur_d = _to_date((cur_mg or {}).get("asof")) if (cur_mg or {}).get("status") == "ok" else None
+        best_mg: dict | None = None
+        for fb in sources:
+            cand = (fb.get("market") or {}).get(mkey) if isinstance(fb.get("market"), dict) else None
+            if not _margin_fresh_enough(cand, today):
+                continue
+            cd = _to_date(cand.get("asof"))
+            if cur_d is not None and cd < cur_d:
+                continue  # 不拿更旧的快照盖住更新的余额
+            if best_mg is None or cd > _to_date(best_mg.get("asof")):
+                best_mg = cand
+        if best_mg is not None:
+            market = dict(market)
+            market[mkey] = dict(best_mg, from_snapshot=True)
+            out["market"] = market
+            margin_asofs.append(str(best_mg["asof"]))
+    if margin_asofs:
+        out["margin_from_snapshot"] = True
+        out["margin_snapshot_asof"] = max(margin_asofs)
+
     if used:
         out["main_from_snapshot"] = True
         snap_asof = max(asofs) if asofs else (out.get("main_snapshot_asof") or None)
@@ -1055,9 +1154,8 @@ class IndexFlowProvider:
                 raw["etf_shares"] = shares
             else:
                 errors["etf_shares"] = "上交所ETF份额接口无返回"
-            sz_dates = [cal[-1 - n] for n in (0,) + WINDOWS if len(cal) > n]
             try:
-                raw["margin_sz"] = fetch_margin_sz(sz_dates)
+                raw["margin_sz"] = fetch_margin_sz_aligned(cal)
             except Exception as exc:  # noqa: BLE001
                 errors["margin_sz"] = f"{type(exc).__name__}: {str(exc)[:80]}"
         bundle = build_flow_bundle(raw, errors, datetime.now(CST).date())
@@ -1165,7 +1263,8 @@ __all__ = ["IndexFlowProvider", "DEFAULT_FLOW_PROVIDER", "build_flow_bundle", "p
            "attach_etf_holders", "ensure_etf_holders", "skip_push2", "load_bundled_flow_seed",
            "fetch_remote_flow_seed", "merge_main_from_fallback", "flag_mains_from_snapshot", "bundle_has_live_main", "coalesce_flow_bundles",
            "flow_main_coverage", "flow_ok_coverage", "main_is_ok",
-           "flow_etf_coverage", "etf_is_ok", "flag_etf_from_snapshot", "get_cached_remote_flow_seed",
+           "flow_etf_coverage", "etf_is_ok", "flag_etf_from_snapshot", "flag_margin_from_snapshot",
+           "fetch_margin_sz_aligned", "margin_total_summary", "margin_has_changes", "get_cached_remote_flow_seed",
            "refresh_remote_flow_seed"]
 
 

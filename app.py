@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261113etf1"
+    asset_v = "20261113mrg1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -838,6 +838,7 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         from cn_index_flow import (
             DEFAULT_FLOW_PROVIDER, FLOW_CACHE_TTL, bundle_has_live_main,
             coalesce_flow_bundles, ensure_etf_holders, flag_etf_from_snapshot, flag_mains_from_snapshot,
+            flag_margin_from_snapshot,
             flow_bundle_age_hours, flow_main_coverage, get_cached_remote_flow_seed,
             load_bundled_flow_seed, refresh_remote_flow_seed,
         )
@@ -855,7 +856,7 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
             best = flag_mains_from_snapshot(best)
         if best is not None and (not isinstance(cached, dict) or best.get("fetched_at") != cached.get("fetched_at")):
             # The skeleton is a snapshot, not this process's live fetch: label its ETF申赎 honestly.
-            best = flag_etf_from_snapshot(best)
+            best = flag_margin_from_snapshot(flag_etf_from_snapshot(best))
         if kick is None:
             kick = _on_render() or os.environ.get("CN_INDEX_FLOW_AUTO") == "1"
         if kick and os.environ.get("SKIP_INDEX_FLOW") != "1" and os.environ.get("FLOW_SEED_REMOTE") != "0":
