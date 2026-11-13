@@ -564,7 +564,7 @@ def _safe_sse(d: date) -> dict:
     try:
         return fetch_sse_etf_scale(d)
     except Exception:  # noqa: BLE001
-        logger.debug("sse etf scale failed %s", d, exc_info=True)
+        logger.info("sse etf scale failed %s", d, exc_info=True)
         return {}
 
 
@@ -645,6 +645,82 @@ def flow_ok_coverage(bundle: dict | None) -> int:
     return n
 
 
+def etf_is_ok(etf: dict | None) -> bool:
+    """Usable ETF申赎: status ok with an asof date. Never invent numbers."""
+    return isinstance(etf, dict) and etf.get("status") == "ok" and bool(etf.get("asof"))
+
+
+def _etf_fresh_enough(etf: dict | None, today: date | None = None) -> bool:
+    """Same 10-day staleness rule as build_flow_bundle (FLOW_MAX_AGE_DAYS)."""
+    if not etf_is_ok(etf):
+        return False
+    d = _to_date(etf.get("asof"))
+    today = today or datetime.now(CST).date()
+    return d is not None and d <= today and not _stale(d, today)
+
+
+def flow_etf_coverage(bundle: dict | None) -> int:
+    if not isinstance(bundle, dict):
+        return 0
+    return sum(1 for row in (bundle.get("indices") or {}).values()
+               if isinstance(row, dict) and etf_is_ok(row.get("etf")))
+
+
+def _snapshot_etf(src: dict) -> dict:
+    copied = dict(src)
+    copied["from_snapshot"] = True
+    if isinstance(copied.get("items"), list):
+        copied["items"] = [dict(i, from_snapshot=True) if isinstance(i, dict) and i.get("status") == "ok" else i
+                           for i in copied["items"]]
+    return copied
+
+
+def flag_etf_from_snapshot(bundle: dict | None) -> dict | None:
+    """Mark already-ok ETF申赎 as 上次快照 without changing numbers (seed / GitHub snapshot served as-is)."""
+    if not isinstance(bundle, dict) or flow_etf_coverage(bundle) <= 0:
+        return bundle
+    out = _copy_bundle(bundle)
+    asofs: list[str] = []
+    indices = out.get("indices") if isinstance(out.get("indices"), dict) else {}
+    for iid, row in list(indices.items()):
+        if not isinstance(row, dict) or not etf_is_ok(row.get("etf")):
+            continue
+        row = dict(row)
+        row["etf"] = _snapshot_etf(row["etf"])
+        indices[iid] = row
+        asofs.append(str(row["etf"]["asof"]))
+    out["indices"] = indices
+    out["etf_from_snapshot"] = True
+    if asofs:
+        out["etf_snapshot_asof"] = max(asofs)
+    return out
+
+
+# GitHub raw snapshot cached in memory so the request thread can use it without network.
+_REMOTE_SEED_LOCK = threading.Lock()
+_REMOTE_SEED_CACHE: tuple[float, dict] | None = None
+
+
+def get_cached_remote_flow_seed() -> dict | None:
+    """Last GitHub raw snapshot fetched in the background (no network)."""
+    with _REMOTE_SEED_LOCK:
+        return _REMOTE_SEED_CACHE[1] if _REMOTE_SEED_CACHE else None
+
+
+def _store_remote_flow_seed(flows: dict | None) -> None:
+    global _REMOTE_SEED_CACHE
+    if isinstance(flows, dict):
+        with _REMOTE_SEED_LOCK:
+            _REMOTE_SEED_CACHE = (time.time(), flows)
+
+
+def refresh_remote_flow_seed(timeout: float = REMOTE_FLOW_SEED_TIMEOUT) -> dict | None:
+    """Background job: fetch the Actions-updated snapshot from GitHub raw and keep it in memory."""
+    flows = fetch_remote_flow_seed(timeout=timeout)
+    _store_remote_flow_seed(flows)
+    return flows
+
+
 def _latest_main_asof(bundle: dict | None) -> date | None:
     dates = [_main_asof_date(m) for _, m in _iter_mains(bundle)]
     dates = [d for d in dates if d is not None]
@@ -696,7 +772,7 @@ def fetch_remote_flow_seed(timeout: float = REMOTE_FLOW_SEED_TIMEOUT) -> dict | 
         r = requests.get(REMOTE_FLOW_SEED_URL, timeout=timeout, headers={"User-Agent": UA})
         r.raise_for_status()
         flows = _flow_seed_from_payload(r.json())
-        if flows is not None and flow_main_coverage(flows) > 0:
+        if flows is not None and (flow_main_coverage(flows) > 0 or flow_etf_coverage(flows) > 0):
             return flows
     except Exception as exc:  # noqa: BLE001
         logger.info("remote flow seed fetch failed; keeping bundled seed: %s", exc)
@@ -754,7 +830,7 @@ def _snapshot_main(src: dict) -> dict:
 def merge_main_from_fallback(bundle: dict | None, *fallbacks: dict | None,
                              today: date | None = None,
                              max_age_days: int = MAIN_SNAPSHOT_MAX_AGE_DAYS) -> dict | None:
-    """Fill missing/failed 主力 from earlier cache or snapshot seed. Keep live ETF/两融/holders.
+    """Fill missing/failed 主力 and ETF申赎 from earlier cache or snapshot seeds. Keep live 两融/holders.
 
     Does not invent numbers: only copies status=ok 主力 that is still within the generous window.
     Marks copied fields with from_snapshot so the UI can say 上次快照 + asof.
@@ -766,35 +842,58 @@ def merge_main_from_fallback(bundle: dict | None, *fallbacks: dict | None,
         return bundle
 
     def fallback_main(key: str) -> dict | None:
+        # Freshest asof wins (ties keep caller order), so a newer GitHub snapshot beats the bundled seed.
+        best: dict | None = None
         for fb in sources:
             if key == "market":
                 cand = (fb.get("market") or {}).get("main") if isinstance(fb.get("market"), dict) else None
             else:
                 row = (fb.get("indices") or {}).get(key)
                 cand = row.get("main") if isinstance(row, dict) else None
-            if _main_fresh_enough(cand, today, max_age_days):
-                return cand
-        return None
+            if not _main_fresh_enough(cand, today, max_age_days):
+                continue
+            if best is None or (_main_asof_date(cand) or date.min) > (_main_asof_date(best) or date.min):
+                best = cand
+        return best
+
+    def fallback_etf(key: str) -> dict | None:
+        best: dict | None = None
+        for fb in sources:
+            row = (fb.get("indices") or {}).get(key)
+            cand = row.get("etf") if isinstance(row, dict) else None
+            if not _etf_fresh_enough(cand, today):
+                continue
+            if best is None or _to_date(cand.get("asof")) > _to_date(best.get("asof")):
+                best = cand
+        return best
 
     out = _copy_bundle(bundle)
     indices = out.get("indices") if isinstance(out.get("indices"), dict) else {}
     used = False
     asofs: list[str] = []
+    etf_asofs: list[str] = []
     for iid, row in list(indices.items()):
         if not isinstance(row, dict):
             continue
         cur = row.get("main") if isinstance(row.get("main"), dict) else None
-        if _main_fresh_enough(cur, today, max_age_days):
-            continue
-        fb = fallback_main(iid)
-        if fb is None:
-            continue
-        row = dict(row)
-        row["main"] = _snapshot_main(fb)
-        indices[iid] = row
-        used = True
-        if fb.get("asof"):
-            asofs.append(str(fb["asof"]))
+        if not _main_fresh_enough(cur, today, max_age_days):
+            fb = fallback_main(iid)
+            if fb is not None:
+                row = dict(row)
+                row["main"] = _snapshot_main(fb)
+                indices[iid] = row
+                used = True
+                if fb.get("asof"):
+                    asofs.append(str(fb["asof"]))
+        # ETF申赎：上交所份额接口失败/被挡时回退最近一次有数据的快照（≤10 天），标 上次快照 + asof。
+        cur_e = row.get("etf") if isinstance(row.get("etf"), dict) else None
+        if not _etf_fresh_enough(cur_e, today):
+            fe = fallback_etf(iid)
+            if fe is not None:
+                row = dict(row)
+                row["etf"] = _snapshot_etf(fe)
+                indices[iid] = row
+                etf_asofs.append(str(fe["asof"]))
     out["indices"] = indices
 
     market = out.get("market") if isinstance(out.get("market"), dict) else {}
@@ -818,6 +917,15 @@ def merge_main_from_fallback(bundle: dict | None, *fallbacks: dict | None,
             out["asof"] = snap_asof
         notes = list(out.get("notes") or [])
         note = f"主力净流入为上次快照（数据日期 {snap_asof or '—'}），因直播源不可用而未覆盖"
+        if note not in notes:
+            notes.append(note)
+        out["notes"] = notes
+    if etf_asofs:
+        etf_asof = max(etf_asofs)
+        out["etf_from_snapshot"] = True
+        out["etf_snapshot_asof"] = etf_asof
+        notes = list(out.get("notes") or [])
+        note = f"ETF净申赎为上次快照（数据日期 {etf_asof}），因上交所份额接口本轮无返回而未覆盖"
         if note not in notes:
             notes.append(note)
         out["notes"] = notes
@@ -985,13 +1093,15 @@ class IndexFlowProvider:
             fallbacks.append(prev)
         # Bundled snapshot: production refresh, or whenever 主力 came back empty.
         # Injected-fetcher unit tests can monkeypatch load_bundled_flow_seed to isolate.
-        if self._fetchers is None or flow_main_coverage(bundle) == 0:
+        etf_missing = flow_etf_coverage(bundle) < sum(1 for m in FLOW_INDICES if m["etfs"])
+        if self._fetchers is None or flow_main_coverage(bundle) == 0 or etf_missing:
             bundled = load_bundled_flow_seed()
             if bundled is not None:
                 fallbacks.append(bundled)
-            if self._fetchers is None and (skip_push2() or flow_main_coverage(bundle) == 0):
-                remote = fetch_remote_flow_seed()
-                if remote is not None and remote_seed_is_newer(remote, bundled):
+            if self._fetchers is None and (skip_push2() or flow_main_coverage(bundle) == 0 or etf_missing):
+                remote = refresh_remote_flow_seed()
+                if remote is not None:
+                    # merge picks the freshest asof per field, so an older remote never wins.
                     fallbacks.append(remote)
         if fallbacks:
             bundle = merge_main_from_fallback(bundle, *fallbacks)
@@ -1054,7 +1164,9 @@ __all__ = ["IndexFlowProvider", "DEFAULT_FLOW_PROVIDER", "build_flow_bundle", "p
            "pick_flow_bundle", "flow_bundle_age_hours", "FLOW_CACHE_TTL", "NO_DATA",
            "attach_etf_holders", "ensure_etf_holders", "skip_push2", "load_bundled_flow_seed",
            "fetch_remote_flow_seed", "merge_main_from_fallback", "flag_mains_from_snapshot", "bundle_has_live_main", "coalesce_flow_bundles",
-           "flow_main_coverage", "flow_ok_coverage", "main_is_ok"]
+           "flow_main_coverage", "flow_ok_coverage", "main_is_ok",
+           "flow_etf_coverage", "etf_is_ok", "flag_etf_from_snapshot", "get_cached_remote_flow_seed",
+           "refresh_remote_flow_seed"]
 
 
 if __name__ == "__main__":

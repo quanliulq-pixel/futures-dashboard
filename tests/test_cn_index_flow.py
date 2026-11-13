@@ -317,7 +317,8 @@ def test_load_bundled_flow_seed_has_ok_main():
     assert seed is not None
     assert F.flow_main_coverage(seed) >= 6
     assert seed["market"]["main"]["status"] == "ok"
-    assert seed["market"]["main"]["asof"] == "2026-11-11"
+    # GitHub Actions 每次刷新快照都会前移 asof：只校验是真实日期，不钉死某一天
+    assert F._to_date(seed["market"]["main"]["asof"]) is not None
     assert seed["market"]["northbound"]["status"] == "missing"
     assert seed["indices"]["chinext"]["etf"]["status"] == "missing"
 
