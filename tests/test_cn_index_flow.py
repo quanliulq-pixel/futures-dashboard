@@ -117,7 +117,9 @@ def test_build_bundle_missing_is_no_data_and_display_only():
     assert mk["margin_total"]["chg_1d"] == pytest.approx(2.0)
 
 
-def test_provider_with_injected_fetchers_caches_and_records_errors():
+def test_provider_with_injected_fetchers_caches_and_records_errors(monkeypatch):
+    # 隔离打包快照：这里只验证本轮错误记录（快照回退另有专门测试）
+    monkeypatch.setattr(F, "load_bundled_flow_seed", lambda: None)
     rows = F.parse_fflow(_load("cn_flow_fflow_csi300.json"))
 
     def boom():
