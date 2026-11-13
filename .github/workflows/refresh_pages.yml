@@ -48,7 +48,7 @@ jobs:
       - name: Refresh CFFEX index options snapshot
         run: python cffex_options.py --write
         continue-on-error: true
-      - name: Rebuild static docs (quotes/analysis/NG/short-put)
+      - name: Rebuild static docs (quotes/analysis/NG/A股指数)
         run: python export_static_pages.py
       - name: Commit & push docs snapshot
         run: |

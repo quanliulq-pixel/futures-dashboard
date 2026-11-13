@@ -116,7 +116,7 @@ def test_api_render_seed_respects_kind(monkeypatch):
 @pytest.mark.skipif(NODE is None, reason="node missing")
 def test_frontend_request_sequence_guard():
     js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-    body = js[js.index("async function loadUsMovers"):js.index("async function loadSupply")]
+    body = js[js.index("async function loadUsMovers"):js.index("function getNgChart")]
     # behavioural check of the guard pattern with a tiny harness
     harness = r"""
     const state={usReqSeq:0,usKind:'all',usPeriod:'Y'};const rendered=[];

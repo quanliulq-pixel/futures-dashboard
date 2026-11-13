@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
-import subprocess
 from pathlib import Path
 
 os.environ.setdefault("SKIP_BG_WARMUP", "1")
@@ -331,22 +329,17 @@ def test_us_apply_failure_is_non_fatal(monkeypatch):
     assert rows[0]["combined_score"] == 30 and rows[0]["fund_score"] is None
 
 
-# ------------------------------------------------------------------ frontend (node)
+# ------------------------------------------------------------------ frontend
 
-NODE = shutil.which("node")
-
-
-@pytest.mark.skipif(NODE is None, reason="node missing")
-@pytest.mark.parametrize("script", ["tests/fund_score_view.test.js", "tests/cn_option_candidates_view.test.js"])
-def test_node_view_tests(script):
-    res = subprocess.run([NODE, script], cwd=ROOT, capture_output=True, text=True, timeout=60)
-    assert res.returncode == 0, res.stdout + res.stderr
-
-
-def test_static_and_docs_in_sync_and_script_order():
-    for name in ("fund_score_view.js", "cn_option_candidates_view.js", "app.js", "style.css"):
+def test_removed_option_tab_views_are_gone_and_docs_in_sync():
+    """卖Put/卖Call tabs were removed: their browser-only views are gone from both surfaces."""
+    for name in ("fund_score_view.js", "cn_option_candidates_view.js"):
+        assert not (ROOT / "static" / name).exists(), name
+        assert not (ROOT / "docs" / "static" / name).exists(), name
+    for name in ("app.js", "style.css"):
         assert (ROOT / "static" / name).read_bytes() == (ROOT / "docs" / "static" / name).read_bytes(), name
-    for html, prefix in ((ROOT / "templates" / "index.html", "/static/"), (ROOT / "docs" / "index.html", "./static/")):
+    for html in (ROOT / "templates" / "index.html", ROOT / "docs" / "index.html"):
         t = html.read_text(encoding="utf-8")
-        assert t.index(prefix + "fund_score_view.js") < t.index(prefix + "cn_option_candidates_view.js") < t.index(prefix + "app.js")
-    assert 'asset_v = "20261113mrg1"' in (ROOT / "app.py").read_text(encoding="utf-8")
+        assert "fund_score_view.js" not in t and "cn_option_candidates_view.js" not in t
+        assert "app.js" in t
+    assert 'asset_v = "20261113rm1"' in (ROOT / "app.py").read_text(encoding="utf-8")

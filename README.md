@@ -1,6 +1,6 @@
 # 期货看板 · 高低位与成本
 
-本地 Flask 投研看板：国内 + 北美商品期货行情、历史高低位、成本带、产业供需周报、美股涨跌榜、天然气 NG 九因子。
+本地 Flask 投研看板：国内 + 北美商品期货行情、历史高低位、成本带、涨跌榜、美股 Superstocks、A股指数、天然气 NG 九因子。
 
 ## 运行
 
@@ -13,7 +13,7 @@ python app.py
 
 浏览器打开 http://127.0.0.1:5050
 
-Windows 也可双击 `start_dashboard.bat`；周报数据用 `fetch_supply.bat`。
+Windows 也可双击 `start_dashboard.bat`；供给周更快照（仅供盯盘成本/周期说明引用，已无「周报」页签）用 `fetch_supply.bat`。
 
 ## 说明
 

@@ -15,20 +15,16 @@
         <span class="logo">◆</span>
         <div>
           <h1>期货本地看板</h1>
-          <p class="sub">大宗商品 · 高低位 · 卖Put / 卖Call · A股指数</p>
+          <p class="sub">大宗商品 · 高低位 · 涨跌榜 · 美股Superstocks · A股指数 · 美气NG</p>
         </div>
       </div>
       <nav class="view-tabs" id="view-tabs" aria-label="功能页签，可左右滑动">
         <button type="button" data-view="watch" class="active">盯盘</button>
         <button type="button" data-view="extremes">高低位</button>
-        <button type="button" data-view="supply">周报</button>
         <button type="button" data-view="movers">涨跌榜</button>
         <button type="button" data-view="superstocks" class="tab-ss">美股Superstocks</button>
-        <button type="button" data-view="put" class="tab-put">卖Put</button>
-        <button type="button" data-view="call" class="tab-call">卖Call</button>
         <button type="button" data-view="cnidx" class="tab-cnidx">A股指数</button>
         <button type="button" data-view="ng" class="tab-ng">美气NG</button>
-        <button type="button" data-view="ai" class="tab-ai">AI应用</button>
       </nav>
       <div class="top-actions">
         <div class="status">
@@ -162,50 +158,6 @@
           <div class="card-grid" id="highs-cards">
             <div class="empty-card">加载历史高位…</div>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 产业周报 -->
-    <section class="view view-supply" id="view-supply">
-      <div class="panel supply-panel fill">
-        <div class="panel-head">
-          <div>
-            <h2>产业周报</h2>
-            <p class="sub" id="supply-meta">基差 / 月差 / 利润 / 持仓 / 平价 / 仓单 / 能繁</p>
-          </div>
-          <button type="button" id="btn-supply" class="btn btn-tiny">立即抓取</button>
-        </div>
-        <div class="seg supply-kinds" id="supply-kind">
-          <button data-kind="all" class="active">全部</button>
-          <button data-kind="basis">基差</button>
-          <button data-kind="spread">月差</button>
-          <button data-kind="margin">利润</button>
-          <button data-kind="cot">COT持仓</button>
-          <button data-kind="seat">国内席位</button>
-          <button data-kind="parity">进口平价</button>
-          <button data-kind="inventory">仓单库存</button>
-          <button data-kind="hog">能繁/猪</button>
-          <button data-kind="fx">汇率宏观</button>
-        </div>
-        <div class="table-wrap supply-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-          <table id="supply-table">
-            <thead>
-              <tr>
-                <th>品种</th>
-                <th>指标</th>
-                <th class="num">最新</th>
-                <th class="num">周变化</th>
-                <th class="num">约4周</th>
-                <th>信号</th>
-                <th>截至</th>
-                <th>来源</th>
-              </tr>
-            </thead>
-            <tbody id="supply-body">
-              <tr><td colspan="8" class="empty">加载供给数据…</td></tr>
-            </tbody>
-          </table>
         </div>
       </div>
     </section>
@@ -385,328 +337,6 @@
       </div>
     </section>
 
-    <section class="view view-put" id="view-put">
-      <div class="put-layout">
-        <div class="panel put-hero">
-          <div class="panel-head">
-            <div>
-              <h2>高波动股票 / ETF · 卖出看跌（CSP）推荐 <span class="tag-pill">含国内期货方向栏</span></h2>
-              <p class="sub" id="put-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Put 候选；国内期货见下方方向栏</p>
-            </div>
-            <div class="put-hero-actions">
-              <span class="tag-pill" id="put-count-pill">—</span>
-              <button type="button" id="btn-put-refresh" class="btn btn-tiny">重新扫描期权</button>
-            </div>
-          </div>
-          <details class="method-details">
-            <summary>评分方法与风险说明 <span>展开查看</span></summary>
-            <div class="put-method" id="put-method">加载方法说明…</div>
-          </details>
-          <div class="put-theme-bar" id="put-theme-bar"></div>
-          <p class="put-theme-note" id="put-theme-note" hidden></p>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Edge 五信号权重</h2>
-              <p class="sub">借鉴 Theta Harvest：VRP / IV分位 / 期限结构 / RV稳定性 / Skew · 合计自动归一到 100</p>
-            </div>
-            <button type="button" id="btn-put-weights-reset" class="btn btn-tiny">恢复默认</button>
-          </div>
-          <div class="put-weights" id="put-weights">
-            <label>VRP <input type="range" min="0" max="50" value="30" data-w="vrp" /><span data-wv="vrp">30</span></label>
-            <label>IV分位 <input type="range" min="0" max="50" value="25" data-w="iv_pctile" /><span data-wv="iv_pctile">25</span></label>
-            <label>期限结构 <input type="range" min="0" max="40" value="20" data-w="term" /><span data-wv="term">20</span></label>
-            <label>RV稳定 <input type="range" min="0" max="30" value="15" data-w="rv_stable" /><span data-wv="rv_stable">15</span></label>
-            <label>Skew <input type="range" min="0" max="25" value="10" data-w="skew" /><span data-wv="skew">10</span></label>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>筛选器</h2>
-              <p class="sub">按波动、RSI、权利金与风险过滤</p>
-            </div>
-            <div class="seg" id="put-kind-filter">
-              <button type="button" data-kind="all" class="active">全部</button>
-              <button type="button" data-kind="stock">股票</button>
-              <button type="button" data-kind="etf">ETF</button>
-              <button type="button" data-kind="cn_fut">国内期货</button>
-            </div>
-          </div>
-          <div class="put-filters" id="put-filters">
-            <label>HV分位≥ <input type="number" id="put-f-hv" value="50" min="0" max="100" step="5" /></label>
-            <label>RSI <input type="number" id="put-f-rsi-lo" value="25" min="0" max="100" step="1" />–<input type="number" id="put-f-rsi-hi" value="65" min="0" max="100" step="1" /></label>
-            <label>最低OI <input type="number" id="put-f-oi" value="50" min="0" step="50" /></label>
-            <label>年化%≥ <input type="number" id="put-f-yield" value="0" min="0" step="5" /></label>
-            <label>|OTM|%≤ <input type="number" id="put-f-otm" value="15" min="1" max="40" step="1" /></label>
-            <label class="chk"><input type="checkbox" id="put-f-core" /> 仅核心池</label>
-            <label class="chk"><input type="checkbox" id="put-f-noearn" checked /> 排除财报≤7天</label>
-            <label class="chk"><input type="checkbox" id="put-f-ivrich" /> 只要IV偏贵</label>
-            <button type="button" id="btn-put-filter-reset" class="btn btn-tiny">重置</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>优先推荐</h2>
-              <p class="sub">综合分靠前 · 含风控标注 · 可加入观察池</p>
-            </div>
-          </div>
-          <div class="put-card-grid" id="put-picks">
-            <div class="empty-card">正在计算高波动卖Put候选…</div>
-          </div>
-        </div>
-
-        <div class="panel" id="put-cn-panel">
-          <div class="panel-head">
-            <div>
-              <h2>国内期货（有上市期权）· 卖Put 方向候选</h2>
-              <p class="sub" id="put-cn-meta">连续合约标的方向研究 · 未核验期权链/流动性 · 人民币 · 不可下单</p>
-            </div>
-            <span class="tag-pill" id="put-cn-count-pill">—</span>
-          </div>
-          <div class="put-card-grid" id="put-cn-picks">
-            <div class="empty-card">加载国内期货方向候选…</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>我的观察池 / 复盘</h2>
-              <p class="sub" id="put-watch-meta">本地保存开仓权利金与平仓结果，计算静态收益</p>
-            </div>
-            <button type="button" id="btn-put-watch-clear" class="btn btn-tiny">清空已平仓</button>
-          </div>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-            <table class="put-table" id="put-watch-table">
-              <thead>
-                <tr>
-                  <th>代码</th>
-                  <th>状态</th>
-                  <th>开仓日</th>
-                  <th>合约</th>
-                  <th class="num">开仓权利金</th>
-                  <th class="num">平仓/现价</th>
-                  <th class="num">合约数</th>
-                  <th class="num">收益$</th>
-                  <th class="num">收益%</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="put-watch-body">
-                <tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>完整扫描表</h2>
-              <p class="sub">HV / RSI / IV贵贱 / 财报 / CSP占用</p>
-            </div>
-          </div>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-            <table class="put-table" id="put-table">
-              <thead>
-                <tr>
-                  <th>代码</th>
-                  <th>名称</th>
-                  <th>类型</th>
-                  <th class="num">现价</th>
-                  <th class="num">HV20</th>
-                  <th class="num">波动分位</th>
-                  <th class="num">RSI</th>
-                  <th class="num">5日%</th>
-                  <th class="num">综合分</th>
-                  <th>IV</th>
-                  <th>风险</th>
-                  <th>财报</th>
-                  <th>倾向</th>
-                  <th>建议 Put</th>
-                  <th class="num">权利金</th>
-                  <th class="num">年化%</th>
-                  <th class="num">CSP$</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="put-body">
-                <tr><td colspan="18" class="empty">加载中…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- 高波动美股/ETF 卖 Call 推荐 -->
-    <section class="view view-call" id="view-call">
-      <div class="put-layout">
-        <div class="panel put-hero">
-          <div class="panel-head">
-            <div>
-              <h2>高波动股票 / ETF · 卖出看涨（备兑 Call）推荐</h2>
-              <p class="sub" id="call-meta">筛选高波动、期权流动性较好的标的，给出约 30 日 OTM Call 候选；国内期货见下方方向栏</p>
-            </div>
-            <div class="put-hero-actions">
-              <span class="tag-pill" id="call-count-pill">—</span>
-              <button type="button" id="btn-call-refresh" class="btn btn-tiny">重新扫描期权</button>
-            </div>
-          </div>
-          <details class="method-details">
-            <summary>评分方法与风险说明 <span>展开查看</span></summary>
-            <div class="put-method" id="call-method">加载方法说明…</div>
-          </details>
-          <div class="put-theme-bar" id="call-theme-bar"></div>
-          <p class="put-theme-note" id="call-theme-note" hidden></p>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Edge 五信号权重</h2>
-              <p class="sub">与卖Put相同框架：VRP / IV分位 / 期限结构 / RV稳定性 / Skew</p>
-            </div>
-            <button type="button" id="btn-call-weights-reset" class="btn btn-tiny">恢复默认</button>
-          </div>
-          <div class="put-weights" id="call-weights">
-            <label>VRP <input type="range" min="0" max="50" value="30" data-w="vrp" /><span data-wv="vrp">30</span></label>
-            <label>IV分位 <input type="range" min="0" max="50" value="25" data-w="iv_pctile" /><span data-wv="iv_pctile">25</span></label>
-            <label>期限结构 <input type="range" min="0" max="40" value="20" data-w="term" /><span data-wv="term">20</span></label>
-            <label>RV稳定 <input type="range" min="0" max="30" value="15" data-w="rv_stable" /><span data-wv="rv_stable">15</span></label>
-            <label>Skew <input type="range" min="0" max="25" value="10" data-w="skew" /><span data-wv="skew">10</span></label>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>筛选器</h2>
-              <p class="sub">按波动、RSI、权利金与风险过滤 · 默认放宽超买区间</p>
-            </div>
-            <div class="seg" id="call-kind-filter">
-              <button type="button" data-kind="all" class="active">全部</button>
-              <button type="button" data-kind="stock">股票</button>
-              <button type="button" data-kind="etf">ETF</button>
-              <button type="button" data-kind="cn_fut">国内期货</button>
-            </div>
-          </div>
-          <div class="put-filters" id="call-filters">
-            <label>HV分位≥ <input type="number" id="call-f-hv" value="50" min="0" max="100" step="5" /></label>
-            <label>RSI <input type="number" id="call-f-rsi-lo" value="35" min="0" max="100" step="1" />–<input type="number" id="call-f-rsi-hi" value="80" min="0" max="100" step="1" /></label>
-            <label>最低OI <input type="number" id="call-f-oi" value="50" min="0" step="50" /></label>
-            <label>年化%≥ <input type="number" id="call-f-yield" value="0" min="0" step="5" /></label>
-            <label>|OTM|%≤ <input type="number" id="call-f-otm" value="15" min="1" max="40" step="1" /></label>
-            <label class="chk"><input type="checkbox" id="call-f-core" /> 仅核心池</label>
-            <label class="chk"><input type="checkbox" id="call-f-noearn" checked /> 排除财报≤7天</label>
-            <label class="chk"><input type="checkbox" id="call-f-ivrich" /> 只要IV偏贵</label>
-            <button type="button" id="btn-call-filter-reset" class="btn btn-tiny">重置</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>优先推荐</h2>
-              <p class="sub">综合分靠前 · 含风控标注 · 可加入观察池</p>
-            </div>
-          </div>
-          <div class="put-card-grid" id="call-picks">
-            <div class="empty-card">正在计算高波动卖Call候选…</div>
-          </div>
-        </div>
-
-        <div class="panel" id="call-cn-panel">
-          <div class="panel-head">
-            <div>
-              <h2>国内期货（有上市期权）· 卖Call 方向候选</h2>
-              <p class="sub" id="call-cn-meta">连续合约标的方向研究 · 未核验期权链/流动性 · 人民币 · 不可下单</p>
-            </div>
-            <span class="tag-pill" id="call-cn-count-pill">—</span>
-          </div>
-          <div class="put-card-grid" id="call-cn-picks">
-            <div class="empty-card">加载国内期货方向候选…</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>我的观察池 / 复盘</h2>
-              <p class="sub" id="call-watch-meta">本地保存开仓权利金与平仓结果，计算静态收益</p>
-            </div>
-            <button type="button" id="btn-call-watch-clear" class="btn btn-tiny">清空已平仓</button>
-          </div>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-            <table class="put-table" id="call-watch-table">
-              <thead>
-                <tr>
-                  <th>代码</th>
-                  <th>状态</th>
-                  <th>开仓日</th>
-                  <th>合约</th>
-                  <th class="num">开仓权利金</th>
-                  <th class="num">平仓/现价</th>
-                  <th class="num">合约数</th>
-                  <th class="num">收益$</th>
-                  <th class="num">收益%</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="call-watch-body">
-                <tr><td colspan="10" class="empty">暂无记录 · 在推荐卡片点「加入观察」</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>完整扫描表</h2>
-              <p class="sub">HV / RSI / IV贵贱 / 财报 / 备兑占用</p>
-            </div>
-          </div>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-            <table class="put-table" id="call-table">
-              <thead>
-                <tr>
-                  <th>代码</th>
-                  <th>名称</th>
-                  <th>类型</th>
-                  <th class="num">现价</th>
-                  <th class="num">HV20</th>
-                  <th class="num">波动分位</th>
-                  <th class="num">RSI</th>
-                  <th class="num">5日%</th>
-                  <th class="num">综合分</th>
-                  <th>IV</th>
-                  <th>风险</th>
-                  <th>财报</th>
-                  <th>倾向</th>
-                  <th>建议 Call</th>
-                  <th class="num">权利金</th>
-                  <th class="num">年化%</th>
-                  <th class="num">备兑$</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="call-body">
-                <tr><td colspan="18" class="empty">加载中…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- A股指数波动/位置 -->
     <section class="view view-cnidx" id="view-cnidx">
       <div class="put-layout">
@@ -718,7 +348,6 @@
             </div>
             <div class="put-hero-actions">
               <button type="button" id="btn-cnidx-refresh" class="btn btn-tiny">重新拉取指数</button>
-              <button type="button" class="btn btn-tiny btn-ext-put" data-theme="china" data-symbols="KWEB,FXI,BABA,PDD,JD">卖Put主题 · 中概/中国</button>
             </div>
           </div>
           <div class="put-method" id="cnidx-method">加载说明…</div>
@@ -765,35 +394,6 @@
             </table>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- 人工维护研究快照：仅在打开页签时加载，不参与行情刷新 -->
-    <section class="view view-ai" id="view-ai" aria-labelledby="ai-heading">
-      <div class="ai-hero panel">
-        <span class="ai-eyebrow">应用落地 · 商业化证据 · 长期护城河</span>
-        <h2 id="ai-heading">AI 应用：谁更可能成为赢家？</h2>
-        <p id="ai-summary">研究快照，不是实时行情；最终赢家仍需持续验证。</p>
-        <p id="ai-asof" class="sub"></p>
-        <p id="ai-disclaimer" class="ai-notice">研究分析，不构成投资建议。商业赢家不等于投资赢家。</p>
-      </div>
-      <div id="ai-status" role="status" aria-live="polite">打开页签后加载研究资料…</div>
-      <button type="button" id="ai-retry" class="btn btn-ghost" hidden>重试加载研究快照</button>
-      <div id="ai-content" hidden>
-        <details class="ai-method panel"><summary>研究框架、分层标准与政策背景</summary><div id="ai-method-body"></div></details>
-        <div class="ai-section-head"><h3>板块落地优先级</h3><span class="sub">主观研究顺序 · 不是股价收益排名</span></div>
-        <div id="ai-segments" class="ai-segment-grid"></div>
-        <div class="ai-section-head"><h3>潜在赢家候选</h3><span class="sub">证据与判断分开 · 展开看风险</span></div>
-        <p class="sub">“大盘”保留原有 14 家候选组，市值未逐一复核；新增中小盘按来源快照分档，非实时规模或监管企业认定。</p>
-        <div class="ai-filters" aria-label="AI 公司筛选">
-          <label>市值规模 <select id="ai-cap"><option value="all">全部规模</option><option value="大盘">大盘（原有组，未复核）</option><option value="中小盘">中小盘</option></select></label>
-          <label>市场 <select id="ai-market"><option value="all">全部市场</option><option value="美股">美股</option><option value="A股">A股</option><option value="港股">港股（含双重上市）</option></select></label>
-          <label>分层 <select id="ai-tier"><option value="all">全部分层</option><option>领先</option><option>观察</option><option>高风险</option></select></label>
-          <label>板块 <select id="ai-segment"><option value="all">全部板块</option></select></label>
-          <span id="ai-count" role="status" aria-live="polite"></span>
-        </div>
-        <div id="ai-companies" class="ai-company-grid"></div>
-        <details class="ai-method panel"><summary>资料来源与覆盖限制</summary><div id="ai-sources"></div></details>
       </div>
     </section>
 
@@ -906,7 +506,6 @@
             </div>
             <div class="advice-content">
               <div class="advice-summary-box" id="ng-advice-summary">加载建议中…</div>
-              <div class="ng-put-links" id="ng-put-links"></div>
               <div class="advice-levels-grid">
                 <div class="level-box entry">
                   <span class="l">建议入场区间</span>
@@ -1105,79 +704,12 @@
   <script>
     window.APP_CONFIG = { refreshSec: {{ refresh_sec }} };
   </script>
-
-    <div class="put-modal hidden" id="put-chain-modal" role="dialog" aria-modal="true">
-      <div class="put-modal-card">
-        <div class="put-modal-head">
-          <div>
-            <h3 id="put-chain-title">期权链下钻</h3>
-            <p class="sub" id="put-chain-sub">—</p>
-          </div>
-          <button type="button" class="btn btn-tiny" id="btn-put-chain-close">关闭</button>
-        </div>
-        <div id="put-chain-edge" class="put-chain-edge"></div>
-        <div id="put-chain-check" class="put-chain-check"></div>
-        <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-          <table class="put-table" id="put-chain-table">
-            <thead>
-              <tr>
-                <th>行权价</th>
-                <th class="num">OTM%</th>
-                <th class="num">Bid</th>
-                <th class="num">Ask</th>
-                <th class="num">Mid</th>
-                <th class="num">IV</th>
-                <th class="num">OI</th>
-                <th class="num">Vol</th>
-              </tr>
-            </thead>
-            <tbody id="put-chain-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-  
-    <div class="put-modal hidden" id="call-chain-modal" role="dialog" aria-modal="true">
-      <div class="put-modal-card">
-        <div class="put-modal-head">
-          <div>
-            <h3 id="call-chain-title">期权链下钻</h3>
-            <p class="sub" id="call-chain-sub">—</p>
-          </div>
-          <button type="button" class="btn btn-tiny" id="btn-call-chain-close">关闭</button>
-        </div>
-        <div id="call-chain-edge" class="put-chain-edge"></div>
-        <div id="call-chain-check" class="put-chain-check"></div>
-        <div class="table-wrap" tabindex="0" role="region" aria-label="数据表格，可左右滚动">
-          <table class="put-table" id="call-chain-table">
-            <thead>
-              <tr>
-                <th>行权价</th>
-                <th class="num">OTM%</th>
-                <th class="num">Bid</th>
-                <th class="num">Ask</th>
-                <th class="num">Mid</th>
-                <th class="num">IV</th>
-                <th class="num">OI</th>
-                <th class="num">Vol</th>
-              </tr>
-            </thead>
-            <tbody id="call-chain-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
   <script src="/static/ng_option_judgment.js?v={{ asset_v }}"></script>
   <script src="/static/us_movers_view.js?v={{ asset_v }}"></script>
-  <script src="/static/fund_score_view.js?v={{ asset_v }}"></script>
-  <script src="/static/cn_option_candidates_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_fund_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_flow_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_holders_charts.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_option_levels_view.js?v={{ asset_v }}"></script>
-  <script src="/static/ai_apps_view.js?v={{ asset_v }}"></script>
   <script src="/static/us_superstocks_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_quant_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_put_view.js?v={{ asset_v }}"></script>

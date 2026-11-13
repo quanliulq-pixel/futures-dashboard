@@ -130,7 +130,7 @@ def test_mirrors_and_reproducible_snapshot():
     for f in ('templates/index.html','docs/index.html'):
         text=(ROOT/f).read_text()
         assert 'ng-quant-content' in text and 'BOIL / KOLD' in text
-        assert 'ng_quant_view.js' in text and 'data-view="ai"' in text
+        assert 'ng_quant_view.js' in text and 'data-view="ai"' not in text
     assert (ROOT/'static/ng_quant_view.js').read_bytes()==(ROOT/'docs/static/ng_quant_view.js').read_bytes()
     saved=json.loads(q.SEED.read_text())
     rebuilt=q.build_payload(pd.read_json(q.RAW,orient='table'),now=datetime.fromisoformat(saved['updated_at']))
