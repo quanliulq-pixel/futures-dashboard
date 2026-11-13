@@ -140,5 +140,5 @@ def test_lab_present_in_both_templates():
         assert 'ng-strategy-lab-content' in text and '策略实验室' in text
         assert 'ng_strategy_lab_view.js' in text
         assert 'ng-put-quant-content' in text and 'ng-quant-content' in text
-        assert 'data-view="cnidx"' in text and 'data-view="ai"' in text
+        assert 'data-view="cnidx"' in text and 'data-view="ai"' not in text
     assert (ROOT/'static/ng_strategy_lab_view.js').read_bytes()==(ROOT/'docs/static/ng_strategy_lab_view.js').read_bytes()

@@ -27,17 +27,17 @@ def test_pages_template_is_exact_static_transform():
         '<head>\n  <base href="/futures-dashboard/" />\n'
         '  <script>window.STATIC_MODE = true;</script>\n', 1,
     ).replace('"/static/', '"./static/').replace(
-        "{{ asset_v }}", "20261113mrg1"
+        "{{ asset_v }}", "20261113rm1"
     ).replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     assert (ROOT / "docs/index.html").read_text() == expected
     assert '{{ asset_v }}' not in expected
-    assert './static/cn_index_fund_view.js?v=20261113mrg1' in expected
+    assert './static/cn_index_fund_view.js?v=20261113rm1' in expected
 
 
 
 def test_asset_versions_agree():
     for path in ["app.py", "export_static_pages.py", "docs/index.html"]:
-        assert '20261113mrg1' in (ROOT / path).read_text()
+        assert '20261113rm1' in (ROOT / path).read_text()
 
 
 
@@ -46,15 +46,14 @@ def test_keyboard_scroll_regions_and_protected_tabs():
     parser = Elements()
     parser.feed(html)
     wrappers = [a for t, a in parser.elements if 'table-wrap' in a.get('class', '').split()]
-    assert len(wrappers) == 14
+    assert len(wrappers) == 7
     assert all(a.get('tabindex') == '0' and a.get('aria-label') for a in wrappers)
     views = [a.get('data-view') for t, a in parser.elements if t == 'button' and 'data-view' in a]
-    assert views == ['watch', 'extremes', 'supply', 'movers', 'superstocks', 'put', 'call', 'cnidx', 'ng', 'ai']
+    # 周报 / 卖Put / 卖Call / AI应用 were removed on request; remaining tabs keep their order.
+    assert views == ['watch', 'extremes', 'movers', 'superstocks', 'cnidx', 'ng']
     assert '通缩' not in html
-    # No restoration of the removed domestic market toggles in option screens.
-    for side in ('put', 'call'):
-        section = html.split(f'id="view-{side}"', 1)[1].split('</section>', 1)[0]
-        assert 'data-market=' not in section
+    for side in ('supply', 'put', 'call', 'ai'):
+        assert f'id="view-{side}"' not in html
 
 
 def test_direction_colors_and_accessibility_guards():
@@ -69,8 +68,8 @@ def test_direction_colors_and_accessibility_guards():
 def test_badge_attribute_uses_escaped_existing_bias():
     js = (ROOT / 'static/app.js').read_text()
     assert 'data-option-bias="${esc(bias)}">${esc(bias)}</strong>' in js
-    assert '不能下单' in (ROOT / 'static/cn_option_candidates_view.js').read_text()
-    assert '无数据' in (ROOT / 'static/fund_score_view.js').read_text()
+    assert not (ROOT / 'static/cn_option_candidates_view.js').exists()
+    assert not (ROOT / 'static/fund_score_view.js').exists()
 
 
 def test_method_disclosures_default_closed_and_keep_content_ids():
@@ -78,8 +77,9 @@ def test_method_disclosures_default_closed_and_keep_content_ids():
     html = (ROOT / 'templates/index.html').read_text()
     parser.feed(html)
     disclosures = [a for t, a in parser.elements if t == 'details' and a.get('class') == 'method-details']
-    assert len(disclosures) == 2 and all('open' not in a for a in disclosures)
-    assert 'id="put-method"' in html and 'id="call-method"' in html
+    assert all('open' not in a for a in disclosures)
+    assert 'id="put-method"' not in html and 'id="call-method"' not in html
+    assert 'id="cnidx-method"' in html
 
 def test_cnidx_tab_drops_option_chain_ui_but_keeps_advice():
     html = (ROOT / "templates/index.html").read_text()

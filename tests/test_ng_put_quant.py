@@ -149,6 +149,6 @@ def test_mirrors_and_archived_reproduction():
     for f in ('templates/index.html','docs/index.html'):
         text=(ROOT/f).read_text()
         assert 'ng-put-quant-content' in text and '模型定价回测，非真实期权成交' in text
-        assert 'data-view="ai"' in text and 'ng_put_view.js' in text
+        assert 'data-view="ai"' not in text and 'ng_put_view.js' in text
     assert (ROOT/'static/ng_put_view.js').read_bytes()==(ROOT/'docs/static/ng_put_view.js').read_bytes()
     json.dumps(rebuilt,allow_nan=False)

@@ -10,7 +10,7 @@ import bg_tasks
 bg_tasks.install_yfinance_watch()
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request
 
 from analysis import (
     build_full_analysis,
@@ -20,7 +20,7 @@ from analysis import (
 )
 from config import QUOTE_REFRESH_SEC
 from data_sources import fill_missing_quote_history, get_quotes, history_payload, list_instruments, warmup
-from supply_fetch import load_latest, maybe_weekly_fetch, overlay_parity_vs_quotes
+from supply_fetch import maybe_weekly_fetch  # weekly snapshot still feeds 盯盘 supply-cycle evidence
 from universe import get_instrument, get_universe
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -42,15 +42,9 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261113mrg1"
+    asset_v = "20261113rm1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
-
-
-@app.route("/api/ai-apps")
-def ai_apps():
-    """Curated local research only: no market refresh or external requests."""
-    return send_from_directory(app.root_path + "/data", "ai_apps.json", mimetype="application/json")
 
 
 @app.route("/api/health")
@@ -81,7 +75,6 @@ def universe_reload():
     cn = sum(1 for x in items if x["market"] == "cn")
     us = sum(1 for x in items if x["market"] == "us")
     return jsonify({"ok": True, "total": len(items), "cn": cn, "us": us})
-
 
 
 def _movers_seed_for(name: str, period: str) -> dict | None:
@@ -126,113 +119,6 @@ def _on_render() -> bool:
     import os
 
     return bool(os.environ.get("RENDER"))
-
-
-def _pending_response(status: str):
-    """No cache and no seed: honest 'not yet available' instead of blocking."""
-    return jsonify({"error": "暂无快照，后台刷新已排队或稍后重试", "refresh": bg_tasks.refresh_meta(status)}), 503
-
-
-def _screen_refresh(key: str, module_name: str, builder_name: str, seed_name: str):
-    """Manual refresh for short put/call screens. On Render never computes in
-    the request thread: queue (single-flight, capacity-limited) and return the
-    current cache or seed immediately with refresh metadata."""
-    import importlib
-
-    mod = importlib.import_module(module_name)
-    builder = getattr(mod, builder_name)
-    if not _on_render():
-        return jsonify(builder(force=True))
-    status = bg_tasks.try_start(key, lambda: builder(force=True), force=True)
-    done = _completed_screen_cache(mod)
-    payload = dict(done[1]) if done else None
-    if payload is not None:
-        payload["source"] = "cache"
-    if payload is None:
-        seed = _read_api_seed(seed_name)
-        if seed is not None:
-            payload = dict(seed)
-            payload["source"] = "seed"
-            try:
-                from cn_option_candidates import ensure_cn_candidate_fields
-                side = "call" if "call" in key else "put"
-                payload = ensure_cn_candidate_fields(payload, side=side)
-            except Exception:
-                logger.debug("cn candidate seed normalize failed", exc_info=True)
-    if payload is None:
-        return _pending_response(status)
-    payload["refresh"] = bg_tasks.refresh_meta(status)
-    return jsonify(payload)
-
-
-def _completed_screen_cache(mod) -> tuple[float, dict] | None:
-    """Return (built_epoch, payload) only for a finished live build held in the
-    module's in-process ``_cache``. Seed copies (``source == 'seed'``) don't count."""
-    cached = getattr(mod, "_cache", None)
-    if not cached:
-        return None
-    try:
-        ts, payload = cached
-    except Exception:
-        return None
-    if not isinstance(payload, dict) or payload.get("source") == "seed":
-        return None
-    return float(ts), payload
-
-
-def _iso_epoch(value) -> float | None:
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(value))
-    except Exception:
-        return None
-    # naive app timestamps are server-local (Render TZ=Asia/Shanghai); aware ones carry their offset
-    return dt.timestamp()
-
-
-def _screen_high_vol_render(key: str, module_name: str, builder_name: str, seed_name: str):
-    """Render read path for short put/call: never computes in the request thread.
-
-    Prefers a completed in-process build over the bundled docs/api seed (the seed
-    is only refreshed by the Pages export). Starts a single-flight background
-    rebuild only when there is no completed build or it is older than the
-    module CACHE_TTL. gunicorn runs ``-w 1`` (render.yaml/Procfile), so the
-    in-process cache is shared by every request thread.
-    """
-    import importlib
-    import time as _time
-
-    mod = importlib.import_module(module_name)
-    builder = getattr(mod, builder_name)
-    side = "call" if "call" in key else "put"
-    ttl = float(getattr(mod, "CACHE_TTL", 30 * 60))
-    done = _completed_screen_cache(mod)
-    seed = _read_api_seed(seed_name)
-    fresh = done is not None and (_time.time() - done[0]) < ttl
-    if fresh:
-        status = "fresh"
-    else:
-        status = bg_tasks.try_start(key, lambda: builder(force=True))
-    payload = None
-    if done is not None:
-        seed_ts = _iso_epoch((seed or {}).get("updated_at"))
-        cache_ts = _iso_epoch(done[1].get("updated_at")) or done[0]
-        if seed is None or seed_ts is None or cache_ts >= seed_ts:
-            payload = dict(done[1])
-            payload["source"] = "cache" if fresh else "cache_stale"
-    if payload is None and seed is not None:
-        payload = dict(seed)
-        payload["source"] = "seed"
-    if payload is None:
-        return _pending_response(status)
-    try:
-        from cn_option_candidates import ensure_cn_candidate_fields
-        payload = ensure_cn_candidate_fields(payload, side=side)
-    except Exception:
-        logger.debug("cn candidate normalize failed", exc_info=True)
-    payload["refresh"] = bg_tasks.refresh_meta(status)
-    return jsonify(payload)
 
 
 def _read_api_seed(name: str) -> dict | None:
@@ -393,54 +279,6 @@ def analysis_all():
             seed["source"] = "seed"
             seed["note"] = (seed.get("note") or "") + " · 实时重算暂不可用，已回退快照"
             return jsonify(seed)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/supply")
-def supply():
-    force = request.args.get("force") == "1"
-    try:
-        refresh = None
-        if _on_render():
-            # Never fetch EIA/USDA/etc. inside the request thread on Render.
-            status = _spawn_bg_refresh("supply", lambda: maybe_weekly_fetch(force=force),
-                                       min_interval=0 if force else 3600.0, provider="supply")
-            refresh = bg_tasks.refresh_meta(status)
-            data = load_latest()
-        else:
-            data = maybe_weekly_fetch(force=force) if force else (load_latest() or maybe_weekly_fetch())
-        if data and refresh is not None:
-            data = dict(data)
-            data["refresh"] = refresh
-        if not data:
-            return jsonify({"items": [], "note": "尚无供给数据，请点击刷新或等待周更"}), 200
-        # overlay latest domestic price onto import parity (shared with /refresh)
-        overlay_parity_vs_quotes(data.get("items") or [], allow_fetch=not _on_render())
-        return jsonify(data)
-    except Exception as exc:
-        logger.exception("supply failed")
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/supply/refresh")
-def supply_refresh():
-    try:
-        if _on_render():
-            status = _spawn_bg_refresh("supply", lambda: maybe_weekly_fetch(force=True),
-                                       min_interval=0, provider="supply")
-            data = load_latest()
-            if not data:
-                return _pending_response(status)
-            data = dict(data)
-            overlay_parity_vs_quotes(data.get("items") or [], allow_fetch=False)
-            data["refresh"] = bg_tasks.refresh_meta(status)
-            return jsonify(data)
-        data = maybe_weekly_fetch(force=True)
-        if data:
-            overlay_parity_vs_quotes(data.get("items") or [])
-        return jsonify(data)
-    except Exception as exc:
-        logger.exception("supply refresh failed")
         return jsonify({"error": str(exc)}), 500
 
 
@@ -736,70 +574,6 @@ def _ng_warmup():
         logger.exception("NG warmup failed")
 
 
-
-
-@app.route("/api/short-put/high-vol")
-def short_put_high_vol_api():
-    force = request.args.get("force") == "1"
-    try:
-        if _on_render() and not force:
-            return _screen_high_vol_render("short-put", "short_put_screen", "build_short_put_screen", "short_put.json")
-        from short_put_screen import build_short_put_screen
-
-        return jsonify(build_short_put_screen(force=force))
-    except Exception as exc:
-        logger.exception("short put screen failed")
-        seed = _read_api_seed("short_put.json")
-        if seed:
-            seed = dict(seed)
-            seed["source"] = "seed"
-            from cn_option_candidates import ensure_cn_candidate_fields
-            seed = ensure_cn_candidate_fields(seed, side="put")
-            return jsonify(seed)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/short-put/refresh")
-def short_put_refresh_api():
-    try:
-        return _screen_refresh("short-put", "short_put_screen", "build_short_put_screen", "short_put.json")
-    except Exception as exc:
-        logger.exception("short put refresh failed")
-        return jsonify({"error": str(exc)}), 500
-
-
-
-@app.route("/api/short-call/high-vol")
-def short_call_high_vol_api():
-    force = request.args.get("force") == "1"
-    try:
-        if _on_render() and not force:
-            return _screen_high_vol_render("short-call", "short_call_screen", "build_short_call_screen", "short_call.json")
-        from short_call_screen import build_short_call_screen
-
-        return jsonify(build_short_call_screen(force=force))
-    except Exception as exc:
-        logger.exception("short call screen failed")
-        seed = _read_api_seed("short_call.json")
-        if seed:
-            seed = dict(seed)
-            seed["source"] = "seed"
-            from cn_option_candidates import ensure_cn_candidate_fields
-            seed = ensure_cn_candidate_fields(seed, side="call")
-            return jsonify(seed)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/short-call/refresh")
-def short_call_refresh_api():
-    try:
-        return _screen_refresh("short-call", "short_call_screen", "build_short_call_screen", "short_call.json")
-    except Exception as exc:
-        logger.exception("short call refresh failed")
-        return jsonify({"error": str(exc)}), 500
-
-
-
 def _cn_index_fund_bundle(payload: dict | None, *, kick: bool | None = None) -> dict | None:
     """Freshest A股指数基本面 bundle: in-memory background cache vs snapshot-embedded. CPU only.
 
@@ -1021,6 +795,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
     print(f"  期货看板  http://{host}:{port}")
-    print("  大宗商品 · 高低位/成本 · 产业周报 · 涨跌榜 · 美股Superstocks · 美气NG · 卖Put · 卖Call · A股指数")
+    print("  大宗商品 · 高低位/成本 · 涨跌榜 · 美股Superstocks · A股指数 · 美气NG")
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)

@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261113mrg1")
+    html = html.replace("{{ asset_v }}", "20261113rm1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -100,8 +100,7 @@ def export_html() -> None:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(ROOT / "static", dst)
-    # Copy only the curated research; never trigger market fetches here.
-    dump(API / "ai_apps.json", json.loads((ROOT / "data/ai_apps.json").read_text(encoding="utf-8")))
+    # Copy only curated local snapshots; never trigger market fetches here.
     ss_path = ROOT / "data" / "us_superstocks.json"
     if ss_path.is_file():
         dump(API / "us_superstocks.json", json.loads(ss_path.read_text(encoding="utf-8")))
@@ -200,12 +199,6 @@ def main() -> None:
         traceback.print_exc()
         dump(API / "analysis_all.json", {"lows": [], "highs": [], "all": [], "updated_at": now, "error": str(exc)})
 
-    supply_path = ROOT / "data" / "supply" / "latest.json"
-    if supply_path.exists():
-        dump(API / "supply.json", json.loads(supply_path.read_text(encoding="utf-8")))
-    else:
-        dump(API / "supply.json", {"items": [], "note": "no supply snapshot", "updated_at": now})
-
     print("building NG dashboard...")
     try:
         from ng_dashboard import build_dashboard
@@ -251,34 +244,6 @@ def main() -> None:
         dump(
             API / "us_movers.json",
             {"gainers": [], "losers": [], "note": f"静态导出未取到: {exc}", "snapshot_at": now},
-        )
-
-
-    print("short put high-vol screen...")
-    try:
-        from short_put_screen import build_short_put_screen
-
-        dump(API / "short_put.json", build_short_put_screen(force=True, top_n=20, option_n=28))
-    except Exception as exc:
-        print("short put failed:", exc)
-        traceback.print_exc()
-        dump(
-            API / "short_put.json",
-            {"picks": [], "all": [], "watchlist": [], "updated_at": now, "error": str(exc)},
-        )
-
-
-    print("short call high-vol screen...")
-    try:
-        from short_call_screen import build_short_call_screen
-
-        dump(API / "short_call.json", build_short_call_screen(force=True, top_n=20, option_n=28))
-    except Exception as exc:
-        print("short call failed:", exc)
-        traceback.print_exc()
-        dump(
-            API / "short_call.json",
-            {"picks": [], "all": [], "watchlist": [], "updated_at": now, "error": str(exc)},
         )
 
     print("cn indices analysis...")

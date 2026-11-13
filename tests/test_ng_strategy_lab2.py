@@ -156,6 +156,6 @@ def test_round2_present_in_both_surfaces_and_export_is_readonly():
     for name in ('templates/index.html','docs/index.html'):
         text=(ROOT/name).read_text()
         assert 'ng-strategy-lab2-content' in text and 'ng_strategy_lab2_view.js' in text
-        assert '两轮12个NG' in text and 'data-view="ai"' in text and 'data-view="cnidx"' in text
+        assert '两轮12个NG' in text and 'data-view="ai"' not in text and 'data-view="cnidx"' in text
     assert (ROOT/'static/ng_strategy_lab2_view.js').read_bytes()==(ROOT/'docs/static/ng_strategy_lab2_view.js').read_bytes()
     assert 'lab2_snapshot()' in (ROOT/'export_static_pages.py').read_text()
