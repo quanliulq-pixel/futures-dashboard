@@ -15,31 +15,31 @@ function node(id, view) {
   const classes = new Set(view === 'watch' ? ['active'] : []);
   return {id, dataset:{view}, classList:{toggle(cls, on) {on ? classes.add(cls) : classes.delete(cls);}, contains:cls => classes.has(cls)}};
 }
-const views = ['watch','superstocks','cnidx'].map(v => node('view-'+v,v));
-const buttons = ['watch','superstocks','cnidx'].map(v => node('tab-'+v,v));
-let resolveQuotes, loadedSS = 0;
+const views = ['watch','gold','cnidx'].map(v => node('view-'+v,v));
+const buttons = ['watch','gold','cnidx'].map(v => node('tab-'+v,v));
+let resolveQuotes, loadedGold = 0;
 const state = {view:'watch',quotes:[],selectedId:null,lows:[],highs:[]};
-const ctx = {state,window:{USSuperstocksView:{load(){loadedSS++;}}},AbortSignal,console,
+const ctx = {state,window:{GoldView:{load(){loadedGold++;},resize(){}}},AbortSignal,console,
   document:{querySelectorAll:sel => sel === '.view' ? views : buttons},
   apiUrl:p=>p, fetch:()=>new Promise(resolve => {resolveQuotes=resolve;}),
   setStatus(){},rebuildSectors(){},renderTable(){},renderExtremeCards(){},
   quoteMeta:{},lowsCards:{},highsCards:{},loadAnalysis:async()=>{},loadHistory:async()=>{},
   setTimeout(){},resizeChart(){},resizeNgCharts(){},loadMoversBoard(){},loadNgDashboard(){},
   loadCnIndices(){}};
-for (const gone of ['AIAppsView','loadShortPut','loadShortCall','loadSupply']) {
+for (const gone of ['AIAppsView','loadShortPut','loadShortCall','loadSupply','USSuperstocksView']) {
   assert.ok(!nav.includes(gone), gone + ' must not be referenced after removing its tab');
 }
 vm.runInNewContext(quotes + nav + '\nthis.fns={loadQuotes,switchView,selectInstrument};',ctx);
 (async()=>{
   const pending=ctx.fns.loadQuotes(false);
-  ctx.fns.switchView('superstocks'); // The first and only user click, before cold-start quotes finish.
-  assert.equal(loadedSS,1);
+  ctx.fns.switchView('gold'); // The first and only user click, before cold-start quotes finish.
+  assert.equal(loadedGold,1);
   assert.ok(views[1].classList.contains('active'));
   assert.ok(!views[0].classList.contains('active'));
   resolveQuotes({ok:true,json:async()=>({items:[{id:'test',market:'cn',price:1}]})});
   await pending;
   assert.equal(state.selectedId,'test','default instrument still initialized');
-  assert.equal(state.view,'superstocks','late quotes must not steal the selected tab');
+  assert.equal(state.view,'gold','late quotes must not steal the selected tab');
   assert.ok(views[1].classList.contains('active'));
   assert.ok(!views[0].classList.contains('active'));
   assert.ok(buttons[1].classList.contains('active'));

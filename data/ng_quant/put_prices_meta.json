@@ -1,5 +1,5 @@
 {
-  "retrieved_at": "2026-11-13T16:35:17+09:00",
+  "retrieved_at": "2026-11-13T17:03:17+09:00",
   "source": "Yahoo Finance; BOIL/NG from archived daily panel, UNG newly fetched",
   "data_quality": [
     "BOIL / NG日线使用原量化系统的最近完整归档，不强制刷新其他数据。"

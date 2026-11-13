@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Regression: 周报 / 卖Put / 卖Call / AI应用 tabs were removed on request (2026-11-13).
+"""Regression: 周报 / 卖Put / 卖Call / AI应用 / 美股Superstocks tabs were removed on request (2026-11-13).
 
-The remaining tabs (盯盘, 高低位, 涨跌榜, 美股Superstocks, A股指数, 美气NG) must still load.
+The remaining tabs (盯盘, 高低位, 涨跌榜, A股指数, 美气NG, 黄金) must still load.
 No network: Flask test client on seed snapshots only.
 """
 from __future__ import annotations
@@ -13,8 +13,8 @@ from pathlib import Path
 os.environ.setdefault("SKIP_BG_WARMUP", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261113rm1"
-REMAINING = ["watch", "extremes", "movers", "superstocks", "cnidx", "ng"]
+ASSET_V = "20261113au1"
+REMAINING = ["watch", "extremes", "movers", "cnidx", "ng", "gold"]
 REMOVED = ["supply", "put", "call", "ai"]
 REMOVED_LABELS = [">周报<", ">卖Put<", ">卖Call<", ">AI应用<"]
 REMOVED_SCRIPTS = ["ai_apps_view.js", "cn_option_candidates_view.js", "fund_score_view.js"]
@@ -65,7 +65,7 @@ def test_frontend_no_longer_wires_removed_tabs():
         assert token not in js, token
     for api in REMOVED_API:
         assert api not in js, api
-    for view in ("superstocks", "movers", "ng", "cnidx", "watch"):
+    for view in ("gold", "movers", "ng", "cnidx", "watch"):
         assert f'name === "{view}"' in js
     for removed in REMOVED:
         assert f'name === "{removed}"' not in js
@@ -97,8 +97,26 @@ def test_flask_index_and_remaining_endpoints_load(monkeypatch):
                 "/api/short-call/high-vol", "/api/short-call/refresh", "/api/ai-apps"):
         assert api not in rules, api
     for api in ("/api/quotes", "/api/analysis/all", "/api/futures-movers", "/api/us-movers",
-                "/api/us-superstocks", "/api/us-superstocks/progress", "/api/cn-indices",
+                "/api/gold", "/api/gold/refresh", "/api/cn-indices",
                 "/api/ng/dashboard", "/api/ng-sell-put", "/api/ng-boil-kold"):
         assert api in rules, api
-    assert c.get("/api/us-superstocks").status_code == 200
+    for gone in ("/api/us-superstocks", "/api/us-superstocks/progress", "/api/us-superstocks/refresh"):
+        assert gone not in rules, gone
+        assert c.get(gone).status_code == 404
     assert c.get("/api/ng-sell-put").status_code == 200
+
+
+def test_superstocks_tab_fully_removed():
+    for html in _surfaces():
+        assert 'data-view="superstocks"' not in html
+        assert "美股Superstocks" not in html and "view-superstocks" not in html and "tab-ss" not in html
+        assert "us_superstocks_view.js" not in html
+    for name in ("us_superstocks.py", "static/us_superstocks_view.js", "docs/static/us_superstocks_view.js",
+                 "data/us_superstocks.json", "docs/api/us_superstocks.json",
+                 ".github/workflows/refresh_superstocks.yml", "docs/us_superstocks_method.md"):
+        assert not (ROOT / name).exists(), name
+    for src in ("static/app.js", "export_static_pages.py", "app.py", ".github/workflows/refresh_pages.yml"):
+        text = (ROOT / src).read_text(encoding="utf-8")
+        assert "superstocks" not in text.lower(), src
+    css = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
+    assert ".view-superstocks" not in css and ".tab-ss" not in css

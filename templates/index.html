@@ -15,16 +15,16 @@
         <span class="logo">◆</span>
         <div>
           <h1>期货本地看板</h1>
-          <p class="sub">大宗商品 · 高低位 · 涨跌榜 · 美股Superstocks · A股指数 · 美气NG</p>
+          <p class="sub">大宗商品 · 高低位 · 涨跌榜 · A股指数 · 美气NG · 黄金</p>
         </div>
       </div>
       <nav class="view-tabs" id="view-tabs" aria-label="功能页签，可左右滑动">
         <button type="button" data-view="watch" class="active">盯盘</button>
         <button type="button" data-view="extremes">高低位</button>
         <button type="button" data-view="movers">涨跌榜</button>
-        <button type="button" data-view="superstocks" class="tab-ss">美股Superstocks</button>
         <button type="button" data-view="cnidx" class="tab-cnidx">A股指数</button>
         <button type="button" data-view="ng" class="tab-ng">美气NG</button>
+        <button type="button" data-view="gold" class="tab-gold">黄金</button>
       </nav>
       <div class="top-actions">
         <div class="status">
@@ -289,53 +289,6 @@
 
 
     <!-- 高波动美股/ETF 卖 Put 推荐 -->
-
-    <!-- 美股 Superstocks 研究系统：打开本页加载快照，不强制全市场刷新 -->
-    <section class="view view-superstocks" id="view-superstocks" aria-labelledby="ss-heading">
-      <div class="ss-hero panel">
-        <h2 id="ss-heading">美股 Superstocks 研究系统</h2>
-        <p class="ss-warning">研究展示，不能下单，不构成投资建议。书中历史收益率声称未在本系统独立验证。作者曾提到高度集中的凯利仓位和大幅回撤；本系统默认研究仓位为专项资金的 5%–10%，同一时间最多一只，且必须预设止损，绝不推荐满仓或 90% 凯利。</p>
-        <p id="ss-disclaimer" class="ss-disclaimer"></p>
-        <p id="ss-sizing" class="ss-sizing"></p>
-        <p id="ss-edge" class="ss-edge"></p>
-      </div>
-      <div class="ss-toolbar">
-        <label>筛选
-          <select id="ss-filter">
-            <option value="all">全部</option>
-            <option value="candidates">严格候选</option>
-            <option value="near">接近 / 此前突破</option>
-            <option value="买点区">买点区</option>
-            <option value="观察">观察</option>
-            <option value="已延伸勿追">已延伸勿追</option>
-            <option value="退出信号">退出信号</option>
-          </select>
-        </label>
-        <button type="button" class="btn btn-tiny" id="ss-retry">重新加载快照</button>
-        <button type="button" class="btn btn-tiny" id="ss-refresh">后台重算（不阻塞本页）</button>
-        <div class="meta" id="ss-meta">打开本页加载</div>
-      </div>
-      <p id="ss-weekly-note" class="ss-weekly-note">每周自动扫描：北京时间周六 08:00（UTC 周六 00:00）。后台重算是按需补扫，全市场扫描可能因限流或超时无法在本页一次跑完，完整名单以每周自动扫描为准。</p>
-      <div id="ss-progress" class="ss-progress" hidden>
-        <div class="ss-progress-track" id="ss-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Superstocks 扫描进度">
-          <div class="ss-progress-fill" id="ss-progress-fill"></div>
-        </div>
-        <p id="ss-progress-text" class="ss-progress-text"></p>
-      </div>
-      <p id="ss-status" role="status" aria-live="polite">打开本页加载研究快照…</p>
-      <p id="ss-note" class="sub"></p>
-      <div id="ss-content" hidden>
-        <div id="ss-table"></div>
-        <div class="panel" id="ss-detail"><p class="ss-na">点选一行查看周线与明细。</p></div>
-        <details class="ss-method panel"><summary>规则说明、数值默认值与局限</summary>
-          <p id="ss-angle"></p>
-          <p id="ss-stop"></p>
-          <p id="ss-insider-src"></p>
-          <div id="ss-defaults"></div>
-          <div id="ss-limits"></div>
-        </details>
-      </div>
-    </section>
 
     <!-- A股指数波动/位置 -->
     <section class="view view-cnidx" id="view-cnidx">
@@ -676,6 +629,19 @@
 
       </div>
     </section>
+
+    <!-- 黄金：快照优先，后台刷新；研究参考，不能下单 -->
+    <section class="view view-gold" id="view-gold" aria-labelledby="gold-heading">
+      <section class="panel gold-hero">
+        <h2 id="gold-heading">黄金 · 内外盘比价 / 实际利率 / 持仓 / 技术面</h2>
+        <p class="gold-warn">研究参考，不能下单，不构成投资建议。数据源失败时显示「上次快照（日期）」或「无数据」，不填造数字。红＝上涨/流入/增加，绿＝下跌/流出/减少。</p>
+        <div class="gold-toolbar">
+          <button type="button" id="gold-refresh" class="btn">后台刷新</button>
+          <span id="gold-status" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+      <div id="gold-content" class="gold-content" aria-live="polite">打开本页加载黄金快照…</div>
+    </section>
   </div>
 
   <div class="chart-modal" id="chart-modal" hidden>
@@ -710,7 +676,7 @@
   <script src="/static/cn_index_flow_view.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_holders_charts.js?v={{ asset_v }}"></script>
   <script src="/static/cn_index_option_levels_view.js?v={{ asset_v }}"></script>
-  <script src="/static/us_superstocks_view.js?v={{ asset_v }}"></script>
+  <script src="/static/gold_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_quant_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_put_view.js?v={{ asset_v }}"></script>
   <script src="/static/ng_strategy_lab_view.js?v={{ asset_v }}"></script>

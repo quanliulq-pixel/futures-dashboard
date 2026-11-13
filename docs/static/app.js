@@ -14,9 +14,8 @@
       '/api/cn-indices/refresh': './api/cn_indices.json',
       '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
-      '/api/us-superstocks': './api/us_superstocks.json',
-      '/api/us-superstocks/refresh': './api/us_superstocks.json',
-      '/api/us-superstocks/progress': './api/us_superstocks.json',
+      '/api/gold': './api/gold.json',
+      '/api/gold/refresh': './api/gold.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -772,13 +771,17 @@
     document.querySelectorAll("#view-tabs button").forEach((b) => {
       b.classList.toggle("active", b.dataset.view === name);
     });
-    if (name === "superstocks" && window.USSuperstocksView) window.USSuperstocksView.load();
     if (name === "watch") {
       setTimeout(resizeChart, 50);
       setTimeout(resizeChart, 250);
     }
     if (name === "movers") {
       loadMoversBoard(false);
+    }
+    if (name === "gold" && window.GoldView) {
+      window.GoldView.load(false);
+      setTimeout(() => window.GoldView.resize(), 60);
+      setTimeout(() => window.GoldView.resize(), 250);
     }
     if (name === "ng") {
       state.ngLoading = false;

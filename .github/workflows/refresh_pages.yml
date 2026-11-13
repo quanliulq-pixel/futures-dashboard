@@ -21,6 +21,7 @@ on:
       - "cn_index_flow.py"
       - "cn_index_etf_holders.py"
       - "data/cn_index_etf_holders.json"
+      - "gold.py"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"
@@ -48,7 +49,7 @@ jobs:
       - name: Refresh CFFEX index options snapshot
         run: python cffex_options.py --write
         continue-on-error: true
-      - name: Rebuild static docs (quotes/analysis/NG/A股指数)
+      - name: Rebuild static docs (quotes/analysis/NG/A股指数/黄金)
         run: python export_static_pages.py
       - name: Commit & push docs snapshot
         run: |

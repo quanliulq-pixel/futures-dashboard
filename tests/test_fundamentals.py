@@ -342,4 +342,4 @@ def test_removed_option_tab_views_are_gone_and_docs_in_sync():
         t = html.read_text(encoding="utf-8")
         assert "fund_score_view.js" not in t and "cn_option_candidates_view.js" not in t
         assert "app.js" in t
-    assert 'asset_v = "20261113rm1"' in (ROOT / "app.py").read_text(encoding="utf-8")
+    assert 'asset_v = "20261113au1"' in (ROOT / "app.py").read_text(encoding="utf-8")
