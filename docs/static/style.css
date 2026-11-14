@@ -1995,6 +1995,10 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .gold-table th, .gold-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .gold-table th.num, .gold-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gold-total td { font-weight: 600; }
+.gold-quant { margin-top: var(--space-3); }
+.gold-quant .gold-chart { height: 380px; }
+.gold-card ul.gold-warn { margin: 8px 0 0 16px; padding: 0; }
+.gold-quant-head ul.sub { margin: 6px 0 0 16px; padding: 0; line-height: 1.6; }
 @media (max-width: 640px) {
   .gold-chart { height: 260px; }
   .gold-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
