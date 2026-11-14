@@ -18,6 +18,8 @@
       '/api/gold/refresh': './api/gold.json',
       '/api/gold/quant': './api/gold_quant.json',
       '/api/gold/quant/refresh': './api/gold_quant.json',
+      '/api/us-etf': './api/us_etf.json',
+      '/api/us-etf/refresh': './api/us_etf.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -784,6 +786,11 @@
       window.GoldView.load(false);
       setTimeout(() => window.GoldView.resize(), 60);
       setTimeout(() => window.GoldView.resize(), 250);
+    }
+    if (name === "usetf" && window.UsEtfView) {
+      window.UsEtfView.load(false);
+      setTimeout(() => window.UsEtfView.resize(), 60);
+      setTimeout(() => window.UsEtfView.resize(), 250);
     }
     if (name === "ng") {
       state.ngLoading = false;

@@ -27,17 +27,17 @@ def test_pages_template_is_exact_static_transform():
         '<head>\n  <base href="/futures-dashboard/" />\n'
         '  <script>window.STATIC_MODE = true;</script>\n', 1,
     ).replace('"/static/', '"./static/').replace(
-        "{{ asset_v }}", "20261114gq1"
+        "{{ asset_v }}", "20261114etf1"
     ).replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     assert (ROOT / "docs/index.html").read_text() == expected
     assert '{{ asset_v }}' not in expected
-    assert './static/cn_index_fund_view.js?v=20261114gq1' in expected
+    assert './static/cn_index_fund_view.js?v=20261114etf1' in expected
 
 
 
 def test_asset_versions_agree():
     for path in ["app.py", "export_static_pages.py", "docs/index.html"]:
-        assert '20261114gq1' in (ROOT / path).read_text()
+        assert '20261114etf1' in (ROOT / path).read_text()
 
 
 
@@ -50,7 +50,7 @@ def test_keyboard_scroll_regions_and_protected_tabs():
     assert all(a.get('tabindex') == '0' and a.get('aria-label') for a in wrappers)
     views = [a.get('data-view') for t, a in parser.elements if t == 'button' and 'data-view' in a]
     # 周报 / 卖Put / 卖Call / AI应用 / 美股Superstocks were removed on request; 黄金 added last.
-    assert views == ['watch', 'extremes', 'movers', 'cnidx', 'ng', 'gold']
+    assert views == ['watch', 'extremes', 'movers', 'cnidx', 'ng', 'gold', 'usetf']
     assert '通缩' not in html
     for side in ('supply', 'put', 'call', 'ai'):
         assert f'id="view-{side}"' not in html

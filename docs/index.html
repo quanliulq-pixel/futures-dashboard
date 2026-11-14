@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261114gq1" />
+  <link rel="stylesheet" href="./static/style.css?v=20261114etf1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -17,7 +17,7 @@
         <span class="logo">◆</span>
         <div>
           <h1>期货本地看板</h1>
-          <p class="sub">大宗商品 · 高低位 · 涨跌榜 · A股指数 · 美气NG · 黄金</p>
+          <p class="sub">大宗商品 · 高低位 · 涨跌榜 · A股指数 · 美气NG · 黄金 · 美股ETF</p>
         </div>
       </div>
       <nav class="view-tabs" id="view-tabs" aria-label="功能页签，可左右滑动">
@@ -27,6 +27,7 @@
         <button type="button" data-view="cnidx" class="tab-cnidx">A股指数</button>
         <button type="button" data-view="ng" class="tab-ng">美气NG</button>
         <button type="button" data-view="gold" class="tab-gold">黄金</button>
+        <button type="button" data-view="usetf" class="tab-usetf">美股ETF</button>
       </nav>
       <div class="top-actions">
         <div class="status">
@@ -645,6 +646,19 @@
       <div id="gold-content" class="gold-content" aria-live="polite">打开本页加载黄金快照…</div>
       <div id="gold-quant-content" class="gold-content gold-quant" aria-live="polite">打开本页加载量化纸面跟踪…</div>
     </section>
+
+    <!-- 美股ETF：快照优先，后台刷新；研究参考，不能下单 -->
+    <section class="view view-usetf" id="view-usetf" aria-labelledby="usetf-heading">
+      <section class="panel etf-hero">
+        <h2 id="usetf-heading">美股ETF · 主流ETF行情 / 行业轮动 / 风险偏好</h2>
+        <p class="etf-warn">研究参考，不能下单，不构成投资建议。数据来自 Yahoo Finance（日线，复权）；失败时显示「上次快照（日期）」或「无数据」，不填造数字。红＝上涨，绿＝下跌。</p>
+        <div class="etf-toolbar">
+          <button type="button" id="usetf-refresh" class="btn">后台刷新</button>
+          <span id="usetf-status" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+      <div id="usetf-content" class="etf-content" aria-live="polite">打开本页加载美股ETF快照…</div>
+    </section>
   </div>
 
   <div class="chart-modal" id="chart-modal" hidden>
@@ -673,17 +687,18 @@
   <script>
     window.APP_CONFIG = { refreshSec: 0 };
   </script>
-  <script src="./static/ng_option_judgment.js?v=20261114gq1"></script>
-  <script src="./static/us_movers_view.js?v=20261114gq1"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261114gq1"></script>
-  <script src="./static/cn_index_flow_view.js?v=20261114gq1"></script>
-  <script src="./static/cn_index_holders_charts.js?v=20261114gq1"></script>
-  <script src="./static/cn_index_option_levels_view.js?v=20261114gq1"></script>
-  <script src="./static/gold_view.js?v=20261114gq1"></script>
-  <script src="./static/ng_quant_view.js?v=20261114gq1"></script>
-  <script src="./static/ng_put_view.js?v=20261114gq1"></script>
-  <script src="./static/ng_strategy_lab_view.js?v=20261114gq1"></script>
-  <script src="./static/ng_strategy_lab2_view.js?v=20261114gq1"></script>
-  <script src="./static/app.js?v=20261114gq1"></script>
+  <script src="./static/ng_option_judgment.js?v=20261114etf1"></script>
+  <script src="./static/us_movers_view.js?v=20261114etf1"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261114etf1"></script>
+  <script src="./static/cn_index_flow_view.js?v=20261114etf1"></script>
+  <script src="./static/cn_index_holders_charts.js?v=20261114etf1"></script>
+  <script src="./static/cn_index_option_levels_view.js?v=20261114etf1"></script>
+  <script src="./static/gold_view.js?v=20261114etf1"></script>
+  <script src="./static/us_etf_view.js?v=20261114etf1"></script>
+  <script src="./static/ng_quant_view.js?v=20261114etf1"></script>
+  <script src="./static/ng_put_view.js?v=20261114etf1"></script>
+  <script src="./static/ng_strategy_lab_view.js?v=20261114etf1"></script>
+  <script src="./static/ng_strategy_lab2_view.js?v=20261114etf1"></script>
+  <script src="./static/app.js?v=20261114etf1"></script>
 </body>
 </html>

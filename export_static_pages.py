@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261114gq1")
+    html = html.replace("{{ asset_v }}", "20261114etf1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -320,6 +320,21 @@ def main() -> None:
             print("gold quant refresh returned no data; keep previous docs/api/gold_quant.json")
     except Exception as exc:
         print("gold quant failed:", exc)
+        traceback.print_exc()
+
+    print("us etf (美股ETF页)...")
+    try:
+        import us_etf
+
+        # Per-symbol fallback to the committed docs/api/us_etf.json seed lives inside us_etf.refresh().
+        etf_payload = us_etf.refresh(use_remote=False)
+        if etf_payload.get("status") == "ok":
+            dump(API / "us_etf.json", etf_payload)
+            print("us etf errors:", etf_payload.get("errors") or {})
+        else:
+            print("us etf refresh returned no data; keep previous docs/api/us_etf.json")
+    except Exception as exc:
+        print("us etf failed:", exc)
         traceback.print_exc()
 
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})

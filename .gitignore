@@ -17,3 +17,5 @@ data/gold_latest.tmp
 # Gold quant paper-tracking runtime cache (static snapshot is committed)
 data/gold_quant_latest.json
 data/gold_quant_latest.tmp
+data/us_etf_latest.json
+data/us_etf_latest.tmp
