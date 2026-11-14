@@ -13,8 +13,8 @@ from pathlib import Path
 os.environ.setdefault("SKIP_BG_WARMUP", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261114gq1"
-REMAINING = ["watch", "extremes", "movers", "cnidx", "ng", "gold"]
+ASSET_V = "20261114etf1"
+REMAINING = ["watch", "extremes", "movers", "cnidx", "ng", "gold", "usetf"]
 REMOVED = ["supply", "put", "call", "ai"]
 REMOVED_LABELS = [">周报<", ">卖Put<", ">卖Call<", ">AI应用<"]
 REMOVED_SCRIPTS = ["ai_apps_view.js", "cn_option_candidates_view.js", "fund_score_view.js"]

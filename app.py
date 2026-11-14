@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261114gq1"
+    asset_v = "20261114etf1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -438,6 +438,30 @@ def gold_quant_refresh_api():
     return jsonify(data)
 
 
+@app.route("/api/us-etf")
+def us_etf_api():
+    """美股ETF页：快照秒回（内存→运行时缓存→Pages 种子），过期时后台单飞刷新（Yahoo）。研究参考。"""
+    import us_etf
+
+    data = us_etf.snapshot()
+    if us_etf.needs_refresh(data):
+        data["refresh_status"] = _spawn_bg_refresh("us-etf", us_etf.refresh, min_interval=900.0, provider="yahoo")
+    return jsonify(data)
+
+
+@app.route("/api/us-etf/refresh")
+def us_etf_refresh_api():
+    """手动后台重算美股ETF：不阻塞请求，先返回当前快照。"""
+    import us_etf
+
+    status = _spawn_bg_refresh("us-etf", us_etf.refresh, min_interval=300.0, provider="yahoo")
+    data = us_etf.snapshot()
+    data["refresh_status"] = status
+    data["refresh"] = bg_tasks.refresh_meta(status)
+    data["note"] = (data.get("note") or "").lstrip(" ·") + _queued_note(status, "后台美股ETF刷新")
+    return jsonify(data)
+
+
 @app.route("/api/ng-boil-kold")
 def ng_boil_kold_api():
     import ng_quant
@@ -797,6 +821,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     print("=" * 60)
     print(f"  期货看板  http://{host}:{port}")
-    print("  大宗商品 · 高低位/成本 · 涨跌榜 · A股指数 · 美气NG · 黄金")
+    print("  大宗商品 · 高低位/成本 · 涨跌榜 · A股指数 · 美气NG · 黄金 · 美股ETF")
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)
