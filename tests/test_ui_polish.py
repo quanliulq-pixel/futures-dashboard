@@ -27,17 +27,17 @@ def test_pages_template_is_exact_static_transform():
         '<head>\n  <base href="/futures-dashboard/" />\n'
         '  <script>window.STATIC_MODE = true;</script>\n', 1,
     ).replace('"/static/', '"./static/').replace(
-        "{{ asset_v }}", "20261113au1"
+        "{{ asset_v }}", "20261114gq1"
     ).replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     assert (ROOT / "docs/index.html").read_text() == expected
     assert '{{ asset_v }}' not in expected
-    assert './static/cn_index_fund_view.js?v=20261113au1' in expected
+    assert './static/cn_index_fund_view.js?v=20261114gq1' in expected
 
 
 
 def test_asset_versions_agree():
     for path in ["app.py", "export_static_pages.py", "docs/index.html"]:
-        assert '20261113au1' in (ROOT / path).read_text()
+        assert '20261114gq1' in (ROOT / path).read_text()
 
 
 

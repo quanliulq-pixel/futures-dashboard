@@ -361,7 +361,7 @@ def test_gold_tab_wired_in_template_docs_and_export():
         html = (ROOT / name).read_text(encoding="utf-8")
         assert '<button type="button" data-view="gold" class="tab-gold">黄金</button>' in html
         assert 'id="view-gold"' in html and 'id="gold-content"' in html and "gold_view.js?v=" in html
-    assert "20261113au1" in (ROOT / "docs/index.html").read_text(encoding="utf-8")
+    assert "20261114gq1" in (ROOT / "docs/index.html").read_text(encoding="utf-8")
     exp = (ROOT / "export_static_pages.py").read_text(encoding="utf-8")
     assert 'API / "gold.json"' in exp and "gold.refresh(use_remote=False)" in exp
     wf = (ROOT / ".github/workflows/refresh_pages.yml").read_text(encoding="utf-8")

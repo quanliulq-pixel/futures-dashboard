@@ -13,3 +13,7 @@ data/ng_quant/put_latest.json
 
 data/gold_latest.json
 data/gold_latest.tmp
+
+# Gold quant paper-tracking runtime cache (static snapshot is committed)
+data/gold_quant_latest.json
+data/gold_quant_latest.tmp

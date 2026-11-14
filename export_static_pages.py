@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261113au1")
+    html = html.replace("{{ asset_v }}", "20261114gq1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -305,6 +305,21 @@ def main() -> None:
             print("gold refresh returned no data; keep previous docs/api/gold.json")
     except Exception as exc:
         print("gold failed:", exc)
+        traceback.print_exc()
+
+    print("gold quant (黄金量化纸面跟踪)...")
+    try:
+        import gold_quant
+
+        # Append-only paper ledger continues from the committed docs/api/gold_quant.json seed.
+        gq_payload = gold_quant.refresh(use_remote=False)
+        if gq_payload.get("status") == "ok":
+            dump(API / "gold_quant.json", gq_payload)
+            print("gold quant errors:", gq_payload.get("errors") or {})
+        else:
+            print("gold quant refresh returned no data; keep previous docs/api/gold_quant.json")
+    except Exception as exc:
+        print("gold quant failed:", exc)
         traceback.print_exc()
 
     dump(API / "history_empty.json", {"bars": [], "note": "静态站不提供K线"})

@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261113au1"
+    asset_v = "20261114gq1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -411,6 +411,30 @@ def gold_refresh_api():
     data["refresh_status"] = status
     data["refresh"] = bg_tasks.refresh_meta(status)
     data["note"] = (data.get("note") or "").lstrip(" ·") + _queued_note(status, "后台黄金数据刷新")
+    return jsonify(data)
+
+
+@app.route("/api/gold/quant")
+def gold_quant_api():
+    """黄金量化纸面跟踪：快照秒回（内存→运行时缓存→Pages 种子），过期时后台单飞刷新。研究参考，不能下单。"""
+    import gold_quant
+
+    data = gold_quant.snapshot()
+    if gold_quant.needs_refresh(data):
+        data["refresh_status"] = _spawn_bg_refresh("gold-quant", gold_quant.refresh, min_interval=900.0, provider=None)
+    return jsonify(data)
+
+
+@app.route("/api/gold/quant/refresh")
+def gold_quant_refresh_api():
+    """手动后台重算纸面跟踪：不阻塞请求，先返回当前快照。"""
+    import gold_quant
+
+    status = _spawn_bg_refresh("gold-quant", gold_quant.refresh, min_interval=300.0, provider=None)
+    data = gold_quant.snapshot()
+    data["refresh_status"] = status
+    data["refresh"] = bg_tasks.refresh_meta(status)
+    data["note"] = (data.get("note") or "").lstrip(" ·") + _queued_note(status, "后台量化纸面跟踪刷新")
     return jsonify(data)
 
 

@@ -16,6 +16,8 @@
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
       '/api/gold': './api/gold.json',
       '/api/gold/refresh': './api/gold.json',
+      '/api/gold/quant': './api/gold_quant.json',
+      '/api/gold/quant/refresh': './api/gold_quant.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };

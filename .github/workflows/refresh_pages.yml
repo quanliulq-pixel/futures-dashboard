@@ -22,6 +22,7 @@ on:
       - "cn_index_etf_holders.py"
       - "data/cn_index_etf_holders.json"
       - "gold.py"
+      - "gold_quant.py"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"
