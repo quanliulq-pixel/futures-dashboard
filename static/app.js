@@ -15,6 +15,7 @@
       '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
       '/api/margin-history': './api/margin_history.json',
+      '/api/main-flow-history': './api/main_flow_history.json',
       '/api/gold': './api/gold.json',
       '/api/gold/refresh': './api/gold.json',
       '/api/gold/quant': './api/gold_quant.json',
@@ -2062,10 +2063,14 @@
 
   function renderMarginHistoryChart(host) {
     if (!host || !window.cnIndexFlowView || !window.cnIndexFlowView.mountChart) return;
-    fetch(apiUrl("/api/margin-history"), { signal: AbortSignal.timeout(15000) })
-      .then((res) => res.ok ? res.json() : null)
-      .then((h) => { window.cnIndexFlowView.mountChart(host, h); })
-      .catch(() => { window.cnIndexFlowView.mountChart(host, null); });
+    const opt = { signal: AbortSignal.timeout(15000) };
+    Promise.all([
+      fetch(apiUrl("/api/margin-history"), opt).then((res) => res.ok ? res.json() : null).catch(() => null),
+      fetch(apiUrl("/api/main-flow-history"), opt).then((res) => res.ok ? res.json() : null).catch(() => null),
+    ]).then(([m, f]) => {
+      if (m && f) m.main_flow = f;
+      window.cnIndexFlowView.mountChart(host, m);
+    });
   }
 
   function resizeHolderHistoryCharts() {

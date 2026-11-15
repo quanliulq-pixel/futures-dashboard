@@ -250,3 +250,63 @@ const y1opt = v.chartOption({
   hist_low: { date: "2014-09-22", balance: 100 },
 }, "1y");
 assert.deepStrictEqual((y1opt.series[0].markPoint.data || []).map((m) => m.name), ["历史最高"]);
+
+// 两融区：新浪口径主力净流入表 + 图上可选柱
+const flowB = JSON.parse(JSON.stringify(histB));
+flowB.main_flow_definition = "主力净流入=特大单（r0）净额，为新浪按成交单规模划分的估算口径，不是交易所官方数据；与东方财富「主力=超大单+大单」不同。";
+flowB.market.main_sh = {
+  status: "ok", asof: "2026-11-13", net_1d: -82.5, net_5d: 409.4, net_20d: 2366.6,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+flowB.market.main_sz = {
+  status: "ok", asof: "2026-11-13", net_1d: -133.4, net_5d: 728.8, net_20d: 4069.5,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+flowB.market.main_total = {
+  status: "ok", asof: "2026-11-13", net_1d: -215.9, net_5d: 1138.1, net_20d: 6436.1,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+const flowSum = v.summaryHtml(flowB);
+assert.ok(flowSum.includes("主力净流入（新浪口径）"));
+assert.ok(flowSum.includes("特大单") && flowSum.includes("不是交易所官方数据"));
+assert.ok(flowSum.includes("当日(亿元)") && flowSum.includes("5日累计") && flowSum.includes("20日累计"));
+assert.ok(flowSum.includes("沪市") && flowSum.includes("深市") && flowSum.includes("两市合计"));
+assert.ok(flowSum.includes('class="down">-82.5') && flowSum.includes('class="down">-133.4') && flowSum.includes('class="down">-215.9'));
+assert.ok(flowSum.includes('class="up">+409.4') && flowSum.includes('class="up">+1138.1'));
+assert.ok(flowSum.includes("叠加主力净流入") && flowSum.includes("data-flow-toggle"));
+assert.ok(flowSum.includes("href=\"https://vip.stock.finance.sina.com.cn/moneyflow/\""));
+// 缺数据不编造
+const noFlow = v.summaryHtml(histB);
+assert.ok(noFlow.includes("主力净流入（新浪口径）"));
+assert.ok((noFlow.match(/无数据/g) || []).length >= 3);
+
+const flowSnap = JSON.parse(JSON.stringify(flowB));
+flowSnap.main_flow_from_snapshot = true;
+flowSnap.main_flow_snapshot_asof = "2026-11-13";
+flowSnap.market.main_sh.from_snapshot = true;
+assert.ok(v.summaryHtml(flowSnap).includes("主力净流入为上次快照（2026-11-13）"));
+
+const flowSeries = [
+  ["2026-06-24", 10.0],
+  ["2026-06-25", -20.0],
+  ["2026-06-26", 5.0],
+];
+const flowOpt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y", { series: flowSeries }, true);
+assert.ok(flowOpt.series.length === 3 && flowOpt.series[2].type === "bar");
+assert.strictEqual(flowOpt.series[2].yAxisIndex, 2);
+assert.strictEqual(flowOpt.yAxis[2].name, "主力净流入(亿元)");
+const flowTip = flowOpt.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]);
+assert.ok(flowTip.includes("主力净流入") && flowTip.includes("-20") && flowTip.includes("2026-06-25"));
+const hidden = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y", { series: flowSeries }, false);
+assert.strictEqual(hidden.series.length, 2);
+assert.ok(!hidden.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]).includes("主力净流入"));

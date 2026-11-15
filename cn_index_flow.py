@@ -1213,6 +1213,11 @@ class IndexFlowProvider:
             bundle = ensure_margin_history(bundle, live=self._fetchers is None)
         except Exception:  # noqa: BLE001
             logger.warning("margin history attach failed", exc_info=True)
+        try:
+            from main_flow_history import ensure_main_flow
+            bundle = ensure_main_flow(bundle, live=self._fetchers is None)
+        except Exception:  # noqa: BLE001
+            logger.warning("main flow history attach failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)
