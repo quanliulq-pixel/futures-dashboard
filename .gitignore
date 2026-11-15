@@ -23,3 +23,7 @@ data/us_etf_latest.tmp
 # Margin history runtime cache (committed seed is data/margin_history.json)
 data/margin_history_latest.json
 data/margin_history_latest.tmp
+
+# Main-force net inflow runtime cache (committed seed is data/main_flow_history.json)
+data/main_flow_history_latest.json
+data/main_flow_history_latest.tmp

@@ -25,6 +25,8 @@ const b = {
   },
   market: {
     main: { status: "ok", asof: "2026-11-11", net_1d: 198.47, net_5d: null, net_20d: null },
+    main_total: { status: "ok", asof: "2026-11-13", net_1d: -215.9, net_5d: 1138.12, net_20d: 6436.14,
+      source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/" },
     northbound: { status: "missing", reason: "停止披露" },
     margin_sh: { status: "ok", asof: "2026-11-11", balance: 11767.5, chg_1d: 23.6, chg_5d: -8.6, chg_20d: -1033.3 },
     margin_sz: { status: "missing", reason: "接口无返回" },
@@ -48,10 +50,23 @@ assert.ok(miss.includes("机构ETF持仓") && miss.includes("无数据（无完�
 const sum = v.summaryHtml(b);
 assert.ok(sum.includes("北向资金净买额</strong>：无数据（停止披露）"));
 assert.ok(sum.includes("沪深两市主力净流入"));
+assert.ok(sum.includes('title="') && sum.includes("特大单"));
+assert.ok(sum.includes('class="down">-215.9'));
+assert.ok(sum.includes('class="up">+1138.1'));
+assert.ok(sum.includes('class="up">+6436.1'));
+assert.ok(sum.includes("2026-11-13"));
+assert.ok(sum.includes("新浪财经"));
+assert.ok(!sum.includes("+198.47"), "top line must not use Eastmoney market.main");
 assert.ok(sum.includes("-1033.3"));
 assert.ok(sum.includes("&lt;不计分&gt;"), "notes escaped");
 assert.ok(sum.includes("深交所") && sum.includes("无数据（接口无返回）"));
 assert.ok(sum.includes("机构ETF持仓（半年报/年报）"));
+const noSina = JSON.parse(JSON.stringify(b));
+delete noSina.market.main_total;
+const noSinaSum = v.summaryHtml(noSina);
+assert.ok(noSinaSum.includes("沪深两市主力净流入"));
+assert.ok(noSinaSum.includes("无数据"));
+assert.ok(!noSinaSum.includes("+198.47"));
 assert.ok(sum.includes("2026-06-30") && sum.includes("348.75") && sum.includes("72.76%"));
 assert.ok(sum.includes('class="down">-1968.88'));
 assert.ok(sum.includes("无数据（无完整持有人结构）"));
@@ -80,11 +95,13 @@ assert.ok(snapCard.includes('class="up">+110.13'));
 assert.ok(snapCard.includes("上次快照"));
 assert.ok(snapCard.includes("2026-11-11"));
 assert.ok(!snapCard.includes("无数据（限流）"));
+snap.market.main_total = Object.assign({}, snap.market.main_total, { from_snapshot: true });
 const snapSum = v.summaryHtml(snap);
 assert.ok(snapSum.includes("沪深两市主力净流入"));
-assert.ok(snapSum.includes('class="up">+198.47') || snapSum.includes('class="up">+198.47'.replace("+198.47", "+198.47")));
-assert.ok(snapSum.includes("+198.47"));
+assert.ok(snapSum.includes('class="down">-215.9'));
+assert.ok(!snapSum.includes("+198.47"), "top line must not use Eastmoney market.main");
 assert.ok(snapSum.includes("上次快照"));
+assert.ok(snapSum.includes("主力净流入为上次快照") || snapSum.includes("数据 2026-11-13 · 上次快照"));
 assert.ok(snapSum.includes("主力为上次快照（2026-11-11）"));
 assert.ok(snapSum.includes("北向资金净买额</strong>：无数据（停止披露）"));
 assert.ok(snapSum.includes('class="down">-0.45'));
@@ -189,3 +206,124 @@ const histSnapSum = v.summaryHtml(histSnap);
 assert.ok(histSnapSum.includes("两融历史高低为上次快照（2026-11-12）"));
 assert.ok(histSnapSum.includes("上次快照（2026-11-12）"));
 assert.ok(histSnapSum.includes("15211.1"));
+
+// 两融历史走势图：选择器、按周抽样实际点、高低标注、tooltip 字段
+const chartSum = v.summaryHtml(histB);
+assert.ok(chartSum.includes("data-margin-chart"));
+assert.ok(chartSum.includes("data-mkt=\"margin_sh\"") && chartSum.includes("上交所"));
+assert.ok(chartSum.includes("data-mkt=\"margin_sz\"") && chartSum.includes("深交所"));
+assert.ok(chartSum.includes("data-mkt=\"margin_total\"") && chartSum.includes("沪深合计"));
+assert.ok(chartSum.includes("data-range=\"1y\"") && chartSum.includes("1年"));
+assert.ok(chartSum.includes("data-range=\"3y\"") && chartSum.includes("3年"));
+assert.ok(chartSum.includes("data-range=\"5y\"") && chartSum.includes("5年"));
+assert.ok(chartSum.includes("data-range=\"all\"") && chartSum.includes("全部"));
+
+const daily = [
+  ["2014-09-22", 100.0, 2289.87],
+  ["2014-09-23", 110.0, 2300.0],
+  ["2014-09-26", 120.0, 2400.0],
+  ["2026-06-24", 190.0, 4100.0],
+  ["2026-06-25", 200.0, 4120.28],
+  ["2026-06-26", 198.0, 4100.0],
+];
+const weekly = v.downsampleWeekly(daily);
+assert.deepStrictEqual(weekly.map((p) => p[0]), ["2014-09-26", "2026-06-26"]);
+const allPts = v.filterChartSeries(daily, "all", { date: "2026-06-25", balance: 200 }, { date: "2014-09-22", balance: 100 });
+assert.deepStrictEqual(allPts.map((p) => p[0]), ["2014-09-22", "2014-09-26", "2026-06-25", "2026-06-26"]);
+// 1 年窗口不含 2014 最低点，且保持日频（不周抽样）
+const y1 = v.filterChartSeries(daily, "1y", { date: "2026-06-25", balance: 200 }, { date: "2014-09-22", balance: 100 });
+assert.deepStrictEqual(y1.map((p) => p[0]), ["2026-06-24", "2026-06-25", "2026-06-26"]);
+
+const opt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200, index_close: 4120.28 },
+  hist_low: { date: "2014-09-22", balance: 100, index_close: 2289.87 },
+}, "all");
+assert.strictEqual(opt.yAxis[0].name, "融资余额(亿元)");
+assert.strictEqual(opt.yAxis[1].name, "沪深300");
+assert.strictEqual(opt.series[0].yAxisIndex, 0);
+assert.strictEqual(opt.series[1].yAxisIndex, 1);
+assert.strictEqual(opt.series[0].connectNulls, false);
+assert.strictEqual(opt.series[1].connectNulls, false);
+const markNames = (opt.series[0].markPoint.data || []).map((m) => m.name);
+assert.ok(markNames.includes("历史最高") && markNames.includes("历史最低"));
+const tip = opt.tooltip.formatter([{ dataIndex: allPts.findIndex((p) => p[0] === "2026-06-25") }]);
+assert.ok(tip.includes("2026-06-25") && tip.includes("融资余额") && tip.includes("沪深300") && tip.includes("200") && tip.includes("4120.28"));
+// 缺指数当天 tooltip 显示无数据，不插补
+const missing = v.chartOption({
+  index_name: "上证指数",
+  series: [["2026-06-25", 200, null]],
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: null,
+}, "1y");
+const missTip = missing.tooltip.formatter([{ dataIndex: 0 }]);
+assert.ok(missTip.includes("无数据") && missTip.includes("上证指数"));
+// 1 年范围不标窗口外最低点
+const y1opt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y");
+assert.deepStrictEqual((y1opt.series[0].markPoint.data || []).map((m) => m.name), ["历史最高"]);
+
+// 两融区：新浪口径主力净流入表 + 图上可选柱
+const flowB = JSON.parse(JSON.stringify(histB));
+flowB.main_flow_definition = "主力净流入=特大单（r0）净额，为新浪按成交单规模划分的估算口径，不是交易所官方数据；与东方财富「主力=超大单+大单」不同。";
+flowB.market.main_sh = {
+  status: "ok", asof: "2026-11-13", net_1d: -82.5, net_5d: 409.4, net_20d: 2366.6,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+flowB.market.main_sz = {
+  status: "ok", asof: "2026-11-13", net_1d: -133.4, net_5d: 728.8, net_20d: 4069.5,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+flowB.market.main_total = {
+  status: "ok", asof: "2026-11-13", net_1d: -215.9, net_5d: 1138.1, net_20d: 6436.1,
+  source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/",
+};
+const flowSum = v.summaryHtml(flowB);
+assert.ok(flowSum.includes("主力净流入（新浪口径）"));
+assert.ok(flowSum.includes("特大单") && flowSum.includes("不是交易所官方数据"));
+assert.ok(flowSum.includes("当日(亿元)") && flowSum.includes("5日累计") && flowSum.includes("20日累计"));
+assert.ok(flowSum.includes("沪市") && flowSum.includes("深市") && flowSum.includes("两市合计"));
+assert.ok(flowSum.includes('class="down">-82.5') && flowSum.includes('class="down">-133.4') && flowSum.includes('class="down">-215.9'));
+assert.ok(flowSum.includes('class="up">+409.4') && flowSum.includes('class="up">+1138.1'));
+assert.ok(flowSum.includes("叠加主力净流入") && flowSum.includes("data-flow-toggle"));
+assert.ok(flowSum.includes("href=\"https://vip.stock.finance.sina.com.cn/moneyflow/\""));
+// 缺数据不编造
+const noFlow = v.summaryHtml(histB);
+assert.ok(noFlow.includes("主力净流入（新浪口径）"));
+assert.ok((noFlow.match(/无数据/g) || []).length >= 3);
+
+const flowSnap = JSON.parse(JSON.stringify(flowB));
+flowSnap.main_flow_from_snapshot = true;
+flowSnap.main_flow_snapshot_asof = "2026-11-13";
+flowSnap.market.main_sh.from_snapshot = true;
+assert.ok(v.summaryHtml(flowSnap).includes("主力净流入为上次快照（2026-11-13）"));
+
+const flowSeries = [
+  ["2026-06-24", 10.0],
+  ["2026-06-25", -20.0],
+  ["2026-06-26", 5.0],
+];
+const flowOpt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y", { series: flowSeries }, true);
+assert.ok(flowOpt.series.length === 3 && flowOpt.series[2].type === "bar");
+assert.strictEqual(flowOpt.series[2].yAxisIndex, 2);
+assert.strictEqual(flowOpt.yAxis[2].name, "主力净流入(亿元)");
+const flowTip = flowOpt.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]);
+assert.ok(flowTip.includes("主力净流入") && flowTip.includes("-20") && flowTip.includes("2026-06-25"));
+const hidden = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y", { series: flowSeries }, false);
+assert.strictEqual(hidden.series.length, 2);
+assert.ok(!hidden.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]).includes("主力净流入"));

@@ -384,7 +384,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
     flows = _index_flows()
     if flows is not None:
         payload["index_flows"] = flows
-        payload["method"]["flows"] = "资金进出：东方财富主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额、基金半年报/年报机构ETF持仓；只展示，不计入评分"
+        payload["method"]["flows"] = "资金进出：新浪板块资金流向（两市主力净流入，特大单）、东方财富指数主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额、基金半年报/年报机构ETF持仓；只展示，不计入评分"
     _cache = (time.time(), payload)
     return payload
 

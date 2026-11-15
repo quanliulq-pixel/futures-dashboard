@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261115mrg2"
+    asset_v = "20261115mrg5"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -680,6 +680,15 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         except Exception:
             logger.debug("attach margin history failed", exc_info=True)
         try:
+            from main_flow_history import ensure_main_flow
+            if payload.get("index_flows") is not None:
+                flows = ensure_main_flow(payload["index_flows"], live=False)
+                if flows is not payload["index_flows"]:
+                    payload = dict(payload)
+                    payload["index_flows"] = flows
+        except Exception:
+            logger.debug("attach main flow history failed", exc_info=True)
+        try:
             from cn_index_etf_holders_history import attach_holder_history
             payload = attach_holder_history(payload)
         except Exception:
@@ -769,6 +778,28 @@ def cn_index_etf_holders_history_api():
     except Exception as exc:
         logger.debug("holder history api failed", exc_info=True)
         return jsonify({"status": "missing", "reason": str(exc)[:120], "indices": {}, "in_score": False}), 200
+
+
+@app.route("/api/margin-history")
+def margin_history_api():
+    """Serve cached 两融融资余额 + 对应指数序列. Request thread: seed only, never network."""
+    try:
+        from margin_history import public_history_bundle
+        return jsonify(public_history_bundle(live=False))
+    except Exception as exc:
+        logger.debug("margin history api failed", exc_info=True)
+        return jsonify({"status": "missing", "reason": str(exc)[:120], "markets": {}}), 200
+
+
+@app.route("/api/main-flow-history")
+def main_flow_history_api():
+    """Serve cached 沪/深/两市主力净流入（新浪口径）. Request thread: seed only, never network."""
+    try:
+        from main_flow_history import public_history_bundle
+        return jsonify(public_history_bundle(live=False))
+    except Exception as exc:
+        logger.debug("main flow history api failed", exc_info=True)
+        return jsonify({"status": "missing", "reason": str(exc)[:120], "markets": {}}), 200
 
 
 @app.route("/api/cn-index-advice")

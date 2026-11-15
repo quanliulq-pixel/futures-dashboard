@@ -5,12 +5,13 @@
 - 只用公开免费源，逐项带数据日期 asof、来源与 URL；取不到或过期 ⇒ status="missing"（前端显示「无数据」），绝不插补。
 - 单位统一为 亿元（ETF 份额为 亿份）；正 = 流入（前端红色），负 = 流出（前端绿色）。
 - 只在后台任务 / 静态导出里联网；请求线程只读缓存或快照。
-- 资金流只做展示，不并入基本面/政策评分：两融余额已在「流动性」组内，主力净流入为东方财富按成交单大小划分的口径，
+- 资金流只做展示，不并入基本面/政策评分：两融余额已在「流动性」组内，主力净流入为估算口径，
   噪声大，若再加权会和流动性因子重复计数，也会稀释用户要求的政策高权重。
 
 数据源
-- 主力净流入：东方财富 push2his fflow/daykline（指数成分股合计；主力=超大单+大单），近 30 个交易日日线；
-  沪深两市合计用 secid=上证指数 + secid2=深证成指（与东方财富「大盘资金流」页面同口径）。
+- 沪深两市主力净流入（总览）：新浪财经板块资金流向 MoneyFlow.ssl_bkzj_zjlrqs，主力=特大单（r0）净额；
+  沪市=上证指数板块，深市=深证综指板块，两市合计=同一日相加（不含北交所）。不走东方财富 push2。
+- 各指数卡片主力净流入：东方财富 push2his fflow/daykline（指数成分股合计；主力=超大单+大单），近 30 个交易日日线。
 - ETF 份额：上交所 ETF 规模（commonQuery COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L，按统计日期）；
   净申赎金额（估算）= 份额变化 × 区间平均收盘价（新浪日线）。深交所只提供当日份额、没有历史，深市 ETF 不纳入。
 - 两融：上交所融资余额（akshare.stock_margin_sse，元）+ 深交所（akshare.stock_margin_szse，亿元）。
@@ -64,8 +65,6 @@ FLOW_INDICES: list[dict] = [
     {"id": "chinext", "name": "创业板指", "secid": "0.399006", "tracked": False, "etfs": [],
      "etf_note": "创业板ETF在深交所上市，深交所不提供历史份额，无法计算申赎"},
 ]
-MARKET_SECIDS = ("1.000001", "0.399001")
-
 FFLOW_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
 SSE_ETF_URL = "https://query.sse.com.cn/commonQuery.do"
 SINA_KLINE_URL = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
@@ -73,8 +72,6 @@ SINA_KLINE_URL = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.p
 SRC = {
     "main": {"label": "东方财富 指数资金流（主力=超大单+大单）", "url": "https://data.eastmoney.com/zjlx/dpzjlx.html",
              "function": "push2his.eastmoney.com fflow/daykline"},
-    "market": {"label": "东方财富 大盘资金流（沪深两市）", "url": "https://data.eastmoney.com/zjlx/dpzjlx.html",
-               "function": "push2his.eastmoney.com fflow/daykline secid=1.000001&secid2=0.399001"},
     "etf": {"label": "上交所 ETF 规模（份额）+ 新浪日线收盘价", "url": "https://www.sse.com.cn/assortment/fund/etf/list/scale/",
             "function": "query.sse.com.cn COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L"},
     "margin_sh": {"label": "上交所 融资融券汇总", "url": "https://www.sse.com.cn/market/othersdata/margin/sum/",
@@ -505,9 +502,8 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
                            source=SRC["etf"]["label"], source_url=SRC["etf"]["url"])
         indices[iid] = {"id": iid, "name": meta["name"], "tracked": meta["tracked"], "main": main, "etf": etf}
 
-    mrows = raw.get("main:market")
-    market_main = main_flow_summary(mrows, today) if mrows else _missing(errors.get("main:market") or "接口无返回")
-    market_main.update({"source": SRC["market"]["label"], "source_url": SRC["market"]["url"]})
+    # 沪深两市总览改由新浪 main_total 挂载（ensure_main_flow），不再用 push2 大盘资金流。
+    market_main = _missing("沪深两市总览改用新浪板块资金流向（特大单 r0）")
 
     sh = margin_summary(raw.get("margin_sh") or [], today, "margin_sh", cal)
     if not raw.get("margin_sh") and errors.get("margin_sh"):
@@ -532,7 +528,7 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
         "in_score": False,
         "notes": [
             "资金流只做展示，不计入基本面/综合分（两融已在流动性因子中，避免重复计数；政策仍是最高权重）",
-            "主力净流入为东方财富按单笔成交额划分的估算口径（超大单+大单），不是交易所官方申报数据",
+            "沪深两市主力净流入（总览）为新浪特大单（r0）估算口径；各指数卡片主力净流入仍为东方财富超大单+大单口径。二者都不是交易所官方申报数据",
             "ETF 净申赎=份额变化×区间平均收盘价，为估算；深交所上市ETF无历史份额，未纳入",
             NORTHBOUND_REASON,
         ],
@@ -549,7 +545,6 @@ def fetch_main_all() -> dict:
     """串行拉取各指数 + 两市合计主力资金；遇到限流立刻停，剩余项记错误（显示无数据）。"""
     out: dict[str, Any] = {"errors": {}}
     jobs = [(f"main:{m['id']}", m["secid"], None) for m in FLOW_INDICES]
-    jobs.append(("main:market", MARKET_SECIDS[0], MARKET_SECIDS[1]))
     for i, (key, sid, sid2) in enumerate(jobs):
         if i:
             time.sleep(FFLOW_SPACING_SEC)
@@ -1146,7 +1141,6 @@ class IndexFlowProvider:
         elif "main_all" in errors:
             for m in FLOW_INDICES:
                 errors.setdefault(f"main:{m['id']}", errors["main_all"])
-            errors.setdefault("main:market", errors["main_all"])
 
         cal_main = [r["date"] for r in (raw.get("main:csi300") or [])]
         cal = _cal_from(raw.pop("cal", None) or [], cal_main)
@@ -1213,6 +1207,11 @@ class IndexFlowProvider:
             bundle = ensure_margin_history(bundle, live=self._fetchers is None)
         except Exception:  # noqa: BLE001
             logger.warning("margin history attach failed", exc_info=True)
+        try:
+            from main_flow_history import ensure_main_flow
+            bundle = ensure_main_flow(bundle, live=self._fetchers is None)
+        except Exception:  # noqa: BLE001
+            logger.warning("main flow history attach failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)

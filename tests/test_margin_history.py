@@ -255,3 +255,136 @@ def test_ensure_offline_does_not_call_network(monkeypatch):
     assert called == []
     assert out["market"]["margin_sh"]["hist_high"]["date"] == "2026-06-25"
     assert out["market"]["margin_sh"].get("hist_from_snapshot") is True
+
+
+def test_series_for_chart_no_interpolation():
+    bal = [(date(2026, 6, 24), 100.0), (date(2026, 6, 25), 200.0), (date(2026, 6, 26), 150.0)]
+    idx = [(date(2026, 6, 24), 4000.0), (date(2026, 6, 26), 4100.0)]  # 缺 25 日
+    rows = H.series_for_chart(bal, idx)
+    assert rows[0] == ["2026-06-24", 100.0, 4000.0]
+    assert rows[1][0] == "2026-06-25" and rows[1][1] == 200.0 and rows[1][2] is None
+    assert rows[2] == ["2026-06-26", 150.0, 4100.0]
+
+
+def test_downsample_weekly_keeps_actual_last_point_and_reinserts_extrema():
+    # 2014-09-22 Mon ... 09-26 Fri; 2026-06-22 Mon ... 06-26 Fri
+    daily = [
+        ["2014-09-22", 100.0, 2289.87],
+        ["2014-09-23", 110.0, 2300.0],
+        ["2014-09-26", 120.0, 2400.0],
+        ["2026-06-24", 190.0, 4100.0],
+        ["2026-06-25", 200.0, 4120.28],
+        ["2026-06-26", 198.0, 4100.0],
+    ]
+    weekly = H.downsample_weekly(daily)
+    assert [p[0] for p in weekly] == ["2014-09-26", "2026-06-26"]
+    merged = H.insert_extrema_points(weekly, daily, "2026-06-25", "2014-09-22")
+    assert [p[0] for p in merged] == ["2014-09-22", "2014-09-26", "2026-06-25", "2026-06-26"]
+    # 窗口外的极值不加
+    late = [p for p in daily if p[0] >= "2026-06-01"]
+    late_w = H.downsample_weekly(late)
+    only = H.insert_extrema_points(late_w, late, "2026-06-25", "2014-09-22")
+    assert "2014-09-22" not in [p[0] for p in only]
+    assert "2026-06-25" in [p[0] for p in only]
+
+
+def test_refresh_merges_cached_index_incrementally(tmp_path, monkeypatch):
+    seed = {
+        "sh": [["2026-06-25", 100.0]],
+        "sz": [["2026-06-25", 80.0]],
+        "index": {"sh000001": [["2026-06-25", 4120.28]],
+                  "sz399001": [["2026-06-25", 16344.08]],
+                  "sh000300": [["2026-06-25", 5020.1]]},
+        "extrema": {},
+    }
+    monkeypatch.setattr(H, "RUNTIME_PATH", tmp_path / "latest.json")
+    seen = []
+
+    def fetch_sh(start, end):
+        return [(date(2026, 6, 26), 120.0)]
+
+    def fetch_sz(start, end):
+        return [(date(2026, 6, 26), 90.0)], {}
+
+    def fetch_index(symbol, datalen=8000):
+        seen.append((symbol, datalen))
+        close = {"sh000001": 4000.0, "sz399001": 12000.0, "sh000300": 4500.0}[symbol]
+        return [(date(2026, 6, 26), close)]
+
+    out = H.refresh_history(live=True, write=True, today=TODAY, seed=seed,
+                            fetch_sh=fetch_sh, fetch_sz=fetch_sz, fetch_index=fetch_index)
+    # seed 指数不从 2010-03-31 起，应拉满
+    assert all(d == 8000 for _, d in seen)
+    assert out["index"]["sh000001"][0] == ["2026-06-25", 4120.28]
+    assert out["index"]["sh000001"][-1] == ["2026-06-26", 4000.0]
+    # 再刷一次：序列已覆盖起点则只拉 260
+    seed2 = {k: out[k] for k in ("sh", "sz", "index", "extrema")}
+    seed2["index"] = {"sh000001": [["2010-03-31", 3109.1], ["2026-06-26", 4000.0]],
+                      "sz399001": [["2010-03-31", 12494.35], ["2026-06-26", 12000.0]],
+                      "sh000300": [["2010-03-31", 3345.6], ["2026-06-26", 4500.0]]}
+    seen.clear()
+
+    def fetch_none(start, end):
+        return []
+
+    def fetch_sz_none(start, end):
+        return [], {}
+
+    def fetch_index2(symbol, datalen=8000):
+        seen.append((symbol, datalen))
+        return []
+
+    out2 = H.refresh_history(live=True, write=False, today=TODAY, seed=seed2,
+                             fetch_sh=fetch_none, fetch_sz=fetch_sz_none, fetch_index=fetch_index2)
+    assert all(d == 260 for _, d in seen)
+    assert out2["index"]["sh000001"][0][0] == "2010-03-31"
+
+
+def test_committed_seed_includes_index_closes_on_extrema_dates():
+    seed = H.load_history_seed(paths=(H.SEED_PATH,))
+    idx = H.index_from_seed(seed)
+    for key in H.MARGIN_KEYS:
+        series = idx[key]
+        assert series[0][0] == date(2010, 3, 31)
+        assert series[-1][0] >= date(2026, 11, 13)
+        stored = seed["extrema"][key]
+        assert H.close_on(series, date(2026, 6, 25)) == pytest.approx(stored["hist_high"]["index_close"], abs=0.011)
+        assert H.close_on(series, date(2014, 9, 22)) == pytest.approx(stored["hist_low"]["index_close"], abs=0.011)
+
+
+def test_public_bundle_offline_and_endpoint_no_network(monkeypatch):
+    called = []
+
+    def boom(*a, **k):
+        called.append(1)
+        raise AssertionError("should not network")
+
+    monkeypatch.setattr(H, "fetch_margin_sh_history", boom)
+    monkeypatch.setattr(H, "fetch_margin_sz_history", boom)
+    monkeypatch.setattr(H, "fetch_index_closes", boom)
+    bundle = H.public_history_bundle(live=False)
+    assert called == []
+    assert bundle["status"] == "ok"
+    sh = bundle["markets"]["margin_sh"]
+    assert sh["label"] == "上交所" and sh["index_name"] == "上证指数"
+    assert sh["series"][0][0] == "2010-03-31"
+    # 2010-03-31 有余额和指数
+    assert sh["series"][0][1] == pytest.approx(0.0582, abs=1e-4)
+    assert sh["series"][0][2] == pytest.approx(3109.11, abs=0.02)
+    high = next(p for p in sh["series"] if p[0] == "2026-06-25")
+    assert high[1] == pytest.approx(15211.1408, rel=1e-6)
+    assert high[2] == pytest.approx(4120.28, abs=0.011)
+    assert sh["hist_low"]["date"] == "2014-09-22"
+    tot = bundle["markets"]["margin_total"]
+    # 沪深合计仅共同日期，不含北交所
+    assert tot["asof"] == "2026-11-12" or tot["asof"] <= bundle["markets"]["margin_sh"]["asof"]
+
+    import os
+    os.environ["SKIP_BG_WARMUP"] = "1"
+    import app as app_mod
+    r = app_mod.app.test_client().get("/api/margin-history")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "ok"
+    assert "series" in data["markets"]["margin_sz"]
+    assert called == []

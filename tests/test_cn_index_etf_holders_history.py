@@ -208,7 +208,15 @@ def test_export_html_copies_history_seed(tmp_path, monkeypatch):
     import json
     data = json.loads(dest.read_text(encoding="utf-8"))
     assert data["indices"]["csi300"]["series"]
-    assert "20261115mrg2" in (tmp_path / "index.html").read_text(encoding="utf-8")
+    mh = tmp_path / "api" / "margin_history.json"
+    assert mh.is_file()
+    mdata = json.loads(mh.read_text(encoding="utf-8"))
+    assert mdata["markets"]["margin_sh"]["series"]
+    mf = tmp_path / "api" / "main_flow_history.json"
+    assert mf.is_file()
+    fdata = json.loads(mf.read_text(encoding="utf-8"))
+    assert fdata["markets"]["main_total"]["series"]
+    assert "20261115mrg5" in (tmp_path / "index.html").read_text(encoding="utf-8")
 
     assert (tmp_path / "static" / "cn_index_holders_charts.js").is_file()
 
@@ -219,12 +227,20 @@ def test_docs_snapshot_has_history_and_asset_v():
     data = json.loads(docs)
     assert data["stats"]["same_period"]["pooled"]["n"] == 154
     html = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
-    assert "20261115mrg2" in html
+    assert "20261115mrg5" in html
 
     assert "cn_index_holders_charts.js" in html
     assert "机构持仓对照" in html
     cn = json.loads((ROOT / "docs" / "api" / "cn_indices.json").read_text(encoding="utf-8"))
     assert cn["holder_history"]["indices"]["csi300"]["series"]
+    mh = json.loads((ROOT / "docs" / "api" / "margin_history.json").read_text(encoding="utf-8"))
+    assert mh["status"] == "ok"
+    assert mh["markets"]["margin_total"]["hist_low"]["date"] == "2014-09-22"
+    assert mh["markets"]["margin_sh"]["series"][0][0] == "2010-03-31"
+    mf = json.loads((ROOT / "docs" / "api" / "main_flow_history.json").read_text(encoding="utf-8"))
+    assert mf["status"] == "ok"
+    assert mf["markets"]["main_sh"]["series"][0][0] == "2010-03-08"
+    assert mf["markets"]["main_total"]["net_1d"] is not None
     # 创业板持仓不因申赎缺失被抹掉（快照里仍应有 index_flows holders）
     flows = cn.get("index_flows") or {}
     if flows.get("indices") and "chinext" in flows["indices"]:

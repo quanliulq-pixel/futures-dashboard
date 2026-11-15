@@ -14,6 +14,8 @@
       '/api/cn-indices/refresh': './api/cn_indices.json',
       '/api/cn-index-advice': './api/cn_index_advice.json',
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
+      '/api/margin-history': './api/margin_history.json',
+      '/api/main-flow-history': './api/main_flow_history.json',
       '/api/gold': './api/gold.json',
       '/api/gold/refresh': './api/gold.json',
       '/api/gold/quant': './api/gold_quant.json',
@@ -805,6 +807,7 @@
       setTimeout(resizeHolderHistoryCharts, 250);
     } else if (window.cnIndexHoldersCharts) {
       window.cnIndexHoldersCharts.dispose();
+      if (window.cnIndexFlowView && window.cnIndexFlowView.disposeChart) window.cnIndexFlowView.disposeChart();
     }
   }
 
@@ -2058,8 +2061,21 @@
       .catch(() => { window.cnIndexHoldersCharts.mount(host, null); });
   }
 
+  function renderMarginHistoryChart(host) {
+    if (!host || !window.cnIndexFlowView || !window.cnIndexFlowView.mountChart) return;
+    const opt = { signal: AbortSignal.timeout(15000) };
+    Promise.all([
+      fetch(apiUrl("/api/margin-history"), opt).then((res) => res.ok ? res.json() : null).catch(() => null),
+      fetch(apiUrl("/api/main-flow-history"), opt).then((res) => res.ok ? res.json() : null).catch(() => null),
+    ]).then(([m, f]) => {
+      if (m && f) m.main_flow = f;
+      window.cnIndexFlowView.mountChart(host, m);
+    });
+  }
+
   function resizeHolderHistoryCharts() {
     if (window.cnIndexHoldersCharts) window.cnIndexHoldersCharts.resize();
+    if (window.cnIndexFlowView && window.cnIndexFlowView.resizeChart) window.cnIndexFlowView.resizeChart();
   }
 
   async function loadCnIndices(force = false) {
@@ -2197,7 +2213,10 @@
       }).join("");
     }
     const flowBody = $("#cnidx-flow-body");
-    if (flowBody && window.cnIndexFlowView) flowBody.innerHTML = window.cnIndexFlowView.summaryHtml(data.index_flows);
+    if (flowBody && window.cnIndexFlowView) {
+      flowBody.innerHTML = window.cnIndexFlowView.summaryHtml(data.index_flows);
+      renderMarginHistoryChart(flowBody);
+    }
     renderHolderHistoryCharts(data);
     const satBody = $("#cnidx-sat-body");
     if (satBody) {

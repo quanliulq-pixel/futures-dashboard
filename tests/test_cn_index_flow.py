@@ -134,6 +134,15 @@ def test_provider_with_injected_fetchers_caches_and_records_errors(monkeypatch):
     assert p.get_cached() is b and p.refresh() is b
 
 
+def test_build_flow_bundle_ignores_market_fflow():
+    raw = _raw_fixture()
+    raw["main:market"] = list(raw["main:csi300"])
+    b = F.build_flow_bundle(raw, {}, TODAY)
+    assert b["market"]["main"]["status"] == "missing"
+    assert "新浪" in (b["market"]["main"].get("reason") or "")
+    assert b["indices"]["csi300"]["main"]["status"] == "ok"
+
+
 def test_pick_flow_bundle_prefers_fresh():
     old = {"fetched_at": "2026-11-01T09:00:00+08:00"}
     new = {"fetched_at": "2026-11-11T09:00:00+08:00"}
