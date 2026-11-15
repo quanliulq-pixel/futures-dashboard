@@ -123,3 +123,69 @@ assert.ok(mgSum.includes("10883.9") && mgSum.includes('class="down">-5.0') && mg
 assert.ok(mgSum.includes("2026-11-12 · 上次快照 · "));
 
 console.log("cn_index_flow_view tests passed");
+
+// 两融历史最高/最低 + 对应指数
+assert.strictEqual(v.fmtYi(15211.1408), "15211.1");
+assert.strictEqual(v.fmtYi(0.0582), "0.0582");
+assert.strictEqual(v.fmtYi(0.0067), "0.0067");
+assert.strictEqual(v.fmtYi(null), null);
+
+const histB = JSON.parse(JSON.stringify(b));
+histB.margin_history_coverage_start = "2010-03-31";
+histB.margin_history_low_coverage_start = "2014-09-22";
+histB.market.margin_sh = {
+  status: "ok", asof: "2026-11-13", balance: 11692.6, chg_1d: -86.7, chg_5d: 10.0, chg_20d: -20.0,
+  source: "上交所 融资融券汇总", source_url: "https://www.sse.com.cn/market/othersdata/margin/sum/",
+  hist_coverage_start: "2010-03-31", hist_low_coverage_start: "2014-09-22",
+  index_name: "上证指数", index_code: "000001",
+  hist_high: { date: "2026-06-25", balance: 15211.1408, index_close: 4120.28, index_name: "上证指数", index_code: "000001" },
+  hist_low: { date: "2014-09-22", balance: 3776.4166, index_close: 2289.87, index_name: "上证指数", index_code: "000001" },
+  index_now: { date: "2026-11-13", close: 3634.35, index_name: "上证指数", index_code: "000001" },
+};
+histB.market.margin_sz = {
+  status: "missing", reason: "接口无返回",
+  hist_coverage_start: "2010-03-31", hist_low_coverage_start: "2014-09-22",
+  index_name: "深证成指", index_code: "399001",
+  hist_high: { date: "2026-06-25", balance: 14798.2858, index_close: 16344.08, index_name: "深证成指", index_code: "399001" },
+  hist_low: { date: "2014-09-22", balance: 2133.8169, index_close: 7895.87, index_name: "深证成指", index_code: "399001" },
+  index_now: { date: "2026-11-13", close: 10968.79, index_name: "深证成指", index_code: "399001" },
+};
+histB.market.margin_total = {
+  status: "ok", asof: "2026-11-12", balance: 22576.6, chg_1d: 7.0, chg_5d: 8.0, chg_20d: -9.0,
+  hist_coverage_start: "2010-03-31", hist_low_coverage_start: "2014-09-22",
+  index_name: "沪深300", index_code: "000300",
+  hist_high: { date: "2026-06-25", balance: 30009.4267, index_close: 5020.1, index_name: "沪深300", index_code: "000300" },
+  hist_low: { date: "2014-09-22", balance: 5910.2335, index_close: 2378.92, index_name: "沪深300", index_code: "000300" },
+  index_now: { date: "2026-11-13", close: 4016.29, index_name: "沪深300", index_code: "000300" },
+};
+const histSum = v.summaryHtml(histB);
+assert.ok(histSum.includes("历史最高(亿元)") && histSum.includes("历史最低(亿元)"));
+assert.ok(histSum.includes("最高日指数") && histSum.includes("最低日指数") && histSum.includes("当前指数"));
+assert.ok(histSum.includes("历史最高区间自 2010-03-31；历史最低区间自 2014-09-22（两融扩容后）"));
+assert.ok(histSum.includes("上证指数(000001)") && histSum.includes("深证成指(399001)") && histSum.includes("沪深300(000300)"));
+assert.ok(histSum.includes("15211.1") && histSum.includes("2026-06-25"));
+assert.ok(histSum.includes("3776.4") && histSum.includes("2014-09-22"));
+assert.ok(histSum.includes("4120.28") && histSum.includes("2289.87"));
+assert.ok(histSum.includes("上证指数 3634.35"));
+assert.ok(histSum.includes("沪深300 4016.29"));
+assert.ok(histSum.includes("30009.4") && histSum.includes("5910.2"));
+// 深市当日无数据时，历史高低仍展示
+assert.ok(histSum.includes("无数据（接口无返回）") && histSum.includes("14798.3") && histSum.includes("2133.8"));
+assert.ok(histSum.includes("16344.08") && histSum.includes("7895.87") && histSum.includes("深证成指 10968.79"));
+// 当前指数相对最高日下跌=绿，相对最低日上涨=红
+assert.ok(histSum.includes("较高日") && histSum.includes('class="down">'));
+assert.ok(histSum.includes("较低日") && histSum.includes('class="up">'));
+// 缺历史时显示无数据，不编造
+const noHist = v.summaryHtml(b);
+assert.ok(noHist.includes("历史最高(亿元)"));
+assert.ok((noHist.match(/无数据/g) || []).length >= 5);
+
+const histSnap = JSON.parse(JSON.stringify(histB));
+histSnap.margin_history_from_snapshot = true;
+histSnap.margin_history_snapshot_asof = "2026-11-12";
+histSnap.market.margin_sh.hist_from_snapshot = true;
+histSnap.market.margin_sh.hist_snapshot_asof = "2026-11-12";
+const histSnapSum = v.summaryHtml(histSnap);
+assert.ok(histSnapSum.includes("两融历史高低为上次快照（2026-11-12）"));
+assert.ok(histSnapSum.includes("上次快照（2026-11-12）"));
+assert.ok(histSnapSum.includes("15211.1"));

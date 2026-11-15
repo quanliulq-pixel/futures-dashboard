@@ -113,13 +113,67 @@
     return `<div class="cnflow-card"><div class="cnflow-h">资金进出（亿元，红=流入 绿=流出，仅展示不计分）</div>${mainLine}${etfLine}${holdersLine}</div>`;
   }
 
+  /** 亿元：大额 1 位小数，起步阶段的极小值保留 4 位，避免最低点显示成 0.0。 */
+  function fmtYi(v) {
+    const x = num(v);
+    if (x == null) return null;
+    if (Math.abs(x) >= 10) return x.toFixed(1);
+    if (Math.abs(x) >= 1) return x.toFixed(2);
+    return x.toFixed(4);
+  }
+
+  function histBalanceCell(pt) {
+    if (!pt || pt.balance == null) return `<td class="num">${NO_DATA}</td>`;
+    const d = pt.date ? `<span class="cnflow-hist">${esc(pt.date)}</span>` : "";
+    return `<td class="num">${esc(fmtYi(pt.balance))}${d}</td>`;
+  }
+
+  function histIndexCell(pt) {
+    const close = pt && pt.index_close;
+    if (close == null) return `<td class="num">${NO_DATA}</td>`;
+    const name = pt.index_name ? `<span class="cnflow-hist">${esc(pt.index_name)}</span>` : "";
+    return `<td class="num">${esc(Number(close).toFixed(2))}${name}</td>`;
+  }
+
+  function indexNowCell(o) {
+    const now = o && o.index_now;
+    if (!now || now.close == null) return `<td class="num">${NO_DATA}</td>`;
+    const name = now.index_name || (o && o.index_name) || "";
+    const date = now.date ? `<span class="cnflow-hist">${esc(now.date)}</span>` : "";
+    const parts = [];
+    function vs(pt, label) {
+      const cur = num(now.close);
+      const ref = pt ? num(pt.index_close) : null;
+      if (cur == null || ref == null || ref === 0) return;
+      parts.push(`<span class="cnflow-hist">${esc(label)} ${cell((cur / ref - 1) * 100, 1)}%</span>`);
+    }
+    vs(o && o.hist_high, "较高日");
+    vs(o && o.hist_low, "较低日");
+    return `<td class="num">${esc(name ? name + " " : "")}${esc(Number(now.close).toFixed(2))}${date}${parts.join("")}</td>`;
+  }
+
+  function histCols(o) {
+    return histBalanceCell(o && o.hist_high) + histIndexCell(o && o.hist_high) +
+      histBalanceCell(o && o.hist_low) + histIndexCell(o && o.hist_low) + indexNowCell(o);
+  }
+
+  function histSnapNote(o) {
+    if (!o || !o.hist_from_snapshot) return "";
+    return o.hist_snapshot_asof ? `上次快照（${esc(o.hist_snapshot_asof)}）` : "上次快照";
+  }
+
   function marginRow(label, o) {
+    const hist = histCols(o);
+    const snap = histSnapNote(o);
+    const histSnap = snap ? `<span class="cnflow-hist">${snap}</span>` : "";
     if (!ok(o)) {
-      return `<tr><td>${esc(label)}</td><td class="num" colspan="4">${NO_DATA}${reasonTxt(o)}</td><td>${srcLink(o)}</td></tr>`;
+      return `<tr><td>${esc(label)}</td><td class="num" colspan="4">${NO_DATA}${reasonTxt(o)}</td>${hist}` +
+        `<td>${srcLink(o)}${histSnap}</td></tr>`;
     }
     return `<tr><td>${esc(label)}</td><td class="num">${o.balance == null ? NO_DATA : esc(Number(o.balance).toFixed(1))}</td>` +
       `<td class="num">${cell(o.chg_1d, 1)}</td><td class="num">${cell(o.chg_5d, 1)}</td><td class="num">${cell(o.chg_20d, 1)}</td>` +
-      `<td>${esc(o.asof || "—")}${fromSnapshot(o) ? " · 上次快照" : ""}${o.source ? " · " + srcLink(o) : ""}</td></tr>`;
+      hist +
+      `<td>${esc(o.asof || "—")}${fromSnapshot(o) ? " · 上次快照" : ""}${o.source ? " · " + srcLink(o) : ""}${snap ? " · " + snap : ""}</td></tr>`;
   }
 
   /** Market summary + all-index table for the 资金进出 panel. */
@@ -138,8 +192,28 @@
       `<div><strong>沪深两市主力净流入</strong>：${mainTxt}</div>` +
       `<div><strong>北向资金净买额</strong>：${NO_DATA}${nb.reason ? `（${esc(nb.reason)}）` : ""}</div>` +
       `</div>`;
+    const highStart = (mk.margin_sh && mk.margin_sh.hist_coverage_start)
+      || (mk.margin_sz && mk.margin_sz.hist_coverage_start)
+      || (mk.margin_total && mk.margin_total.hist_coverage_start)
+      || bundle.margin_history_coverage_start || "2010-03-31";
+    const lowStart = (mk.margin_sh && mk.margin_sh.hist_low_coverage_start)
+      || (mk.margin_sz && mk.margin_sz.hist_low_coverage_start)
+      || (mk.margin_total && mk.margin_total.hist_low_coverage_start)
+      || bundle.margin_history_low_coverage_start || "2014-09-22";
+    const rangeTxt = `历史最高区间自 ${highStart}；历史最低区间自 ${lowStart}（两融扩容后）`;
+    const highTip = `融资余额历史最高（亿元）及该值首次出现的日期。历史最高区间自 ${highStart}。`;
+    const lowTip = `融资余额历史最低（亿元）及该值首次出现的日期。历史最低区间自 ${lowStart}（两融扩容后，扩容至900只标的之日起计）。`;
+    const highIdxTip = "历史最高日的对应指数收盘：上交所对照上证指数(000001)，深交所对照深证成指(399001)，沪深合计对照沪深300(000300)。缺当日收盘显示无数据，不拿邻日顶替。";
+    const lowIdxTip = "历史最低日的对应指数收盘：上交所对照上证指数(000001)，深交所对照深证成指(399001)，沪深合计对照沪深300(000300)。缺当日收盘显示无数据，不拿邻日顶替。";
+    const nowIdxTip = "最近一笔对应指数收盘，便于对照最高/最低日指数。上交所=上证指数，深交所=深证成指，沪深合计=沪深300。下方百分比为相对最高日、最低日指数的涨跌幅（红涨绿跌）。";
     const margin = `<table class="put-table cnflow-table"><thead><tr><th>两融·融资余额</th><th class="num">余额(亿元)</th>` +
-      `<th class="num">1日变化</th><th class="num">5日变化</th><th class="num">20日变化</th><th>数据日期 · 来源</th></tr></thead><tbody>` +
+      `<th class="num">1日变化</th><th class="num">5日变化</th><th class="num">20日变化</th>` +
+      `<th class="num" title="${esc(highTip)}">历史最高(亿元)</th>` +
+      `<th class="num" title="${esc(highIdxTip)}">最高日指数</th>` +
+      `<th class="num" title="${esc(lowTip)}">历史最低(亿元)</th>` +
+      `<th class="num" title="${esc(lowIdxTip)}">最低日指数</th>` +
+      `<th class="num" title="${esc(nowIdxTip)}">当前指数</th>` +
+      `<th>数据日期 · 来源</th></tr></thead><tbody>` +
       marginRow("上交所", mk.margin_sh) + marginRow("深交所", mk.margin_sz) + marginRow("沪深合计", mk.margin_total) +
       `</tbody></table>`;
     const order = Array.isArray(bundle.order) && bundle.order.length ? bundle.order : Object.keys(bundle.indices);
@@ -190,14 +264,18 @@
     const etfSnapMeta = bundle.etf_from_snapshot
       ? ` · ETF申赎为上次快照（${esc(bundle.etf_snapshot_asof || "—")}）`
       : "";
-    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}</div>`;
+    const histSnapMeta = bundle.margin_history_from_snapshot
+      ? ` · 两融历史高低为上次快照（${esc(bundle.margin_history_snapshot_asof || highStart || "—")}）`
+      : "";
+    const histCovMeta = ` · ${esc(rangeTxt)}`;
+    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}${histCovMeta}${histSnapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>${meta}` +
       (notes ? `<ul class="cnflow-notes">${notes}</ul>` : "");
   }
 
-  const api = { esc: esc, cls: cls, signed: signed, cardHtml: cardHtml, summaryHtml: summaryHtml, NO_DATA: NO_DATA };
+  const api = { esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, cardHtml: cardHtml, summaryHtml: summaryHtml, NO_DATA: NO_DATA };
   root.cnIndexFlowView = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : this);
