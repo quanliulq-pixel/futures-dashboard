@@ -428,8 +428,18 @@ def public_history_bundle(*, live: bool = False, seed: dict | None = None,
     return chart_bundle(payload)
 
 
+def _alias_market_main_from_sina(out: dict) -> dict:
+    """总览「沪深两市主力净流入」读 market.main；改挂新浪 main_total，覆盖旧东财大盘字段。各指数卡片 main 不动。"""
+    market = dict(out.get("market") or {})
+    tot = market.get("main_total")
+    if isinstance(tot, dict) and tot.get("status") == "ok":
+        market["main"] = dict(tot)
+        out["market"] = market
+    return out
+
+
 def attach_main_flow(bundle: dict | None, payload: dict | None) -> dict | None:
-    """把沪/深/合计最新 1/5/20 日挂到资金流 bundle，不改既有东方财富主力字段。"""
+    """把沪/深/合计最新 1/5/20 日挂到资金流 bundle；总览 market.main 改挂新浪 main_total。"""
     if not isinstance(bundle, dict):
         return bundle
     if not isinstance(payload, dict) or not payload.get("stats"):
@@ -459,7 +469,7 @@ def attach_main_flow(bundle: dict | None, payload: dict | None) -> dict | None:
     else:
         out.pop("main_flow_from_snapshot", None)
         out.pop("main_flow_snapshot_asof", None)
-    return out
+    return _alias_market_main_from_sina(out)
 
 
 def ensure_main_flow(bundle: dict | None, *, live: bool = False) -> dict | None:
@@ -471,7 +481,9 @@ def ensure_main_flow(bundle: dict | None, *, live: bool = False) -> dict | None:
             isinstance(mk.get(k), dict) and mk[k].get("status") == "ok" and mk[k].get("net_1d") is not None
             for k in MARKET_KEYS
         ):
-            return bundle
+            out = dict(bundle)
+            out["market"] = dict(mk)
+            return _alias_market_main_from_sina(out)
     try:
         payload = refresh_history(live=live, write=live)
         return attach_main_flow(bundle, payload)
@@ -485,7 +497,7 @@ __all__ = [
     "parse_sina_zjlrqs", "merge_series", "total_series", "window_sum", "stats_for",
     "series_from_rows", "rows_from_series", "load_history_seed", "save_history_seed",
     "fetch_main_flow_history", "refresh_history", "chart_bundle", "public_history_bundle",
-    "attach_main_flow", "ensure_main_flow",
+    "attach_main_flow", "ensure_main_flow", "_alias_market_main_from_sina",
 ]
 
 

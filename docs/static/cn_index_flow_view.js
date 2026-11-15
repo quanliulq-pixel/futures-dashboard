@@ -6,6 +6,7 @@
   "use strict";
 
   const NO_DATA = "无数据";
+  const SINA_MAIN_DEF = "主力净流入=特大单（r0）净额，为新浪按成交单规模划分的估算口径，不是交易所官方数据；与东方财富「主力=超大单+大单」不同。沪市用上证指数板块，深市用深证综指板块（覆盖深市全部上市股票），两市合计为同一日相加（不含北交所）。";
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -182,14 +183,15 @@
       return `<div class="empty-card">资金进出：${NO_DATA}（快照尚未包含，后台更新后显示）</div>`;
     }
     const mk = bundle.market || {};
-    const mm = mk.main || {};
+    const mm = mk.main_total || {};
+    const defTip = (bundle && bundle.main_flow_definition) || SINA_MAIN_DEF;
     const nb = mk.northbound || {};
-    const mainSnap = fromSnapshot(mm) || !!(bundle && bundle.main_from_snapshot && ok(mm));
+    const mainSnap = fromSnapshot(mm) || !!(bundle && bundle.main_flow_from_snapshot && ok(mm));
     const mainTxt = ok(mm)
-      ? `今日 ${cell(mm.net_1d)} · 5日 ${cell(mm.net_5d)} · 20日 ${cell(mm.net_20d)} 亿元 <span class="cnflow-src">数据 ${esc(mm.asof || "—")}${mainSnap ? " · 上次快照" : ""}${mm.source ? " · " + srcLink(mm) : ""}</span>`
+      ? `今日 ${cell(mm.net_1d, 1)} · 5日 ${cell(mm.net_5d, 1)} · 20日 ${cell(mm.net_20d, 1)} 亿元 <span class="cnflow-src">数据 ${esc(mm.asof || "—")}${mainSnap ? " · 上次快照" : ""}${mm.source ? " · " + srcLink(mm) : ""}</span>`
       : `${NO_DATA}${reasonTxt(mm)}`;
     const top = `<div class="cnflow-market">` +
-      `<div><strong>沪深两市主力净流入</strong>：${mainTxt}</div>` +
+      `<div><strong title="${esc(defTip)}">沪深两市主力净流入</strong>：${mainTxt}</div>` +
       `<div><strong>北向资金净买额</strong>：${NO_DATA}${nb.reason ? `（${esc(nb.reason)}）` : ""}</div>` +
       `</div>`;
     const highStart = (mk.margin_sh && mk.margin_sh.hist_coverage_start)
@@ -309,8 +311,7 @@
 
   function mainFlowTableHtml(bundle) {
     const mk = (bundle && bundle.market) || {};
-    const defTip = (bundle && bundle.main_flow_definition) ||
-      "主力净流入=特大单（r0）净额，为新浪按成交单规模划分的估算口径，不是交易所官方数据；与东方财富「主力=超大单+大单」不同。沪市用上证指数板块，深市用深证综指板块（覆盖深市全部上市股票），两市合计为同一日相加（不含北交所）。";
+    const defTip = (bundle && bundle.main_flow_definition) || SINA_MAIN_DEF;
     const headTip = `当日及近5/20个交易日累计主力净流入（亿元，红=流入 绿=流出）。${defTip}`;
     const table = `<table class="put-table cnflow-table"><thead><tr>` +
       `<th title="${esc(defTip)}">主力净流入（新浪口径）</th>` +

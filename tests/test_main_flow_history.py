@@ -70,7 +70,7 @@ def test_refresh_live_incremental_merges(tmp_path, monkeypatch):
     assert (tmp_path / "latest.json").is_file()
 
 
-def test_attach_does_not_overwrite_eastmoney_main():
+def test_attach_aliases_market_main_to_sina_total():
     bundle = {"market": {
         "main": {"status": "ok", "asof": "2026-11-11", "net_1d": 198.47, "source": "东方财富"},
         "margin_sh": {"status": "ok", "balance": 1},
@@ -90,8 +90,9 @@ def test_attach_does_not_overwrite_eastmoney_main():
         },
     }
     out = F.attach_main_flow(bundle, payload)
-    assert out["market"]["main"]["net_1d"] == pytest.approx(198.47)
-    assert out["market"]["main"]["source"] == "东方财富"
+    assert out["market"]["main"]["net_1d"] == pytest.approx(-215.9)
+    assert out["market"]["main"]["asof"] == "2026-11-13"
+    assert out["market"]["main"]["from_snapshot"] is True
     assert out["market"]["main_sh"]["net_1d"] == pytest.approx(-82.5)
     assert out["market"]["main_sh"]["from_snapshot"] is True
     assert out["main_flow_from_snapshot"] is True
@@ -153,4 +154,8 @@ def test_ensure_offline_does_not_call_network(monkeypatch):
     out = F.ensure_main_flow(b, live=False)
     assert called == []
     assert out["market"]["main_total"]["status"] == "ok"
-    assert out["market"]["main"].get("status") == "missing"
+    assert out["market"]["main"]["status"] == "ok"
+    assert out["market"]["main"]["net_1d"] == out["market"]["main_total"]["net_1d"]
+    assert out["market"]["main"]["asof"] == out["market"]["main_total"]["asof"]
+    # 输入对象不被改写
+    assert b["market"]["main"]["status"] == "missing"

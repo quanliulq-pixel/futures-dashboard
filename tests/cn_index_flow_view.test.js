@@ -25,6 +25,8 @@ const b = {
   },
   market: {
     main: { status: "ok", asof: "2026-11-11", net_1d: 198.47, net_5d: null, net_20d: null },
+    main_total: { status: "ok", asof: "2026-11-13", net_1d: -215.9, net_5d: 1138.12, net_20d: 6436.14,
+      source: "新浪财经 板块资金流向", source_url: "https://vip.stock.finance.sina.com.cn/moneyflow/" },
     northbound: { status: "missing", reason: "停止披露" },
     margin_sh: { status: "ok", asof: "2026-11-11", balance: 11767.5, chg_1d: 23.6, chg_5d: -8.6, chg_20d: -1033.3 },
     margin_sz: { status: "missing", reason: "接口无返回" },
@@ -48,10 +50,23 @@ assert.ok(miss.includes("机构ETF持仓") && miss.includes("无数据（无完�
 const sum = v.summaryHtml(b);
 assert.ok(sum.includes("北向资金净买额</strong>：无数据（停止披露）"));
 assert.ok(sum.includes("沪深两市主力净流入"));
+assert.ok(sum.includes('title="') && sum.includes("特大单"));
+assert.ok(sum.includes('class="down">-215.9'));
+assert.ok(sum.includes('class="up">+1138.1'));
+assert.ok(sum.includes('class="up">+6436.1'));
+assert.ok(sum.includes("2026-11-13"));
+assert.ok(sum.includes("新浪财经"));
+assert.ok(!sum.includes("+198.47"), "top line must not use Eastmoney market.main");
 assert.ok(sum.includes("-1033.3"));
 assert.ok(sum.includes("&lt;不计分&gt;"), "notes escaped");
 assert.ok(sum.includes("深交所") && sum.includes("无数据（接口无返回）"));
 assert.ok(sum.includes("机构ETF持仓（半年报/年报）"));
+const noSina = JSON.parse(JSON.stringify(b));
+delete noSina.market.main_total;
+const noSinaSum = v.summaryHtml(noSina);
+assert.ok(noSinaSum.includes("沪深两市主力净流入"));
+assert.ok(noSinaSum.includes("无数据"));
+assert.ok(!noSinaSum.includes("+198.47"));
 assert.ok(sum.includes("2026-06-30") && sum.includes("348.75") && sum.includes("72.76%"));
 assert.ok(sum.includes('class="down">-1968.88'));
 assert.ok(sum.includes("无数据（无完整持有人结构）"));
@@ -80,11 +95,13 @@ assert.ok(snapCard.includes('class="up">+110.13'));
 assert.ok(snapCard.includes("上次快照"));
 assert.ok(snapCard.includes("2026-11-11"));
 assert.ok(!snapCard.includes("无数据（限流）"));
+snap.market.main_total = Object.assign({}, snap.market.main_total, { from_snapshot: true });
 const snapSum = v.summaryHtml(snap);
 assert.ok(snapSum.includes("沪深两市主力净流入"));
-assert.ok(snapSum.includes('class="up">+198.47') || snapSum.includes('class="up">+198.47'.replace("+198.47", "+198.47")));
-assert.ok(snapSum.includes("+198.47"));
+assert.ok(snapSum.includes('class="down">-215.9'));
+assert.ok(!snapSum.includes("+198.47"), "top line must not use Eastmoney market.main");
 assert.ok(snapSum.includes("上次快照"));
+assert.ok(snapSum.includes("主力净流入为上次快照") || snapSum.includes("数据 2026-11-13 · 上次快照"));
 assert.ok(snapSum.includes("主力为上次快照（2026-11-11）"));
 assert.ok(snapSum.includes("北向资金净买额</strong>：无数据（停止披露）"));
 assert.ok(snapSum.includes('class="down">-0.45'));
