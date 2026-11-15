@@ -192,13 +192,17 @@
       `<div><strong>沪深两市主力净流入</strong>：${mainTxt}</div>` +
       `<div><strong>北向资金净买额</strong>：${NO_DATA}${nb.reason ? `（${esc(nb.reason)}）` : ""}</div>` +
       `</div>`;
-    const cov = (mk.margin_sh && mk.margin_sh.hist_coverage_start)
+    const highStart = (mk.margin_sh && mk.margin_sh.hist_coverage_start)
       || (mk.margin_sz && mk.margin_sz.hist_coverage_start)
       || (mk.margin_total && mk.margin_total.hist_coverage_start)
-      || bundle.margin_history_coverage_start || "";
-    const covTip = cov ? `历史区间自 ${cov}。` : "";
-    const highTip = `融资余额历史最高（亿元）及该值首次出现的日期。${covTip}`;
-    const lowTip = `融资余额历史最低（亿元）及该值首次出现的日期。${covTip}`;
+      || bundle.margin_history_coverage_start || "2010-03-31";
+    const lowStart = (mk.margin_sh && mk.margin_sh.hist_low_coverage_start)
+      || (mk.margin_sz && mk.margin_sz.hist_low_coverage_start)
+      || (mk.margin_total && mk.margin_total.hist_low_coverage_start)
+      || bundle.margin_history_low_coverage_start || "2014-09-22";
+    const rangeTxt = `历史最高区间自 ${highStart}；历史最低区间自 ${lowStart}（两融扩容后）`;
+    const highTip = `融资余额历史最高（亿元）及该值首次出现的日期。历史最高区间自 ${highStart}。`;
+    const lowTip = `融资余额历史最低（亿元）及该值首次出现的日期。历史最低区间自 ${lowStart}（两融扩容后，扩容至900只标的之日起计）。`;
     const highIdxTip = "历史最高日的对应指数收盘：上交所对照上证指数(000001)，深交所对照深证成指(399001)，沪深合计对照沪深300(000300)。缺当日收盘显示无数据，不拿邻日顶替。";
     const lowIdxTip = "历史最低日的对应指数收盘：上交所对照上证指数(000001)，深交所对照深证成指(399001)，沪深合计对照沪深300(000300)。缺当日收盘显示无数据，不拿邻日顶替。";
     const nowIdxTip = "最近一笔对应指数收盘，便于对照最高/最低日指数。上交所=上证指数，深交所=深证成指，沪深合计=沪深300。下方百分比为相对最高日、最低日指数的涨跌幅（红涨绿跌）。";
@@ -260,11 +264,10 @@
     const etfSnapMeta = bundle.etf_from_snapshot
       ? ` · ETF申赎为上次快照（${esc(bundle.etf_snapshot_asof || "—")}）`
       : "";
-    const histCov = cov || bundle.margin_history_coverage_start || "";
     const histSnapMeta = bundle.margin_history_from_snapshot
-      ? ` · 两融历史高低为上次快照（${esc(bundle.margin_history_snapshot_asof || histCov || "—")}）`
+      ? ` · 两融历史高低为上次快照（${esc(bundle.margin_history_snapshot_asof || highStart || "—")}）`
       : "";
-    const histCovMeta = histCov ? ` · 两融历史区间自 ${esc(histCov)}` : "";
+    const histCovMeta = ` · ${esc(rangeTxt)}`;
     const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}${histCovMeta}${histSnapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +

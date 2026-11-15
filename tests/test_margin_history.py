@@ -51,45 +51,62 @@ def test_total_is_common_dates_only_not_beijing():
 
 def test_extrema_take_earliest_tie_and_exact_index_date():
     series = [
-        (date(2010, 3, 31), 0.06),
-        (date(2010, 4, 1), 0.06),   # 并列最低，取最早
-        (date(2021, 1, 1), 10.0),
-        (date(2026, 6, 25), 20.0),
-        (date(2026, 6, 26), 20.0),   # 并列最高，取最早
+        (date(2014, 9, 22), 100.0),
+        (date(2014, 9, 23), 80.0),
+        (date(2015, 1, 5), 80.0),   # 并列最低，取最早
+        (date(2026, 6, 25), 200.0),
+        (date(2026, 6, 26), 200.0),  # 并列最高，取最早
     ]
     idx = [
-        (date(2010, 3, 31), 3109.11),
-        # 2010-04-01 缺失：不拿邻日
+        (date(2014, 9, 23), 2300.0),
+        # 2015-01-05 缺失：不拿邻日
         (date(2026, 6, 25), 4120.28),
         (date(2026, 6, 26), 4100.0),
         (date(2026, 11, 13), 3634.35),
     ]
     ext = H.extrema_for(series, idx, "margin_sh")
-    assert ext["hist_low"]["date"] == "2010-03-31" and ext["hist_low"]["balance"] == pytest.approx(0.06)
-    assert ext["hist_low"]["index_close"] == pytest.approx(3109.11)
+    assert ext["hist_low"]["date"] == "2014-09-23" and ext["hist_low"]["balance"] == pytest.approx(80.0)
+    assert ext["hist_low"]["index_close"] == pytest.approx(2300.0)
     assert ext["hist_high"]["date"] == "2026-06-25" and ext["hist_high"]["index_close"] == pytest.approx(4120.28)
     assert ext["index_now"]["date"] == "2026-11-13" and ext["index_now"]["close"] == pytest.approx(3634.35)
     assert ext["index_name"] == "上证指数" and ext["index_code"] == "000001"
     # 最低并列日没有指数
-    series2 = [(date(2010, 4, 1), 0.06), (date(2026, 6, 25), 20.0)]
+    series2 = [(date(2015, 1, 5), 80.0), (date(2026, 6, 25), 200.0)]
     low = H.extrema_for(series2, idx, "margin_sh")["hist_low"]
-    assert low["date"] == "2010-04-01" and low["index_close"] is None
+    assert low["date"] == "2015-01-05" and low["index_close"] is None
     assert H.close_on(idx, date(2010, 4, 2)) is None
     assert H.extrema_for([], idx, "margin_sh")["hist_high"] is None
 
 
+def test_hist_low_ignores_pre_expansion_even_if_smaller():
+    series = [
+        (date(2010, 3, 31), 0.06),     # 全样本更低，历史最低不用
+        (date(2014, 9, 19), 50.0),      # 扩容日前一天，不用
+        (date(2014, 9, 22), 100.0),
+        (date(2018, 1, 2), 90.0),       # 扩容后最低
+        (date(2026, 6, 25), 200.0),
+    ]
+    ext = H.extrema_for(series, [(date(2018, 1, 2), 3300.0), (date(2026, 6, 25), 4120.0)], "margin_total")
+    assert ext["hist_high"]["date"] == "2026-06-25" and ext["hist_high"]["balance"] == pytest.approx(200.0)
+    assert ext["hist_low"]["date"] == "2018-01-02" and ext["hist_low"]["balance"] == pytest.approx(90.0)
+    assert ext["hist_low"]["index_close"] == pytest.approx(3300.0)
+    assert ext["hist_coverage_start"] == "2010-03-31"
+    assert ext["hist_low_coverage_start"] == "2014-09-22"
+    assert ext["hist_n"] == 5 and ext["hist_low_n"] == 3
+
+
 def test_fill_index_from_cached_only_same_date():
     ext = H.extrema_for(
-        [(date(2010, 3, 31), 1.0), (date(2026, 6, 25), 9.0)],
+        [(date(2014, 9, 22), 1.0), (date(2026, 6, 25), 9.0)],
         [], "margin_sz",
     )
     cached = {"margin_sz": {
-        "hist_low": {"date": "2010-03-31", "balance": 1.0, "index_close": 12494.35},
+        "hist_low": {"date": "2014-09-22", "balance": 1.0, "index_close": 7895.87},
         "hist_high": {"date": "2020-01-01", "balance": 8.0, "index_close": 9999.0},  # 日期不同不得回填
         "index_now": {"date": "2026-11-12", "close": 11197.98, "index_name": "深证成指", "index_code": "399001"},
     }}
     filled = H._fill_index_from_cached({"margin_sz": ext}, cached)["margin_sz"]
-    assert filled["hist_low"]["index_close"] == pytest.approx(12494.35)
+    assert filled["hist_low"]["index_close"] == pytest.approx(7895.87)
     assert filled["hist_high"]["index_close"] is None
     assert filled["index_now"]["close"] == pytest.approx(11197.98)
 
@@ -98,11 +115,11 @@ def test_refresh_offline_uses_seed_and_labels_snapshot(tmp_path, monkeypatch):
     seed = {
         "coverage_start": "2010-03-31",
         "asof": {"sh": "2026-06-25", "sz": "2026-06-25"},
-        "sh": [["2010-03-31", 0.0582], ["2026-06-25", 15211.1408]],
-        "sz": [["2010-03-31", 0.0067], ["2026-06-25", 14798.2858]],
+        "sh": [["2010-03-31", 0.0582], ["2014-09-22", 3776.4166], ["2026-06-25", 15211.1408]],
+        "sz": [["2010-03-31", 0.0067], ["2014-09-22", 2133.8169], ["2026-06-25", 14798.2858]],
         "extrema": {"margin_sh": {
             "hist_high": {"date": "2026-06-25", "balance": 15211.1408, "index_close": 4120.28},
-            "hist_low": {"date": "2010-03-31", "balance": 0.0582, "index_close": 3109.11},
+            "hist_low": {"date": "2014-09-22", "balance": 3776.4166, "index_close": 2289.87},
             "index_now": {"date": "2026-06-25", "close": 4120.28, "index_name": "上证指数", "index_code": "000001"},
         }},
     }
@@ -111,7 +128,9 @@ def test_refresh_offline_uses_seed_and_labels_snapshot(tmp_path, monkeypatch):
     assert out["from_snapshot"] is True and out["live_ok"] is False
     sh = out["extrema"]["margin_sh"]
     assert sh["hist_high"]["index_close"] == pytest.approx(4120.28)
-    assert sh["hist_low"]["index_close"] == pytest.approx(3109.11)
+    assert sh["hist_low"]["date"] == "2014-09-22"
+    assert sh["hist_low"]["index_close"] == pytest.approx(2289.87)
+    assert sh["hist_low_coverage_start"] == "2014-09-22"
     tot = out["extrema"]["margin_total"]
     assert tot["hist_high"]["date"] == "2026-06-25"
     assert tot["hist_high"]["balance"] == pytest.approx(30009.4266)
@@ -160,20 +179,20 @@ def test_attach_preserves_balance_and_fills_missing_row():
         "snapshot_asof": "2026-11-12",
         "extrema": {
             "margin_sh": {"hist_high": {"date": "2026-06-25", "balance": 15211.1, "index_close": 4120.28},
-                          "hist_low": {"date": "2010-03-31", "balance": 0.0582, "index_close": 3109.11},
+                          "hist_low": {"date": "2014-09-22", "balance": 3776.4, "index_close": 2289.87},
                           "index_now": {"date": "2026-11-13", "close": 3634.35},
                           "index_name": "上证指数", "index_code": "000001",
-                          "hist_coverage_start": "2010-03-31", "hist_n": 2},
+                          "hist_coverage_start": "2010-03-31", "hist_low_coverage_start": "2014-09-22", "hist_n": 2},
             "margin_sz": {"hist_high": {"date": "2026-06-25", "balance": 14798.3, "index_close": 16344.08},
-                          "hist_low": {"date": "2010-03-31", "balance": 0.0067, "index_close": 12494.35},
+                          "hist_low": {"date": "2014-09-22", "balance": 2133.8, "index_close": 7895.87},
                           "index_now": {"date": "2026-11-13", "close": 10968.79},
                           "index_name": "深证成指", "index_code": "399001",
-                          "hist_coverage_start": "2010-03-31", "hist_n": 2},
+                          "hist_coverage_start": "2010-03-31", "hist_low_coverage_start": "2014-09-22", "hist_n": 2},
             "margin_total": {"hist_high": {"date": "2026-06-25", "balance": 30009.4, "index_close": 5020.1},
-                             "hist_low": {"date": "2010-03-31", "balance": 0.065, "index_close": 3345.61},
+                             "hist_low": {"date": "2014-09-22", "balance": 5910.2, "index_close": 2378.92},
                              "index_now": {"date": "2026-11-13", "close": 4016.29},
                              "index_name": "沪深300", "index_code": "000300",
-                             "hist_coverage_start": "2010-03-31", "hist_n": 2},
+                             "hist_coverage_start": "2010-03-31", "hist_low_coverage_start": "2014-09-22", "hist_n": 2},
         },
     }
     out = H.attach_margin_history(bundle, payload)
@@ -184,8 +203,10 @@ def test_attach_preserves_balance_and_fills_missing_row():
     # 深市当日缺失时历史高低仍挂上，不补当日余额
     sz = out["market"]["margin_sz"]
     assert sz["status"] == "missing" and sz.get("balance") is None
-    assert sz["hist_low"]["balance"] == pytest.approx(0.0067)
+    assert sz["hist_low"]["balance"] == pytest.approx(2133.8)
+    assert sz["hist_low_coverage_start"] == "2014-09-22"
     assert out["margin_history_coverage_start"] == "2010-03-31"
+    assert out["margin_history_low_coverage_start"] == "2014-09-22"
     assert out["margin_history_from_snapshot"] is True
     assert bundle["market"]["margin_sh"].get("hist_high") is None  # 不改输入
 
@@ -204,11 +225,16 @@ def test_committed_seed_covers_2010_and_matches_computed_extrema():
     for key in H.MARGIN_KEYS:
         assert ext[key]["hist_high"]["date"] == stored[key]["hist_high"]["date"]
         assert ext[key]["hist_high"]["balance"] == pytest.approx(stored[key]["hist_high"]["balance"], rel=1e-6)
-        assert ext[key]["hist_low"]["date"] == "2010-03-31"
+        assert ext[key]["hist_low"]["date"] == "2014-09-22"
+        assert ext[key]["hist_low_coverage_start"] == "2014-09-22"
+        assert ext[key]["hist_low"]["balance"] == pytest.approx(stored[key]["hist_low"]["balance"], rel=1e-6)
     assert stored["margin_sh"]["hist_high"]["date"] == "2026-06-25"
     assert stored["margin_sh"]["hist_high"]["index_close"] == pytest.approx(4120.28)
     assert stored["margin_sz"]["hist_high"]["index_close"] == pytest.approx(16344.08)
     assert stored["margin_total"]["hist_high"]["index_close"] == pytest.approx(5020.1)
+    assert stored["margin_sh"]["hist_low"]["index_close"] == pytest.approx(2289.87)
+    assert stored["margin_sz"]["hist_low"]["index_close"] == pytest.approx(7895.87)
+    assert stored["margin_total"]["hist_low"]["index_close"] == pytest.approx(2378.92)
     assert stored["margin_sh"]["index_name"] == "上证指数" or stored["margin_sh"]["hist_high"]["index_name"] == "上证指数"
 
 

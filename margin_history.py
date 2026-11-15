@@ -31,6 +31,8 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 
 # A 股融资融券试点开始日（上交所/深交所官方序列均始于此）
 MARGIN_HISTORY_START = date(2010, 3, 31)
+# 2014-09-22 两融标的扩容至 900 只；历史最低只在此日及之后计算，避免起步阶段极小余额
+MARGIN_LOW_START = date(2014, 9, 22)
 SSE_PAGE_SIZE = 2000          # 上交所实际上限 2000
 EM_PAGE_SIZE = 500            # 东财数据中心实际上限 500
 
@@ -260,19 +262,26 @@ def _point(ext: tuple[date, float] | None, index_series: list[tuple[date, float]
 
 
 def extrema_for(series: list[tuple[date, float]], index_series: list[tuple[date, float]],
-                key: str) -> dict:
-    """融资余额序列 + 对应指数收盘 → 历史最高/最低/当前指数。空序列则无数据。"""
+                key: str, *, low_start: date | None = None) -> dict:
+    """融资余额序列 + 对应指数收盘 → 历史最高/最低/当前指数。空序列则无数据。
+
+    历史最高用全样本（默认自 2010-03-31）；历史最低只在 low_start（默认 2014-09-22，
+    两融标的扩容至 900 只）及之后计算。
+    """
     spec = INDEX_SPEC[key]
+    low_start = MARGIN_LOW_START if low_start is None else low_start
     base = {
         "index_name": spec["name"], "index_code": spec["code"],
         "hist_high": None, "hist_low": None, "index_now": None,
         "hist_coverage_start": None, "hist_coverage_end": None, "hist_n": 0,
+        "hist_low_coverage_start": low_start.isoformat(), "hist_low_n": 0,
     }
     if not series:
         return base
     series = sorted(series)
     high = _extreme(series, want_max=True)
-    low = _extreme(series, want_max=False)
+    low_series = [p for p in series if p[0] >= low_start]
+    low = _extreme(low_series, want_max=False)
     idx_now = None
     if index_series:
         ld, lv = sorted(index_series)[-1]
@@ -290,6 +299,8 @@ def extrema_for(series: list[tuple[date, float]], index_series: list[tuple[date,
         "hist_coverage_start": series[0][0].isoformat(),
         "hist_coverage_end": series[-1][0].isoformat(),
         "hist_n": len(series),
+        "hist_low_coverage_start": low_start.isoformat(),
+        "hist_low_n": len(low_series),
     }
 
 
@@ -520,6 +531,7 @@ def refresh_history(*, live: bool = True,
     payload = {
         "fetched_at": datetime.now(CST).isoformat(timespec="seconds"),
         "coverage_start": coverage_start or MARGIN_HISTORY_START.isoformat(),
+        "low_coverage_start": MARGIN_LOW_START.isoformat(),
         "asof": asof,
         "sources": SRC,
         "sh": rows_from_series(sh),
@@ -565,8 +577,10 @@ def attach_margin_history(bundle: dict | None, payload: dict | None) -> dict | N
         row["index_name"] = ext.get("index_name")
         row["index_code"] = ext.get("index_code")
         row["hist_coverage_start"] = ext.get("hist_coverage_start") or coverage
+        row["hist_low_coverage_start"] = ext.get("hist_low_coverage_start") or MARGIN_LOW_START.isoformat()
         row["hist_coverage_end"] = ext.get("hist_coverage_end")
         row["hist_n"] = ext.get("hist_n") or 0
+        row["hist_low_n"] = ext.get("hist_low_n") or 0
         if snap:
             row["hist_from_snapshot"] = True
             if snap_asof:
@@ -577,6 +591,7 @@ def attach_margin_history(bundle: dict | None, payload: dict | None) -> dict | N
         market[key] = row
     out["market"] = market
     out["margin_history_coverage_start"] = coverage
+    out["margin_history_low_coverage_start"] = payload.get("low_coverage_start") or MARGIN_LOW_START.isoformat()
     if snap:
         out["margin_history_from_snapshot"] = True
         if snap_asof:
@@ -607,7 +622,7 @@ def ensure_margin_history(bundle: dict | None, *, live: bool = False) -> dict | 
 
 
 __all__ = [
-    "MARGIN_HISTORY_START", "INDEX_SPEC", "SRC", "SEED_PATH", "RUNTIME_PATH",
+    "MARGIN_HISTORY_START", "MARGIN_LOW_START", "INDEX_SPEC", "SRC", "SEED_PATH", "RUNTIME_PATH",
     "parse_sse_margin_page", "parse_em_margin_page", "parse_sina_kline",
     "merge_series", "total_series", "close_on", "extrema_for", "build_extrema",
     "series_from_rows", "rows_from_series", "load_history_seed", "save_history_seed",
