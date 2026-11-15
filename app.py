@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261114etf1"
+    asset_v = "20261115mrg1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -670,6 +670,15 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         if best is not None and best is not payload.get("index_flows"):
             payload = dict(payload)
             payload["index_flows"] = best
+        try:
+            from margin_history import ensure_margin_history
+            if payload.get("index_flows") is not None:
+                flows = ensure_margin_history(payload["index_flows"], live=False)
+                if flows is not payload["index_flows"]:
+                    payload = dict(payload)
+                    payload["index_flows"] = flows
+        except Exception:
+            logger.debug("attach margin history failed", exc_info=True)
         try:
             from cn_index_etf_holders_history import attach_holder_history
             payload = attach_holder_history(payload)

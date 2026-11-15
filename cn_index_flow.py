@@ -14,6 +14,9 @@
 - ETF 份额：上交所 ETF 规模（commonQuery COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L，按统计日期）；
   净申赎金额（估算）= 份额变化 × 区间平均收盘价（新浪日线）。深交所只提供当日份额、没有历史，深市 ETF 不纳入。
 - 两融：上交所融资余额（akshare.stock_margin_sse，元）+ 深交所（akshare.stock_margin_szse，亿元）。
+- 两融历史高低：上交所官方 queryMargin.do 全历史；深交所因官方接口仅按日，改用东方财富
+  datacenter-web RPTA_WEB_RZRQ_LSSH（SCDM=001，非 push2）。沪深合计=两市同一日相加（不含北交所）。
+  对应指数收盘为新浪日线：上证指数 000001 / 深证成指 399001 / 沪深300 000300。
 - 北向：2024 年 8 月起交易所不再披露北向每日净买额，标「无数据」。
 """
 from __future__ import annotations
@@ -1203,6 +1206,12 @@ class IndexFlowProvider:
                     fallbacks.append(remote)
         if fallbacks:
             bundle = merge_main_from_fallback(bundle, *fallbacks)
+        # 两融历史高低：生产路径增量更新；注入 fetchers 的单测不联网，只挂 seed。
+        try:
+            from margin_history import ensure_margin_history
+            bundle = ensure_margin_history(bundle, live=self._fetchers is None)
+        except Exception:  # noqa: BLE001
+            logger.warning("margin history attach failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)
