@@ -1923,6 +1923,11 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .cnflow-table { margin-bottom: 10px; }
 .cnflow-table th[title] { cursor: help; }
 .cnflow-hist { display: block; font-size: 10.5px; color: var(--muted, #94a3b8); font-weight: 400; line-height: 1.35; }
+.cnflow-margin-chart { margin: 8px 0 12px; }
+.cnflow-chart-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; }
+.cnflow-margin-chart-el { width: 100%; height: 320px; }
+.cnflow-margin-chart-el .cnflow-miss { padding: 24px 8px; text-align: center; }
+.cnflow-chart-note { margin-top: 4px; }
 .cnflow-notes { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--muted, #94a3b8); line-height: 1.6; }
 .nodata { color: var(--muted, #94a3b8); }
 

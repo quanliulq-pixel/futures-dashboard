@@ -189,3 +189,64 @@ const histSnapSum = v.summaryHtml(histSnap);
 assert.ok(histSnapSum.includes("两融历史高低为上次快照（2026-11-12）"));
 assert.ok(histSnapSum.includes("上次快照（2026-11-12）"));
 assert.ok(histSnapSum.includes("15211.1"));
+
+// 两融历史走势图：选择器、按周抽样实际点、高低标注、tooltip 字段
+const chartSum = v.summaryHtml(histB);
+assert.ok(chartSum.includes("data-margin-chart"));
+assert.ok(chartSum.includes("data-mkt=\"margin_sh\"") && chartSum.includes("上交所"));
+assert.ok(chartSum.includes("data-mkt=\"margin_sz\"") && chartSum.includes("深交所"));
+assert.ok(chartSum.includes("data-mkt=\"margin_total\"") && chartSum.includes("沪深合计"));
+assert.ok(chartSum.includes("data-range=\"1y\"") && chartSum.includes("1年"));
+assert.ok(chartSum.includes("data-range=\"3y\"") && chartSum.includes("3年"));
+assert.ok(chartSum.includes("data-range=\"5y\"") && chartSum.includes("5年"));
+assert.ok(chartSum.includes("data-range=\"all\"") && chartSum.includes("全部"));
+
+const daily = [
+  ["2014-09-22", 100.0, 2289.87],
+  ["2014-09-23", 110.0, 2300.0],
+  ["2014-09-26", 120.0, 2400.0],
+  ["2026-06-24", 190.0, 4100.0],
+  ["2026-06-25", 200.0, 4120.28],
+  ["2026-06-26", 198.0, 4100.0],
+];
+const weekly = v.downsampleWeekly(daily);
+assert.deepStrictEqual(weekly.map((p) => p[0]), ["2014-09-26", "2026-06-26"]);
+const allPts = v.filterChartSeries(daily, "all", { date: "2026-06-25", balance: 200 }, { date: "2014-09-22", balance: 100 });
+assert.deepStrictEqual(allPts.map((p) => p[0]), ["2014-09-22", "2014-09-26", "2026-06-25", "2026-06-26"]);
+// 1 年窗口不含 2014 最低点，且保持日频（不周抽样）
+const y1 = v.filterChartSeries(daily, "1y", { date: "2026-06-25", balance: 200 }, { date: "2014-09-22", balance: 100 });
+assert.deepStrictEqual(y1.map((p) => p[0]), ["2026-06-24", "2026-06-25", "2026-06-26"]);
+
+const opt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200, index_close: 4120.28 },
+  hist_low: { date: "2014-09-22", balance: 100, index_close: 2289.87 },
+}, "all");
+assert.strictEqual(opt.yAxis[0].name, "融资余额(亿元)");
+assert.strictEqual(opt.yAxis[1].name, "沪深300");
+assert.strictEqual(opt.series[0].yAxisIndex, 0);
+assert.strictEqual(opt.series[1].yAxisIndex, 1);
+assert.strictEqual(opt.series[0].connectNulls, false);
+assert.strictEqual(opt.series[1].connectNulls, false);
+const markNames = (opt.series[0].markPoint.data || []).map((m) => m.name);
+assert.ok(markNames.includes("历史最高") && markNames.includes("历史最低"));
+const tip = opt.tooltip.formatter([{ dataIndex: allPts.findIndex((p) => p[0] === "2026-06-25") }]);
+assert.ok(tip.includes("2026-06-25") && tip.includes("融资余额") && tip.includes("沪深300") && tip.includes("200") && tip.includes("4120.28"));
+// 缺指数当天 tooltip 显示无数据，不插补
+const missing = v.chartOption({
+  index_name: "上证指数",
+  series: [["2026-06-25", 200, null]],
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: null,
+}, "1y");
+const missTip = missing.tooltip.formatter([{ dataIndex: 0 }]);
+assert.ok(missTip.includes("无数据") && missTip.includes("上证指数"));
+// 1 年范围不标窗口外最低点
+const y1opt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "1y");
+assert.deepStrictEqual((y1opt.series[0].markPoint.data || []).map((m) => m.name), ["历史最高"]);

@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261115mrg2"
+    asset_v = "20261115mrg3"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -769,6 +769,17 @@ def cn_index_etf_holders_history_api():
     except Exception as exc:
         logger.debug("holder history api failed", exc_info=True)
         return jsonify({"status": "missing", "reason": str(exc)[:120], "indices": {}, "in_score": False}), 200
+
+
+@app.route("/api/margin-history")
+def margin_history_api():
+    """Serve cached 两融融资余额 + 对应指数序列. Request thread: seed only, never network."""
+    try:
+        from margin_history import public_history_bundle
+        return jsonify(public_history_bundle(live=False))
+    except Exception as exc:
+        logger.debug("margin history api failed", exc_info=True)
+        return jsonify({"status": "missing", "reason": str(exc)[:120], "markets": {}}), 200
 
 
 @app.route("/api/cn-index-advice")

@@ -214,8 +214,8 @@ def series_from_rows(rows: Any) -> list[tuple[date, float]]:
     return sorted(out)
 
 
-def rows_from_series(series: list[tuple[date, float]]) -> list[list]:
-    return [[d.isoformat(), _r(v, 6)] for d, v in series]
+def rows_from_series(series: list[tuple[date, float]], *, n: int = 6) -> list[list]:
+    return [[d.isoformat(), _r(v, n)] for d, v in series]
 
 
 def total_series(sh: list[tuple[date, float]], sz: list[tuple[date, float]]) -> list[tuple[date, float]]:
@@ -332,6 +332,131 @@ def build_extrema(sh: list[tuple[date, float]], sz: list[tuple[date, float]],
     }
 
 
+
+MARKET_LABELS = {
+    "margin_sh": "上交所",
+    "margin_sz": "深交所",
+    "margin_total": "沪深合计",
+}
+
+
+def index_from_seed(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
+    """seed['index'] 按新浪代码或 market key 存放 [date, close] 行。"""
+    raw = (seed or {}).get("index") if isinstance(seed, dict) else None
+    if not isinstance(raw, dict):
+        raw = {}
+    out: dict[str, list[tuple[date, float]]] = {}
+    for key, spec in INDEX_SPEC.items():
+        out[key] = series_from_rows(raw.get(spec["symbol"]) or raw.get(key) or [])
+    return out
+
+
+def index_rows(index_by_key: dict[str, list[tuple[date, float]]]) -> dict[str, list]:
+    out: dict[str, list] = {}
+    for key, spec in INDEX_SPEC.items():
+        seq = [p for p in (index_by_key.get(key) or []) if p[0] >= MARGIN_HISTORY_START]
+        out[spec["symbol"]] = rows_from_series(seq, n=4)
+    return out
+
+
+def series_for_chart(balance: list[tuple[date, float]],
+                     index_series: list[tuple[date, float]]) -> list[list]:
+    """[date, 融资余额亿元, 当日指数收盘或 null]。缺当日收盘不插补。"""
+    imap = {d: v for d, v in (index_series or [])}
+    return [
+        [d.isoformat(), _r(v, 4), _r(imap[d], 2) if d in imap else None]
+        for d, v in (balance or [])
+    ]
+
+
+def downsample_weekly(points: list) -> list:
+    """每个 ISO 周保留最后一个实际点，不插补。"""
+    by: dict[tuple[int, int], list] = {}
+    for p in points or []:
+        if not isinstance(p, (list, tuple)) or not p:
+            continue
+        d = _to_date(p[0])
+        if d is None:
+            continue
+        iso = d.isocalendar()
+        by[(iso[0], iso[1])] = list(p)
+    return [by[k] for k in sorted(by)]
+
+
+def insert_extrema_points(points: list, daily: list, *dates: str | None) -> list:
+    """周抽样后把真实高低点日期加回去（仍是 daily 中的实际点）。daily 应已按区间筛过。"""
+    pts = list(points or [])
+    have = {p[0] for p in pts}
+    in_daily = {}
+    for p in daily or []:
+        if isinstance(p, (list, tuple)) and p:
+            in_daily[p[0]] = list(p)
+    extra = []
+    for d in dates:
+        if d and d not in have and d in in_daily:
+            extra.append(in_daily[d])
+            have.add(d)
+    if not extra:
+        return pts
+    return sorted(pts + extra, key=lambda p: p[0])
+
+
+def chart_bundle(payload: dict | None) -> dict:
+    """请求线程 / 静态页用的走势 payload，不含原始 seed 全字段。"""
+    if not isinstance(payload, dict) or not (payload.get("sh") or payload.get("sz") or payload.get("extrema")):
+        return {"status": "missing", "reason": "无数据", "markets": {}}
+    sh, sz = seed_series(payload)
+    tot = total_series(sh, sz)
+    index_by_key = index_from_seed(payload)
+    bal = {"margin_sh": sh, "margin_sz": sz, "margin_total": tot}
+    markets: dict[str, dict] = {}
+    for key in MARGIN_KEYS:
+        ext = (payload.get("extrema") or {}).get(key) or {}
+        series = series_for_chart(bal[key], index_by_key.get(key) or [])
+        markets[key] = {
+            "label": MARKET_LABELS[key],
+            "index_name": ext.get("index_name") or INDEX_SPEC[key]["name"],
+            "index_code": ext.get("index_code") or INDEX_SPEC[key]["code"],
+            "asof": series[-1][0] if series else None,
+            "hist_high": ext.get("hist_high"),
+            "hist_low": ext.get("hist_low"),
+            "index_now": ext.get("index_now"),
+            "hist_coverage_start": ext.get("hist_coverage_start") or payload.get("coverage_start"),
+            "hist_low_coverage_start": (
+                ext.get("hist_low_coverage_start")
+                or payload.get("low_coverage_start")
+                or MARGIN_LOW_START.isoformat()
+            ),
+            "hist_coverage_end": ext.get("hist_coverage_end"),
+            "hist_n": ext.get("hist_n") or len(series),
+            "hist_low_n": ext.get("hist_low_n") or 0,
+            "series": series,
+        }
+    any_series = any(m.get("series") for m in markets.values())
+    out = {
+        "status": "ok" if any_series else "missing",
+        "coverage_start": payload.get("coverage_start") or MARGIN_HISTORY_START.isoformat(),
+        "low_coverage_start": payload.get("low_coverage_start") or MARGIN_LOW_START.isoformat(),
+        "asof": payload.get("asof"),
+        "fetched_at": payload.get("fetched_at"),
+        "from_snapshot": bool(payload.get("from_snapshot")),
+        "sources": payload.get("sources") or SRC,
+        "markets": markets,
+    }
+    if payload.get("from_snapshot"):
+        out["snapshot_asof"] = payload.get("snapshot_asof")
+    if not any_series:
+        out["reason"] = "无数据"
+    return out
+
+
+def public_history_bundle(*, live: bool = False, seed: dict | None = None,
+                          today: date | None = None) -> dict:
+    """请求路径默认 live=False，只读 seed / 运行时缓存，不联网。"""
+    payload = refresh_history(live=live, write=live, seed=seed, today=today)
+    return chart_bundle(payload)
+
+
 # ---------------------------------------------------------------- seed I/O
 def load_history_seed(paths: tuple[Path, ...] | None = None) -> dict | None:
     """运行时缓存优先（asof 不早于提交的 seed），否则读提交的 seed。"""
@@ -357,7 +482,17 @@ def load_history_seed(paths: tuple[Path, ...] | None = None) -> dict | None:
             return max((str(v) for v in a.values() if v), default="")
         return str(a or "")
 
-    return max(cands, key=_asof_key)
+    best = max(cands, key=_asof_key)
+    # 运行时缓存可能早于本次提交、没有 index 序列：从其他候选合并进来。
+    idx = index_from_seed(best)
+    for other in cands:
+        other_idx = index_from_seed(other)
+        for key in INDEX_SPEC:
+            idx[key] = merge_series(other_idx.get(key) or [], idx.get(key) or [])
+    if any(idx.values()):
+        best = dict(best)
+        best["index"] = index_rows(idx)
+    return best
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -481,7 +616,7 @@ def refresh_history(*, live: bool = True,
     sh, sz = seed_series(seed)
     sh_live = sz_live = False
     errors: dict[str, str] = {}
-    index_by_key: dict[str, list[tuple[date, float]]] = {}
+    index_by_key: dict[str, list[tuple[date, float]]] = index_from_seed(seed)
 
     if live:
         sh_start = _next_day(sh[-1][0]) if sh else MARGIN_HISTORY_START
@@ -503,13 +638,15 @@ def refresh_history(*, live: bool = True,
         except Exception as exc:  # noqa: BLE001
             errors["sz"] = f"{type(exc).__name__}: {str(exc)[:80]}"
             logger.warning("margin sz history fetch failed: %s", errors["sz"])
-        # 指数：有 seed 时只需近一年（覆盖增量高低点日期）；冷启动拉满
-        need_full = not (sh and sz and seed)
-        datalen = 8000 if need_full else 260
+        # 指数：seed 已有从 2010-03-31 起的序列时只拉近一年做增量合并；否则拉满
         fn_ix = fetch_index or fetch_index_closes
         for key, spec in INDEX_SPEC.items():
+            have = index_by_key.get(key) or []
+            need_full = (not have) or have[0][0] > MARGIN_HISTORY_START
+            datalen = 8000 if need_full else 260
             try:
-                index_by_key[key] = fn_ix(spec["symbol"], datalen)
+                fetched = fn_ix(spec["symbol"], datalen)
+                index_by_key[key] = merge_series(have, fetched)
             except Exception as exc:  # noqa: BLE001
                 errors[f"index:{key}"] = f"{type(exc).__name__}: {str(exc)[:80]}"
                 logger.warning("index close fetch failed %s: %s", spec["symbol"], errors[f"index:{key}"])
@@ -536,6 +673,7 @@ def refresh_history(*, live: bool = True,
         "sources": SRC,
         "sh": rows_from_series(sh),
         "sz": rows_from_series(sz),
+        "index": index_rows(index_by_key),
         "extrema": extrema,
         "live_ok": bool(live and (sh_live or sz_live)),
         "errors": errors,
@@ -626,6 +764,8 @@ __all__ = [
     "parse_sse_margin_page", "parse_em_margin_page", "parse_sina_kline",
     "merge_series", "total_series", "close_on", "extrema_for", "build_extrema",
     "series_from_rows", "rows_from_series", "load_history_seed", "save_history_seed",
+    "index_from_seed", "index_rows", "series_for_chart", "downsample_weekly",
+    "insert_extrema_points", "chart_bundle", "public_history_bundle",
     "fetch_margin_sh_history", "fetch_margin_sz_history", "fetch_index_closes",
     "refresh_history", "attach_margin_history", "ensure_margin_history",
 ]

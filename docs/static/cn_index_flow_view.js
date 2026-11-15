@@ -271,11 +271,250 @@
     const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}${histCovMeta}${histSnapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
-      `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>${meta}` +
+      `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>` +
+      chartPanelHtml() + meta +
       (notes ? `<ul class="cnflow-notes">${notes}</ul>` : "");
   }
 
-  const api = { esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, cardHtml: cardHtml, summaryHtml: summaryHtml, NO_DATA: NO_DATA };
+  const RANGE_DAYS = { "1y": 365, "3y": 365 * 3, "5y": 365 * 5 };
+
+  function addDaysIso(iso, n) {
+    const parts = String(iso || "").split("-").map(Number);
+    if (parts.length < 3 || !parts[0]) return iso;
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + n));
+    return dt.toISOString().slice(0, 10);
+  }
+
+  /** ISO 年-周，用于按周抽样实际点。 */
+  function isoWeekKey(iso) {
+    const parts = String(iso || "").split("-").map(Number);
+    if (parts.length < 3 || !parts[0]) return "";
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    const day = dt.getUTCDay() || 7;
+    dt.setUTCDate(dt.getUTCDate() + 4 - day);
+    const year = dt.getUTCFullYear();
+    const jan1 = new Date(Date.UTC(year, 0, 1));
+    const week = Math.ceil((((dt - jan1) / 86400000) + 1) / 7);
+    return year + "-W" + String(week).padStart(2, "0");
+  }
+
+  function downsampleWeekly(points) {
+    const by = Object.create(null);
+    const keys = [];
+    (points || []).forEach((p) => {
+      if (!p || !p[0]) return;
+      const k = isoWeekKey(p[0]);
+      if (!k) return;
+      if (!(k in by)) keys.push(k);
+      by[k] = p;
+    });
+    return keys.sort().map((k) => by[k]);
+  }
+
+  function filterChartSeries(series, range, high, low) {
+    const daily = (series || []).filter((p) => p && p[0]);
+    if (!daily.length) return [];
+    const end = daily[daily.length - 1][0];
+    let start = daily[0][0];
+    if (range !== "all" && RANGE_DAYS[range]) start = addDaysIso(end, -RANGE_DAYS[range]);
+    let pts = daily.filter((p) => p[0] >= start && p[0] <= end);
+    if (range === "all") pts = downsampleWeekly(pts);
+    const want = [];
+    if (high && high.date) want.push(high.date);
+    if (low && low.date) want.push(low.date);
+    const have = new Set(pts.map((p) => p[0]));
+    daily.forEach((p) => {
+      if (want.indexOf(p[0]) >= 0 && !have.has(p[0]) && p[0] >= start && p[0] <= end) {
+        pts.push(p);
+        have.add(p[0]);
+      }
+    });
+    pts.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return pts;
+  }
+
+  function chartPanelHtml() {
+    return `<div class="cnflow-margin-chart" data-margin-chart>` +
+      `<div class="cnflow-chart-toolbar">` +
+      `<div class="seg cnflow-chart-mkt" role="tablist" aria-label="两融市场">` +
+      `<button type="button" data-mkt="margin_sh">上交所</button>` +
+      `<button type="button" data-mkt="margin_sz">深交所</button>` +
+      `<button type="button" data-mkt="margin_total" class="active">沪深合计</button>` +
+      `</div>` +
+      `<div class="seg cnflow-chart-range" role="tablist" aria-label="时间区间">` +
+      `<button type="button" data-range="1y">1年</button>` +
+      `<button type="button" data-range="3y">3年</button>` +
+      `<button type="button" data-range="5y">5年</button>` +
+      `<button type="button" data-range="all" class="active">全部</button>` +
+      `</div></div>` +
+      `<div class="cnflow-margin-chart-el" role="img" aria-label="融资余额与对应指数走势"></div>` +
+      `<div class="cnflow-src cnflow-chart-note">左轴融资余额（亿元），右轴对应指数收盘。历史最低仅标注 2014-09-22 起窗口内的最低点。全部区间按周保留实际交易日（不插补），高低点日期始终保留。</div>` +
+      `</div>`;
+  }
+
+  const AXIS = "#a0afc3";
+  function axisStyle() {
+    return {
+      axisLine: { lineStyle: { color: "#4b5d78" } },
+      axisLabel: { color: AXIS },
+      splitLine: { lineStyle: { color: "rgba(160,175,195,0.12)" } },
+    };
+  }
+
+  function chartOption(market, range) {
+    market = market || {};
+    const pts = filterChartSeries(market.series, range || "all", market.hist_high, market.hist_low);
+    const balName = "融资余额";
+    const idxName = market.index_name || "指数";
+    const bal = pts.map((p) => [p[0], p[1] == null ? null : p[1]]);
+    const idx = pts.map((p) => [p[0], p[2] == null ? null : p[2]]);
+    const marks = [];
+    function addMark(pt, name, color, pos) {
+      if (!pt || !pt.date || pt.balance == null) return;
+      if (!pts.length || pt.date < pts[0][0] || pt.date > pts[pts.length - 1][0]) return;
+      marks.push({
+        name: name,
+        coord: [pt.date, pt.balance],
+        value: fmtYi(pt.balance),
+        itemStyle: { color: color },
+        label: { formatter: name, color: "#e2e8f0", fontSize: 10, position: pos },
+      });
+    }
+    addMark(market.hist_high, "历史最高", "#ef5350", "top");
+    addMark(market.hist_low, "历史最低", "#26a69a", "bottom");
+    return {
+      backgroundColor: "transparent",
+      animation: false,
+      legend: { data: [balName, idxName], textStyle: { color: AXIS, fontSize: 11 }, top: 0 },
+      grid: { left: 64, right: 56, top: 36, bottom: 36 },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "cross" },
+        backgroundColor: "rgba(15,23,42,0.94)",
+        borderColor: "#334155",
+        textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (items) => {
+          if (!items || !items.length) return "";
+          const i = items[0].dataIndex;
+          const p = pts[i] || [];
+          const balTxt = p[1] == null ? NO_DATA : (fmtYi(p[1]) + " 亿元");
+          const idxTxt = p[2] == null ? NO_DATA : Number(p[2]).toFixed(2);
+          return `<b>${esc(p[0] || "")}</b><br/>融资余额：${esc(balTxt)}<br/>${esc(idxName)}：${esc(idxTxt)}`;
+        },
+      },
+      xAxis: Object.assign({ type: "time" }, axisStyle()),
+      yAxis: [
+        Object.assign({ type: "value", name: "融资余额(亿元)", scale: true, splitNumber: 4 }, axisStyle()),
+        Object.assign({ type: "value", name: idxName, scale: true, splitNumber: 4, splitLine: { show: false } }, axisStyle()),
+      ],
+      series: [
+        {
+          name: balName, type: "line", yAxisIndex: 0, showSymbol: false, connectNulls: false,
+          data: bal, lineStyle: { width: 1.6, color: "#f0a15a" }, itemStyle: { color: "#f0a15a" },
+          markPoint: marks.length ? { symbolSize: 10, data: marks } : undefined,
+        },
+        {
+          name: idxName, type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false,
+          data: idx, lineStyle: { width: 1.4, color: "#7eb6ff" }, itemStyle: { color: "#7eb6ff" },
+        },
+      ],
+    };
+  }
+
+  let chartInst = null;
+  const chartState = { mkt: "margin_total", range: "all", payload: null };
+
+  function showChartMiss(el, msg) {
+    if (chartInst) {
+      try { chartInst.dispose(); } catch (e) { /* ignore */ }
+      chartInst = null;
+    }
+    if (el) el.innerHTML = `<div class="cnflow-miss">${esc(msg || NO_DATA)}</div>`;
+  }
+
+  function paintChart(root) {
+    const el = root && root.querySelector && root.querySelector(".cnflow-margin-chart-el");
+    if (!el) return;
+    const markets = (chartState.payload && chartState.payload.markets) || {};
+    const market = markets[chartState.mkt];
+    if (!market || !market.series || !market.series.length) {
+      showChartMiss(el, NO_DATA);
+      return;
+    }
+    const echarts = rootObj.echarts;
+    if (!echarts || !echarts.init) {
+      showChartMiss(el, "图表库未加载");
+      return;
+    }
+    if (!chartInst || (chartInst.isDisposed && chartInst.isDisposed())) {
+      el.innerHTML = "";
+      chartInst = echarts.init(el, null, { renderer: "canvas" });
+    }
+    chartInst.setOption(chartOption(market, chartState.range), true);
+  }
+
+  const rootObj = root;
+
+  function mountChart(host, payload) {
+    const rootEl = host && host.querySelector ? host.querySelector("[data-margin-chart]") : null;
+    if (!rootEl) return;
+    chartState.payload = payload && payload.markets ? payload : null;
+    const snap = rootEl.querySelector(".cnflow-chart-note");
+    if (snap && chartState.payload && chartState.payload.from_snapshot) {
+      const asof = chartState.payload.snapshot_asof || "";
+      const label = asof ? `上次快照（${asof}）。` : "上次快照。";
+      if (snap.getAttribute("data-base-note") == null) snap.setAttribute("data-base-note", snap.textContent);
+      snap.textContent = label + (snap.getAttribute("data-base-note") || snap.textContent);
+    }
+    if (!rootEl._bound) {
+      rootEl._bound = true;
+      rootEl.addEventListener("click", (e) => {
+        const btn = e.target.closest && e.target.closest("button[data-mkt], button[data-range]");
+        if (!btn) return;
+        if (btn.dataset.mkt) {
+          chartState.mkt = btn.dataset.mkt;
+          rootEl.querySelectorAll(".cnflow-chart-mkt button").forEach((b) => {
+            b.classList.toggle("active", b === btn);
+          });
+        }
+        if (btn.dataset.range) {
+          chartState.range = btn.dataset.range;
+          rootEl.querySelectorAll(".cnflow-chart-range button").forEach((b) => {
+            b.classList.toggle("active", b === btn);
+          });
+        }
+        paintChart(rootEl);
+      });
+    }
+    // restore active buttons for current state
+    rootEl.querySelectorAll(".cnflow-chart-mkt button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mkt === chartState.mkt);
+    });
+    rootEl.querySelectorAll(".cnflow-chart-range button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.range === chartState.range);
+    });
+    paintChart(rootEl);
+  }
+
+  function resizeChart() {
+    if (chartInst && !(chartInst.isDisposed && chartInst.isDisposed())) {
+      try { chartInst.resize(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function disposeChart() {
+    if (chartInst) {
+      try { chartInst.dispose(); } catch (e) { /* ignore */ }
+      chartInst = null;
+    }
+  }
+
+  const api = {
+    esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, cardHtml: cardHtml, summaryHtml: summaryHtml,
+    chartPanelHtml: chartPanelHtml, downsampleWeekly: downsampleWeekly, filterChartSeries: filterChartSeries,
+    chartOption: chartOption, mountChart: mountChart, resizeChart: resizeChart, disposeChart: disposeChart,
+    NO_DATA: NO_DATA,
+  };
   root.cnIndexFlowView = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : this);
