@@ -27,3 +27,9 @@ data/margin_history_latest.tmp
 # Main-force net inflow runtime cache (committed seed is data/main_flow_history.json)
 data/main_flow_history_latest.json
 data/main_flow_history_latest.tmp
+
+# Per-index 主力 runtime cache (committed seed is data/cn_index_flows.json)
+data/cn_index_flows_latest.json
+data/cn_index_flows_latest.tmp
+data/index_main_flow_history_latest.json
+data/index_main_flow_history_latest.tmp

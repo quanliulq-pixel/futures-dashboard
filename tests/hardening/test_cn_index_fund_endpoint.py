@@ -24,6 +24,8 @@ def test_cn_indices_render_serves_fast_and_queues_single_fund_job(monkeypatch):
 
     monkeypatch.setattr(F.DEFAULT_PROVIDER, "refresh", slow_refresh)
     monkeypatch.setattr(F.DEFAULT_PROVIDER, "_cache", None)
+    # 有效 seed 里已有基本面时也要验证：过期则只排队一次后台刷新，请求线程不阻塞。
+    monkeypatch.setattr(F, "fund_bundle_age_hours", lambda bundle, now=None: 99.0)
     c = app_mod.app.test_client()
     try:
         t0 = time.time()

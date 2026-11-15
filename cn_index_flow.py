@@ -11,7 +11,9 @@
 数据源
 - 沪深两市主力净流入（总览）：新浪财经板块资金流向 MoneyFlow.ssl_bkzj_zjlrqs，主力=特大单（r0）净额；
   沪市=上证指数板块，深市=深证综指板块，两市合计=同一日相加（不含北交所）。不走东方财富 push2。
-- 各指数卡片主力净流入：东方财富 push2his fflow/daykline（指数成分股合计；主力=超大单+大单），近 30 个交易日日线。
+- 各指数卡片主力净流入：新浪板块资金流向 MoneyFlow.ssl_bkzj_zjlrqs（主力=特大单 r0）。
+  有板块的指数：沪深300=hs300、科创50=zhishu_000688、创业板指=zhishu_399006；
+  上证50 / 中证500 / 中证1000 新浪未提供资金流板块，显示无数据，不回退 push2。
 - ETF 份额：上交所 ETF 规模（commonQuery COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L，按统计日期）；
   净申赎金额（估算）= 份额变化 × 区间平均收盘价（新浪日线）。深交所只提供当日份额、没有历史，深市 ETF 不纳入。
 - 两融：上交所融资余额（akshare.stock_margin_sse，元）+ 深交所（akshare.stock_margin_szse，亿元）。
@@ -70,8 +72,8 @@ SSE_ETF_URL = "https://query.sse.com.cn/commonQuery.do"
 SINA_KLINE_URL = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
 
 SRC = {
-    "main": {"label": "东方财富 指数资金流（主力=超大单+大单）", "url": "https://data.eastmoney.com/zjlx/dpzjlx.html",
-             "function": "push2his.eastmoney.com fflow/daykline"},
+    "main": {"label": "新浪财经 板块资金流向", "url": "https://vip.stock.finance.sina.com.cn/moneyflow/",
+             "function": "MoneyFlow.ssl_bkzj_zjlrqs 主力=特大单 r0"},
     "etf": {"label": "上交所 ETF 规模（份额）+ 新浪日线收盘价", "url": "https://www.sse.com.cn/assortment/fund/etf/list/scale/",
             "function": "query.sse.com.cn COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L"},
     "margin_sh": {"label": "上交所 融资融券汇总", "url": "https://www.sse.com.cn/market/othersdata/margin/sum/",
@@ -332,14 +334,7 @@ def _get_json(url: str, params: dict, headers: dict | None = None, retries: int 
 
 
 def fetch_fflow(secid: str, secid2: str | None = None, lmt: int = FLOW_LMT) -> list[dict]:
-    params = {"lmt": lmt, "klt": 101, "secid": secid, "fields1": "f1,f2,f3,f7",
-              "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"}
-    if secid2:
-        params["secid2"] = secid2
-    rows = parse_fflow(_get_json(FFLOW_URL, params, {"Referer": "https://data.eastmoney.com/zjlx/dpzjlx.html"}, retries=2))
-    if not rows:
-        raise ValueError("fflow 无数据")
-    return rows
+    raise RuntimeError("东方财富 push2his fflow 已停用；指数主力改走新浪板块资金流向（index_main_flow）")
 
 
 def fetch_sse_etf_scale(d: date) -> dict[str, tuple[date | None, float]]:
@@ -528,7 +523,7 @@ def build_flow_bundle(raw: dict, errors: dict, today: date) -> dict:
         "in_score": False,
         "notes": [
             "资金流只做展示，不计入基本面/综合分（两融已在流动性因子中，避免重复计数；政策仍是最高权重）",
-            "沪深两市主力净流入（总览）为新浪特大单（r0）估算口径；各指数卡片主力净流入仍为东方财富超大单+大单口径。二者都不是交易所官方申报数据",
+            "沪深两市与各指数卡片主力净流入均为新浪特大单（r0）估算口径；上证50/中证500/中证1000 因新浪无对应资金流板块显示无数据。不是交易所官方申报数据",
             "ETF 净申赎=份额变化×区间平均收盘价，为估算；深交所上市ETF无历史份额，未纳入",
             NORTHBOUND_REASON,
         ],
@@ -542,21 +537,8 @@ FFLOW_SPACING_SEC = 1.2   # 东方财富 push2 对并发/高频很敏感：串�
 
 
 def fetch_main_all() -> dict:
-    """串行拉取各指数 + 两市合计主力资金；遇到限流立刻停，剩余项记错误（显示无数据）。"""
-    out: dict[str, Any] = {"errors": {}}
-    jobs = [(f"main:{m['id']}", m["secid"], None) for m in FLOW_INDICES]
-    for i, (key, sid, sid2) in enumerate(jobs):
-        if i:
-            time.sleep(FFLOW_SPACING_SEC)
-        try:
-            out[key] = fetch_fflow(sid, sid2)
-        except SourceRateLimited as exc:
-            for k, _, _ in jobs[i:]:
-                out["errors"][k] = str(exc)
-            break
-        except Exception as exc:  # noqa: BLE001
-            out["errors"][key] = f"{type(exc).__name__}: {str(exc)[:80]}"
-    return out
+    """已停用：不再请求东方财富 push2his。生产路径由 ensure_index_mains 走新浪。"""
+    raise RuntimeError("东方财富 push2his fflow 已停用；指数主力改走新浪板块资金流向（index_main_flow）")
 
 
 def skip_push2() -> bool:
@@ -566,8 +548,7 @@ def skip_push2() -> bool:
 
 def default_fetchers() -> dict[str, Callable[[], Any]]:
     f: dict[str, Callable[[], Any]] = {}
-    if not skip_push2():
-        f["main_all"] = fetch_main_all
+    # 各指数主力改走新浪板块资金流向（ensure_index_mains），不再请求东方财富 push2his。
     f["cal"] = lambda: [d for d, _ in fetch_sina_kline("sh000300", FLOW_LMT)]
     codes = [c for m in FLOW_INDICES for c, _ in m["etfs"]]
     f["etf_prices"] = lambda: {c: _safe_kline(f"sh{c}") for c in codes}
@@ -1212,6 +1193,13 @@ class IndexFlowProvider:
             bundle = ensure_main_flow(bundle, live=self._fetchers is None)
         except Exception:  # noqa: BLE001
             logger.warning("main flow history attach failed", exc_info=True)
+        # 注入 fetchers 的单测隔离 merge/ETF 逻辑，不挂新浪指数主力 seed。
+        if self._fetchers is None:
+            try:
+                from index_main_flow import ensure_index_mains
+                bundle = ensure_index_mains(bundle, live=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("index main flow attach failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)

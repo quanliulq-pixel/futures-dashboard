@@ -35,6 +35,7 @@ const b = {
 };
 const card = v.cardHtml(b, "csi300");
 assert.ok(card.includes('class="up">+110.13'));
+assert.ok(card.includes("主力净流入") && card.includes("特大单"), "index card tooltip uses Sina definition");
 assert.ok(card.includes('class="down">-20.50'));
 assert.ok(card.includes("2026-11-11"));
 assert.ok(card.includes("估算"));

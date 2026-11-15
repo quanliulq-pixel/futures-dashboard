@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261115mrg5"
+    asset_v = "20261115mrg6"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -688,6 +688,15 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
                     payload["index_flows"] = flows
         except Exception:
             logger.debug("attach main flow history failed", exc_info=True)
+        try:
+            from index_main_flow import ensure_index_mains
+            if payload.get("index_flows") is not None:
+                flows = ensure_index_mains(payload["index_flows"], live=False)
+                if flows is not payload["index_flows"]:
+                    payload = dict(payload)
+                    payload["index_flows"] = flows
+        except Exception:
+            logger.debug("attach index main flow failed", exc_info=True)
         try:
             from cn_index_etf_holders_history import attach_holder_history
             payload = attach_holder_history(payload)

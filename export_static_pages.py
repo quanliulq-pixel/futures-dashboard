@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261115mrg5")
+    html = html.replace("{{ asset_v }}", "20261115mrg6")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -263,7 +263,20 @@ def main() -> None:
     except Exception as exc:
         print("cn indices failed:", exc)
         traceback.print_exc()
-        cn_idx_payload = {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)}
+        prev = None
+        try:
+            prev_path = API / "cn_indices.json"
+            if prev_path.exists():
+                prev = json.loads(prev_path.read_text(encoding="utf-8"))
+        except Exception:
+            prev = None
+        if isinstance(prev, dict) and prev.get("indices"):
+            # Keep the last good snapshot instead of writing empty indices.
+            cn_idx_payload = dict(prev)
+            cn_idx_payload["error"] = str(exc)
+            cn_idx_payload["note"] = ((cn_idx_payload.get("note") or "") + " · 本次刷新失败，沿用上次有效快照").lstrip(" ·")
+        else:
+            cn_idx_payload = {"indices": [], "satellites": [], "updated_at": now, "error": str(exc)}
         cn_idx_payload = _with_holder_seed(cn_idx_payload)
         dump(API / "cn_indices.json", cn_idx_payload)
 

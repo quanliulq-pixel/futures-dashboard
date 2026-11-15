@@ -313,11 +313,12 @@ def test_refresh_skipped_fflow_merges_bundled_seed(monkeypatch):
 def test_default_fetchers_skip_push2_on_render_or_flag(monkeypatch):
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.delenv("SKIP_PUSH2", raising=False)
-    assert "main_all" in F.default_fetchers()
-    monkeypatch.setenv("SKIP_PUSH2", "1")
+    # 指数主力已改走新浪，生产 fetchers 不再包含 push2 main_all
     f = F.default_fetchers()
     assert "main_all" not in f
     assert "cal" in f and "etf_prices" in f and "margin_sh" in f
+    monkeypatch.setenv("SKIP_PUSH2", "1")
+    assert "main_all" not in F.default_fetchers()
     monkeypatch.delenv("SKIP_PUSH2")
     monkeypatch.setenv("RENDER", "true")
     assert "main_all" not in F.default_fetchers()
@@ -326,10 +327,21 @@ def test_default_fetchers_skip_push2_on_render_or_flag(monkeypatch):
 def test_load_bundled_flow_seed_has_ok_main():
     seed = F._load_flow_seed_from_paths(F.FLOW_SEED_PATHS)
     assert seed is not None
-    assert F.flow_main_coverage(seed) >= 6
+    # 有新浪板块的指数（沪深300/科创50/创业板指）+ 两市合计 market.main
+    assert F.flow_main_coverage(seed) >= 4
     assert seed["market"]["main"]["status"] == "ok"
-    # GitHub Actions 每次刷新快照都会前移 asof：只校验是真实日期，不钉死某一天
     assert F._to_date(seed["market"]["main"]["asof"]) is not None
+    assert seed["market"]["main"]["source"] and "新浪" in seed["market"]["main"]["source"]
+    for iid in ("csi300", "star50", "chinext"):
+        m = seed["indices"][iid]["main"]
+        assert m["status"] == "ok" and F._to_date(m["asof"]) is not None
+        assert m.get("net_1d") is not None
+        assert "特大单" in (m.get("definition") or "")
+    for iid in ("sse50", "csi500", "csi1000"):
+        m = seed["indices"][iid]["main"]
+        assert m["status"] == "missing"
+        assert m.get("net_1d") is None
+        assert "不回退" in (m.get("reason") or "")
     assert seed["market"]["northbound"]["status"] == "missing"
     assert seed["indices"]["chinext"]["etf"]["status"] == "missing"
 
@@ -366,6 +378,7 @@ def test_with_cn_flows_does_not_serve_wiped_cache_over_seed(monkeypatch):
     # 给创业板保留「深交所不提供历史份额」以便断言
     wiped["indices"]["chinext"]["etf"] = {"status": "missing", "reason": "创业板ETF在深交所上市，深交所不提供历史份额，无法计算申赎"}
     monkeypatch.setattr(F.DEFAULT_FLOW_PROVIDER, "_cache", (__import__("time").time(), wiped))
+    monkeypatch.setattr("index_main_flow.ensure_index_mains", lambda bundle, live=False: bundle)
     payload = {"index_flows": seed, "indices": []}
     out = app_mod._with_cn_flows(payload, kick=False)
     flows = out["index_flows"]
