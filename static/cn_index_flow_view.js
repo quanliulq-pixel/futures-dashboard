@@ -63,7 +63,7 @@
     return !!(o && (o.from_snapshot || o.from_seed));
   }
 
-  /** Short note when 主力 is served from the last snapshot rather than a live push2 refresh. */
+  /** Short note when 主力 is served from the last snapshot rather than a live refresh. */
   function snapNote(o) {
     if (!fromSnapshot(o)) return "";
     const asof = o && o.asof ? String(o.asof) : "";
@@ -88,10 +88,11 @@
     const m = row.main || {};
     const e = row.etf || {};
     const h = row.holders || {};
+    const idxDef = m.definition || (bundle && bundle.index_main_definition) || SINA_MAIN_DEF;
     const mainLine = ok(m)
-      ? `<div class="cnflow-row"><span class="l">主力净流入</span>今日 ${cell(m.net_1d)} · 5日 ${cell(m.net_5d)} · 20日 ${cell(m.net_20d)}</div>` +
+      ? `<div class="cnflow-row"><span class="l" title="${esc(idxDef)}">主力净流入</span>今日 ${cell(m.net_1d)} · 5日 ${cell(m.net_5d)} · 20日 ${cell(m.net_20d)}</div>` +
         dataSrcLine(m)
-      : `<div class="cnflow-row"><span class="l">主力净流入</span>${NO_DATA}${reasonTxt(m)}</div>`;
+      : `<div class="cnflow-row"><span class="l" title="${esc(idxDef)}">主力净流入</span>${NO_DATA}${reasonTxt(m)}</div>`;
     const etfLine = ok(e)
       ? `<div class="cnflow-row"><span class="l">ETF净申赎<em>估算</em></span>1日 ${cell(e.net_1d)} · 5日 ${cell(e.net_5d)} · 20日 ${cell(e.net_20d)}</div>` +
         `<div class="cnflow-src">数据 ${esc(e.asof || "—")}${fromSnapshot(e) ? " · 上次快照" : ""} · ${esc(e.coverage || "")} · ${(e.items || []).filter(ok).map((i) => esc(i.code)).join("/")} · ${srcLink(e)}</div>`

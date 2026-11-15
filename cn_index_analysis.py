@@ -191,6 +191,28 @@ def _attach_futures(rows: list[dict]) -> None:
     _attach_futures.extras = extras  # type: ignore[attr-defined]
 
 
+
+def _naive_day_index(series: pd.Series) -> pd.Series:
+    """Drop timezone info and normalize to calendar dates.
+
+    akshare CN index history is tz-naive; Yahoo (satellites / CN fallback) is often
+    tz-aware. Building a DataFrame from a mix raises
+    TypeError: Cannot join tz-naive with tz-aware DatetimeIndex, which previously
+    wiped the Pages cn_indices.json seed (empty indices + error).
+    """
+    if series is None or getattr(series, "empty", True):
+        return series
+    s = pd.Series(pd.to_numeric(series, errors="coerce"), copy=True).dropna()
+    if s.empty:
+        return s
+    idx = pd.to_datetime(s.index, errors="coerce")
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    s.index = pd.DatetimeIndex(idx).normalize()
+    s = s[~s.index.isna()]
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
 AK_INDEX_MAP = {
     "000300.SS": "sh000300",
     "000016.SS": "sh000016",
@@ -217,8 +239,8 @@ def _series_from_ak(symbol: str) -> pd.Series | None:
     out = df.copy()
     out[date_col] = pd.to_datetime(out[date_col])
     s = pd.Series(out[close_col].astype(float).values, index=pd.DatetimeIndex(out[date_col])).dropna()
-    s = s[~s.index.duplicated(keep="last")].sort_index()
-    return s if len(s) else None
+    s = _naive_day_index(s)
+    return s if s is not None and len(s) else None
 
 
 def _download_close(tickers: list[str]) -> pd.DataFrame:
@@ -229,7 +251,7 @@ def _download_close(tickers: list[str]) -> pd.DataFrame:
         try:
             part = _series_from_ak(AK_INDEX_MAP[yahoo])
             if part is not None and len(part) >= 30:
-                frames[yahoo] = part.tail(320)
+                frames[yahoo] = _naive_day_index(part.tail(320))
                 continue
         except Exception:
             logger.debug("akshare index failed for %s", yahoo, exc_info=True)
@@ -238,7 +260,7 @@ def _download_close(tickers: list[str]) -> pd.DataFrame:
             import yfinance as yf
             hist = net_limits.yf_history(yf.Ticker(yahoo), period="1y")
             if hist is not None and not hist.empty and "Close" in hist.columns:
-                frames[yahoo] = hist["Close"].dropna()
+                frames[yahoo] = _naive_day_index(hist["Close"].dropna())
         except Exception:
             logger.debug("yahoo fallback failed for %s", yahoo, exc_info=True)
     if us:
@@ -257,15 +279,18 @@ def _download_close(tickers: list[str]) -> pd.DataFrame:
                 for s in us:
                     try:
                         if s in extra.columns.get_level_values(0):
-                            part = extra[s]["Close"].dropna()
-                            if not part.empty:
+                            part = _naive_day_index(extra[s]["Close"].dropna())
+                            if part is not None and not part.empty:
                                 frames[s] = part
                     except Exception:
                         continue
             elif "Close" in extra.columns and len(us) == 1:
-                frames[us[0]] = extra["Close"].dropna()
+                frames[us[0]] = _naive_day_index(extra["Close"].dropna())
         except Exception:
             logger.debug("yahoo satellite download failed", exc_info=True)
+    if not frames:
+        return pd.DataFrame()
+    frames = {k: _naive_day_index(v) for k, v in frames.items()}
     return pd.DataFrame(frames).sort_index()
 
 
@@ -384,7 +409,7 @@ def build_cn_index_analysis(force: bool = False) -> dict:
     flows = _index_flows()
     if flows is not None:
         payload["index_flows"] = flows
-        payload["method"]["flows"] = "资金进出：新浪板块资金流向（两市主力净流入，特大单）、东方财富指数主力净流入、上交所ETF份额申赎（估算）、沪深两融融资余额、基金半年报/年报机构ETF持仓；只展示，不计入评分"
+        payload["method"]["flows"] = "资金进出：新浪板块资金流向（两市及有板块的指数主力净流入，特大单 r0）、上交所ETF份额申赎（估算）、沪深两融融资余额、基金半年报/年报机构ETF持仓；只展示，不计入评分"
     _cache = (time.time(), payload)
     return payload
 

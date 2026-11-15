@@ -203,6 +203,7 @@ def test_with_cn_flows_uses_cached_remote_seed_and_labels_etf(monkeypatch):
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.delenv("CN_INDEX_FLOW_AUTO", raising=False)
     monkeypatch.setattr(F.DEFAULT_FLOW_PROVIDER, "_cache", None)
+    monkeypatch.setattr("index_main_flow.ensure_index_mains", lambda bundle, live=False: bundle)
     bundled = _bundle("2026-11-12T15:41:08+08:00", lambda i: _etf_missing(), main_asof=_d(1))
     remote = _bundle("2026-11-13T05:34:28+08:00", lambda i: _etf_ok(_d(1), net=-9.7), main_asof=_d(1))
     monkeypatch.setattr(F, "_REMOTE_SEED_CACHE", (time.time(), remote))
