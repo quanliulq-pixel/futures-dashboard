@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261115mrg6")
+    html = html.replace("{{ asset_v }}", "20261116mrg1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -114,6 +114,11 @@ def export_html() -> None:
         dump(API / "main_flow_history.json", main_flow_bundle(live=False))
     except Exception as exc:  # noqa: BLE001
         print("main flow history seed dump failed:", exc)
+    try:
+        from index_margin import public_history_bundle as index_margin_bundle
+        dump(API / "index_margin_history.json", index_margin_bundle(live=False))
+    except Exception as exc:  # noqa: BLE001
+        print("index margin history seed dump failed:", exc)
     # Keep the independently generated quant snapshot; never refetch the full market.
     from ng_quant import snapshot
     dump(API / "ng_boil_kold.json", snapshot())

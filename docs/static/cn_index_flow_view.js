@@ -93,6 +93,27 @@
       ? `<div class="cnflow-row"><span class="l" title="${esc(idxDef)}">主力净流入</span>今日 ${cell(m.net_1d)} · 5日 ${cell(m.net_5d)} · 20日 ${cell(m.net_20d)}</div>` +
         dataSrcLine(m)
       : `<div class="cnflow-row"><span class="l" title="${esc(idxDef)}">主力净流入</span>${NO_DATA}${reasonTxt(m)}</div>`;
+    const g = row.margin || null;
+    const marginDef = (g && g.definition) || (bundle && bundle.index_margin_definition) || "两融余额=融资余额+融券余额；比例=两融余额/成分股流通市值。";
+    const denomTip = (g && g.denominator) ? `分母：${g.denominator}` : "分母为成分股流通市值";
+    let marginLine = "";
+    if (g) {
+      if (ok(g) && g.margin_balance != null) {
+        const bal = fmtYi(g.margin_balance);
+        const ratio = fmtPct(g.margin_ratio);
+        const fin = fmtYi(g.fin_balance);
+        const finShare = g.fin_share == null ? "" : `占两融 ${Number(g.fin_share).toFixed(2)}%`;
+        const finRatio = fmtPct(g.fin_ratio);
+        const finBits = [fin ? `融资 ${esc(fin)}亿` : "", finShare, finRatio ? `占流通 ${esc(finRatio)}` : ""].filter(Boolean).join("，");
+        marginLine =
+          `<div class="cnflow-row"><span class="l" title="${esc(marginDef)}">两融余额</span>${esc(bal)}亿 · 1日 ${cell(g.chg_1d, 1)} · 5日 ${cell(g.chg_5d, 1)} · 20日 ${cell(g.chg_20d, 1)}</div>` +
+          `<div class="cnflow-row"><span class="l" title="${esc(denomTip)}">两融比例</span>${ratio == null ? NO_DATA : esc(ratio)} · 1日 ${cell(g.ratio_chg_1d, 3)}pt · 5日 ${cell(g.ratio_chg_5d, 3)}pt · 20日 ${cell(g.ratio_chg_20d, 3)}pt</div>` +
+          (finBits ? `<div class="cnflow-src">${esc(finBits)}</div>` : "") +
+          dataSrcLine(g);
+      } else {
+        marginLine = `<div class="cnflow-row"><span class="l" title="${esc(marginDef)}">两融余额</span>${NO_DATA}${reasonTxt(g)}</div>`;
+      }
+    }
     const etfLine = ok(e)
       ? `<div class="cnflow-row"><span class="l">ETF净申赎<em>估算</em></span>1日 ${cell(e.net_1d)} · 5日 ${cell(e.net_5d)} · 20日 ${cell(e.net_20d)}</div>` +
         `<div class="cnflow-src">数据 ${esc(e.asof || "—")}${fromSnapshot(e) ? " · 上次快照" : ""} · ${esc(e.coverage || "")} · ${(e.items || []).filter(ok).map((i) => esc(i.code)).join("/")} · ${srcLink(e)}</div>`
@@ -112,7 +133,7 @@
     } else {
       holdersLine = `<div class="cnflow-row"><span class="l">机构ETF持仓<em>半年报/年报</em></span>${NO_DATA}${reasonTxt(h)}</div>`;
     }
-    return `<div class="cnflow-card"><div class="cnflow-h">资金进出（亿元，红=流入 绿=流出，仅展示不计分）</div>${mainLine}${etfLine}${holdersLine}</div>`;
+    return `<div class="cnflow-card"><div class="cnflow-h">资金进出（亿元，红=流入 绿=流出，仅展示不计分）</div>${mainLine}${marginLine}${etfLine}${holdersLine}</div>`;
   }
 
   /** 亿元：大额 1 位小数，起步阶段的极小值保留 4 位，避免最低点显示成 0.0。 */
@@ -122,6 +143,12 @@
     if (Math.abs(x) >= 10) return x.toFixed(1);
     if (Math.abs(x) >= 1) return x.toFixed(2);
     return x.toFixed(4);
+  }
+
+  function fmtPct(v, n) {
+    const x = num(v);
+    if (x == null) return null;
+    return `${x.toFixed(n == null ? 2 : n)}%`;
   }
 
   function histBalanceCell(pt) {
@@ -273,17 +300,79 @@
     const mainFlowSnapMeta = bundle.main_flow_from_snapshot
       ? ` · 主力净流入为上次快照（${esc(bundle.main_flow_snapshot_asof || "—")}）`
       : "";
+    const idxMgnSnapMeta = bundle.index_margin_from_snapshot
+      ? ` · 指数两融为上次快照（${esc(bundle.index_margin_snapshot_asof || "—")}）`
+      : "";
     const histCovMeta = ` · ${esc(rangeTxt)}`;
-    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}${histCovMeta}${histSnapMeta}${mainFlowSnapMeta}</div>`;
+    const meta = `<div class="cnflow-src">单位：亿元（机构持仓为亿份；指数两融比例为百分比） · 取数 ${esc(bundle.fetched_at || "—")}${snapMeta}${etfSnapMeta}${histCovMeta}${histSnapMeta}${mainFlowSnapMeta}${idxMgnSnapMeta}</div>`;
     return `${top}<div class="table-wrap" tabindex="0" role="region" aria-label="指数资金进出表，可左右滚动">${table}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>` +
+      indexMarginTableHtml(bundle) +
       mainFlowTableHtml(bundle) +
       chartPanelHtml() + meta +
       (notes ? `<ul class="cnflow-notes">${notes}</ul>` : "");
   }
 
+
+  function indexMarginSnapNote(o, bundle) {
+    if (o && o.from_snapshot) {
+      const asof = o.snapshot_asof || o.asof || "";
+      return asof ? `上次快照（${esc(asof)}）` : "上次快照";
+    }
+    if (bundle && bundle.index_margin_from_snapshot) {
+      const asof = bundle.index_margin_snapshot_asof || "";
+      return asof ? `上次快照（${esc(asof)}）` : "上次快照";
+    }
+    return "";
+  }
+
+  function indexMarginRow(label, o, bundle) {
+    const snap = indexMarginSnapNote(o, bundle);
+    const src = srcLink(o);
+    const denom = (o && o.denominator) ? o.denominator : "成分股流通市值";
+    if (!ok(o) || o.margin_balance == null) {
+      return `<tr><td>${esc(label)}</td><td class="num" colspan="9">${NO_DATA}${reasonTxt(o)}</td>` +
+        `<td>${src}${src && snap ? " · " : ""}${snap ? `<span class="cnflow-hist">${snap}</span>` : ""}</td></tr>`;
+    }
+    const ratio = fmtPct(o.margin_ratio);
+    const fin = fmtYi(o.fin_balance);
+    return `<tr><td title="${esc((o.definition || "") + " 分母：" + denom)}">${esc(label)}</td>` +
+      `<td class="num">${esc(fmtYi(o.margin_balance))}</td>` +
+      `<td class="num">${cell(o.chg_1d, 1)}</td>` +
+      `<td class="num">${cell(o.chg_5d, 1)}</td>` +
+      `<td class="num">${cell(o.chg_20d, 1)}</td>` +
+      `<td class="num" title="${esc("两融余额 / " + denom)}">${ratio == null ? NO_DATA : esc(ratio)}</td>` +
+      `<td class="num">${cell(o.ratio_chg_1d, 3)}pt</td>` +
+      `<td class="num">${cell(o.ratio_chg_5d, 3)}pt</td>` +
+      `<td class="num">${cell(o.ratio_chg_20d, 3)}pt</td>` +
+      `<td class="num" title="${o.fin_share == null ? "" : esc("融资占两融 " + Number(o.fin_share).toFixed(2) + "%")}">${fin == null ? NO_DATA : esc(fin)}</td>` +
+      `<td>${esc(o.asof || "—")}${fromSnapshot(o) ? " · 上次快照" : ""}${src ? " · " + src : ""}${snap && !fromSnapshot(o) ? " · " + snap : ""}</td></tr>`;
+  }
+
+  function indexMarginTableHtml(bundle) {
+    const idx = (bundle && bundle.indices) || {};
+    const mapped = (bundle && bundle.index_margins) || {};
+    const defTip = (bundle && bundle.index_margin_definition) || "两融余额=融资余额+融券余额（亿元）。比例=两融余额/成分股流通市值。";
+    const ids = ["csi300", "sse50", "csi1000"];
+    const rows = ids.map((id) => {
+      const r = idx[id] || {};
+      const o = r.margin || mapped[id];
+      return indexMarginRow((r.name || ({csi300:"沪深300",sse50:"上证50",csi1000:"中证1000"})[id] || id), o, bundle);
+    }).join("");
+    const table = `<table class="put-table cnflow-table"><thead><tr>` +
+      `<th title="${esc(defTip)}">指数两融余额</th>` +
+      `<th class="num">余额(亿元)</th>` +
+      `<th class="num">1日变化</th><th class="num">5日变化</th><th class="num">20日变化</th>` +
+      `<th class="num" title="${esc("比例=两融余额/成分股流通市值。沪深300、上证50分母为东财板块流通A股市值；中证1000分母为当日有两融明细的官方成分股流通市值合计。")}">比例</th>` +
+      `<th class="num">比例1日</th><th class="num">比例5日</th><th class="num">比例20日</th>` +
+      `<th class="num" title="融资余额（亿元）">融资余额</th>` +
+      `<th>数据日期 · 来源</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<div class="table-wrap" tabindex="0" role="region" aria-label="指数两融余额表，可左右滚动">${table}</div>`;
+  }
+
   function mainFlowSnapNote(o, bundle) {
+
     if (o && o.from_snapshot) {
       const asof = o.snapshot_asof || o.asof || "";
       return asof ? `上次快照（${esc(asof)}）` : "上次快照";
@@ -635,7 +724,7 @@
   }
 
   const api = {
-    esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, cardHtml: cardHtml, summaryHtml: summaryHtml,
+    esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, fmtPct, indexMarginTableHtml, indexMarginRow, cardHtml: cardHtml, summaryHtml: summaryHtml,
     chartPanelHtml: chartPanelHtml, mainFlowTableHtml: mainFlowTableHtml,
     downsampleWeekly: downsampleWeekly, filterChartSeries: filterChartSeries, filterFlowSeries: filterFlowSeries,
     chartOption: chartOption, mountChart: mountChart, resizeChart: resizeChart, disposeChart: disposeChart,

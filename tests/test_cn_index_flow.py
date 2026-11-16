@@ -379,6 +379,7 @@ def test_with_cn_flows_does_not_serve_wiped_cache_over_seed(monkeypatch):
     wiped["indices"]["chinext"]["etf"] = {"status": "missing", "reason": "创业板ETF在深交所上市，深交所不提供历史份额，无法计算申赎"}
     monkeypatch.setattr(F.DEFAULT_FLOW_PROVIDER, "_cache", (__import__("time").time(), wiped))
     monkeypatch.setattr("index_main_flow.ensure_index_mains", lambda bundle, live=False: bundle)
+    monkeypatch.setattr("index_margin.ensure_index_margins", lambda bundle, live=False: bundle)
     payload = {"index_flows": seed, "indices": []}
     out = app_mod._with_cn_flows(payload, kick=False)
     flows = out["index_flows"]

@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261115mrg6"
+    asset_v = "20261116mrg1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -698,6 +698,15 @@ def _with_cn_flows(payload: dict, *, kick: bool | None = None) -> dict:
         except Exception:
             logger.debug("attach index main flow failed", exc_info=True)
         try:
+            from index_margin import ensure_index_margins
+            if payload.get("index_flows") is not None:
+                flows = ensure_index_margins(payload["index_flows"], live=False)
+                if flows is not payload["index_flows"]:
+                    payload = dict(payload)
+                    payload["index_flows"] = flows
+        except Exception:
+            logger.debug("attach index margin failed", exc_info=True)
+        try:
             from cn_index_etf_holders_history import attach_holder_history
             payload = attach_holder_history(payload)
         except Exception:
@@ -798,6 +807,17 @@ def margin_history_api():
     except Exception as exc:
         logger.debug("margin history api failed", exc_info=True)
         return jsonify({"status": "missing", "reason": str(exc)[:120], "markets": {}}), 200
+
+
+@app.route("/api/index-margin-history")
+def index_margin_history_api():
+    """Serve cached 沪深300/上证50/中证1000 两融余额与比例. Request thread: seed only, never network."""
+    try:
+        from index_margin import public_history_bundle
+        return jsonify(public_history_bundle(live=False))
+    except Exception as exc:
+        logger.debug("index margin history api failed", exc_info=True)
+        return jsonify({"status": "missing", "reason": str(exc)[:120], "stats": {}}), 200
 
 
 @app.route("/api/main-flow-history")

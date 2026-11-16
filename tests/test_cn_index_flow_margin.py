@@ -162,6 +162,7 @@ def test_refresh_production_path_uses_aligned_szse(monkeypatch):
     monkeypatch.setattr(F, "_REMOTE_SEED_CACHE", None)
     monkeypatch.setattr(F, "skip_push2", lambda: True)
     monkeypatch.setenv("SKIP_INDEX_HOLDERS", "1")
+    monkeypatch.setattr("index_margin.ensure_index_margins", lambda bundle, live=False: bundle)
     cal = _cal()
     monkeypatch.setattr(F, "default_fetchers", lambda: {
         "cal": lambda: cal, "etf_prices": lambda: {},
