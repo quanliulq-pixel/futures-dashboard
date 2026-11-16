@@ -381,3 +381,41 @@ assert.ok(msum.includes('class="down">-12.3') && msum.includes('class="up">+8.4'
 const plain = v.cardHtml(b, "csi300");
 assert.ok(!plain.includes("两融余额"));
 console.log("index margin view tests ok");
+
+// 指数两融历史图 + 关系表
+{
+  const series = [];
+  for (let i = 0; i < 800; i++) {
+    const d = new Date(Date.UTC(2024, 0, 1) + i * 86400000).toISOString().slice(0, 10);
+    series.push([d, 1000 + i, 1 + i / 1000, i === 5 ? null : 3000 + i]);
+  }
+  const rel = { status: "ok", asof: series[799][0], coverage_start: "2024-01-01", n: 800,
+    margin_high: { date: series[799][0], value: 1799, index_close: 3799 },
+    margin_low: { date: "2024-01-02", value: 1001, index_close: 3001 },
+    ratio_high: { date: series[799][0], value: 1.799, index_close: 3799 },
+    ratio_low: { date: "2024-01-06", value: 1.005, index_close: null },
+    windows: { all: { margin_pctile: 100, ratio_pctile: 100, corr_level: 0.95, corr_chg20: -0.12, corr_weekly: 0.3, corr_lead20: null },
+      "1y": { margin_pctile: 99, corr_level: 0.9 }, "3y": {} },
+    note: "研究参考，不能下单。" };
+  const pay = { status: "ok", from_snapshot: true, snapshot_asof: "2026-11-13",
+    chart: { csi300: { name: "沪深300", series, relation: rel }, sse50: { name: "上证50", series: [], relation: { status: "missing", reason: "无数据" } } } };
+  const opt = v.indexMarginChartOption(pay.chart.csi300, "all");
+  assert.strictEqual(opt.series.length, 3);
+  const bal = opt.series[0].data;
+  assert.ok(bal.length < 200, "全部 区间按周抽样");
+  assert.ok(bal.some((p) => p[0] === "2024-01-02"), "低点日期补回");
+  assert.ok(opt.series[1].data.some((p) => p[1] === null), "缺收盘不插补");
+  assert.ok(JSON.stringify(opt.series[0].markPoint.data).includes("余额最高"));
+  assert.ok(JSON.stringify(opt.series[2].markPoint.data).includes("比例最低"));
+  const y1 = v.indexMarginChartOption(pay.chart.csi300, "1y");
+  assert.ok(y1.series[0].data.length >= 360 && y1.series[0].data.length <= 370);
+  const html = v.indexMarginRelationHtml(pay);
+  assert.ok(html.includes("研究参考，不能下单"));
+  assert.ok(html.includes("100%") && html.includes("指数 3001.00") && html.includes("指数 无数据"));
+  assert.ok(html.includes('class="up">+0.95') && html.includes('class="down">-0.12'));
+  assert.ok(html.includes("上证50") && html.includes("无数据"));
+  const panel = v.indexMarginChartPanelHtml();
+  assert.ok(panel.includes("中证1000") && panel.includes("data-imrange=\"all\"") && panel.includes("两融比例"));
+  assert.ok(v.summaryHtml(withMargin).includes("data-im-chart"));
+  console.log("index margin history chart tests ok");
+}

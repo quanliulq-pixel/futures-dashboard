@@ -309,6 +309,7 @@
       `<div class="table-wrap" tabindex="0" role="region" aria-label="机构ETF持仓表，可左右滚动">${htable}</div>` +
       `<div class="table-wrap" tabindex="0" role="region" aria-label="两融融资余额表，可左右滚动">${margin}</div>` +
       indexMarginTableHtml(bundle) +
+      indexMarginChartPanelHtml() +
       mainFlowTableHtml(bundle) +
       chartPanelHtml() + meta +
       (notes ? `<ul class="cnflow-notes">${notes}</ul>` : "");
@@ -714,6 +715,9 @@
     if (chartInst && !(chartInst.isDisposed && chartInst.isDisposed())) {
       try { chartInst.resize(); } catch (e) { /* ignore */ }
     }
+    if (imInst && !(imInst.isDisposed && imInst.isDisposed())) {
+      try { imInst.resize(); } catch (e) { /* ignore */ }
+    }
   }
 
   function disposeChart() {
@@ -723,11 +727,219 @@
     }
   }
 
+
+  // ---------------- 指数两融历史：余额 / 比例 / 指数收盘 + 关系统计（研究参考，不能下单）
+  const IM_IDS = ["csi300", "sse50", "csi1000"];
+  const IM_NAMES = { csi300: "沪深300", sse50: "上证50", csi1000: "中证1000" };
+
+  function imFilter(series, range, wantDates) {
+    const daily = (series || []).filter((p) => p && p[0]);
+    if (!daily.length) return [];
+    const end = daily[daily.length - 1][0];
+    let start = daily[0][0];
+    if (range !== "all" && RANGE_DAYS[range]) start = addDaysIso(end, -RANGE_DAYS[range]);
+    let pts = daily.filter((p) => p[0] >= start && p[0] <= end);
+    if (range === "all") pts = downsampleWeekly(pts);
+    const have = new Set(pts.map((p) => p[0]));
+    daily.forEach((p) => {
+      if ((wantDates || []).indexOf(p[0]) >= 0 && !have.has(p[0]) && p[0] >= start) {
+        pts.push(p);
+        have.add(p[0]);
+      }
+    });
+    pts.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return pts;
+  }
+
+  function corrTxt(v) {
+    const x = num(v);
+    return x == null ? NO_DATA : `<span class="${cls(x)}">${x > 0 ? "+" : ""}${x.toFixed(2)}</span>`;
+  }
+
+  function pctileTxt(v) {
+    const x = num(v);
+    return x == null ? NO_DATA : `${x.toFixed(0)}%`;
+  }
+
+  function extTxt(pt, unit) {
+    if (!pt || pt.value == null) return NO_DATA;
+    const v = unit === "%" ? `${Number(pt.value).toFixed(2)}%` : `${fmtYi(pt.value)}亿`;
+    const idx = pt.index_close == null ? NO_DATA : Number(pt.index_close).toFixed(2);
+    return `${esc(v)}<span class="cnflow-hist">${esc(pt.date || "—")} · 指数 ${esc(idx)}</span>`;
+  }
+
+  function indexMarginRelationHtml(payload) {
+    const chart = (payload && payload.chart) || {};
+    const rows = IM_IDS.map((id) => {
+      const c = chart[id] || {};
+      const r = c.relation || {};
+      const name = c.name || IM_NAMES[id];
+      if (r.status !== "ok") {
+        return `<tr><td>${esc(name)}</td><td colspan="11">${NO_DATA}${reasonTxt(r)}</td></tr>`;
+      }
+      const w = r.windows || {};
+      const a = w.all || {};
+      const y1 = w["1y"] || {};
+      const y3 = w["3y"] || {};
+      const lowBit = (r.low_coverage_start && r.low_coverage_start !== r.coverage_start)
+        ? ` · 最低自 ${esc(r.low_coverage_start)}` : "";
+      const cov = `${esc(r.coverage_start || "—")} 起 · ${esc(String(r.n || 0))} 日${lowBit}`;
+      return `<tr><td><strong>${esc(name)}</strong><span class="cnflow-hist">${cov}</span></td>` +
+        `<td class="num">${pctileTxt(a.margin_pctile)}<span class="cnflow-hist">1年 ${pctileTxt(y1.margin_pctile)}</span></td>` +
+        `<td class="num">${pctileTxt(a.ratio_pctile)}<span class="cnflow-hist">1年 ${pctileTxt(y1.ratio_pctile)}</span></td>` +
+        `<td class="num">${extTxt(r.margin_high)}</td><td class="num">${extTxt(r.margin_low)}</td>` +
+        `<td class="num">${extTxt(r.ratio_high, "%")}</td><td class="num">${extTxt(r.ratio_low, "%")}</td>` +
+        `<td class="num">${corrTxt(a.corr_level)}<span class="cnflow-hist">1年 ${corrTxt(y1.corr_level)}</span></td>` +
+        `<td class="num">${corrTxt(a.corr_chg20)}<span class="cnflow-hist">1年 ${corrTxt(y1.corr_chg20)} · 3年 ${corrTxt(y3.corr_chg20)}</span></td>` +
+        `<td class="num">${corrTxt(a.corr_weekly)}<span class="cnflow-hist">1年 ${corrTxt(y1.corr_weekly)}</span></td>` +
+        `<td class="num">${corrTxt(a.corr_lead20)}<span class="cnflow-hist">1年 ${corrTxt(y1.corr_lead20)} · 3年 ${corrTxt(y3.corr_lead20)}</span></td>` +
+        `<td>${esc(r.asof || "—")}</td></tr>`;
+    }).join("");
+    const head = `<tr><th>指数两融与指数关系<em>研究参考，不能下单</em></th>` +
+      `<th class="num" title="最新两融余额在全历史（及近1年）中的百分位">余额分位</th>` +
+      `<th class="num" title="最新两融比例在全历史（及近1年）中的百分位">比例分位</th>` +
+      `<th class="num">余额最高 · 当日指数</th><th class="num">余额最低 · 当日指数</th>` +
+      `<th class="num">比例最高 · 当日指数</th><th class="num">比例最低 · 当日指数</th>` +
+      `<th class="num" title="两融余额与指数收盘的水平相关（Pearson，同日对齐）">水平相关</th>` +
+      `<th class="num" title="余额20日变化率与指数20日涨跌幅的相关，每5个交易日取样">20日变化相关</th>` +
+      `<th class="num" title="周末实际交易日的周变化率相关">周变化相关</th>` +
+      `<th class="num" title="余额过去20日变化率与指数未来20日涨跌幅的相关（领先性），每5日取样">领先20日</th>` +
+      `<th>数据日期</th></tr>`;
+    const note = (payload && payload.chart && (chart.csi300 || {}).relation && chart.csi300.relation.note) ||
+      "研究参考，不能下单。相关不代表因果。";
+    return `<div class="table-wrap" tabindex="0" role="region" aria-label="指数两融与指数关系表，可左右滚动">` +
+      `<table class="put-table cnflow-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div>` +
+      `<div class="cnflow-src">${esc(note)} 相关系数 +1 同向、−1 反向（红正绿负，仅表示方向，不是涨跌）。</div>`;
+  }
+
+  function indexMarginChartPanelHtml() {
+    return `<div class="cnflow-margin-chart" data-im-chart>` +
+      `<div class="cnflow-chart-toolbar">` +
+      `<div class="seg cnflow-im-idx" role="tablist" aria-label="指数">` +
+      IM_IDS.map((id) => `<button type="button" data-im="${id}"${id === "csi300" ? ' class="active"' : ""}>${IM_NAMES[id]}</button>`).join("") +
+      `</div>` +
+      `<div class="seg cnflow-im-range" role="tablist" aria-label="时间区间">` +
+      `<button type="button" data-imrange="1y">1年</button><button type="button" data-imrange="3y">3年</button>` +
+      `<button type="button" data-imrange="5y">5年</button><button type="button" data-imrange="all" class="active">全部</button>` +
+      `</div></div>` +
+      `<div class="cnflow-margin-chart-el has-flow" data-im-el role="img" aria-label="指数两融余额、两融比例与指数收盘走势"></div>` +
+      `<div class="cnflow-src cnflow-im-note">上图左轴两融余额（亿元），右轴指数收盘；下图两融比例（%）。标注余额与比例的历史最高/最低及当日指数。缺数据不插补；全部区间按周保留实际交易日。研究参考，不能下单。</div>` +
+      `<div data-im-rel></div>` +
+      `</div>`;
+  }
+
+  function indexMarginChartOption(entry, range) {
+    entry = entry || {};
+    range = range || "all";
+    const rel = entry.relation || {};
+    const want = [rel.margin_high, rel.margin_low, rel.ratio_high, rel.ratio_low].filter(Boolean).map((x) => x.date);
+    const pts = imFilter(entry.series, range, want);
+    const idxName = (entry.name || "指数") + "收盘";
+    const inRange = (d) => pts.length && d >= pts[0][0] && d <= pts[pts.length - 1][0];
+    function mk(pt, label, color, pos) {
+      if (!pt || !pt.date || pt.value == null || !inRange(pt.date)) return null;
+      const idx = pt.index_close == null ? NO_DATA : Number(pt.index_close).toFixed(0);
+      return { name: label, coord: [pt.date, pt.value], itemStyle: { color: color },
+        label: { formatter: `${label}\n指数${idx}`, color: "#e2e8f0", fontSize: 10, position: pos } };
+    }
+    const mMarks = [mk(rel.margin_high, "余额最高", "#ef5350", "top"), mk(rel.margin_low, "余额最低", "#26a69a", "bottom")].filter(Boolean);
+    const rMarks = [mk(rel.ratio_high, "比例最高", "#ef5350", "top"), mk(rel.ratio_low, "比例最低", "#26a69a", "bottom")].filter(Boolean);
+    return {
+      backgroundColor: "transparent",
+      animation: false,
+      legend: { data: ["两融余额", idxName, "两融比例"], textStyle: { color: AXIS, fontSize: 11 }, top: 0 },
+      tooltip: {
+        trigger: "axis", axisPointer: { type: "cross" },
+        backgroundColor: "rgba(15,23,42,0.94)", borderColor: "#334155", textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (items) => {
+          if (!items || !items.length) return "";
+          const i = items[0].dataIndex;
+          const p = pts[i] || [];
+          const m = p[1] == null ? NO_DATA : fmtYi(p[1]) + " 亿元";
+          const r = p[2] == null ? NO_DATA : Number(p[2]).toFixed(2) + "%";
+          const c = p[3] == null ? NO_DATA : Number(p[3]).toFixed(2);
+          return `<b>${esc(p[0] || "")}</b><br/>两融余额：${esc(m)}<br/>两融比例：${esc(r)}<br/>${esc(idxName)}：${esc(c)}`;
+        },
+      },
+      grid: [{ left: 64, right: 60, top: 36, height: 190 }, { left: 64, right: 60, top: 262, height: 88 }],
+      xAxis: [Object.assign({ type: "time", gridIndex: 0 }, axisStyle()), Object.assign({ type: "time", gridIndex: 1 }, axisStyle())],
+      yAxis: [
+        Object.assign({ type: "value", name: "两融余额(亿元)", scale: true, splitNumber: 4, gridIndex: 0 }, axisStyle()),
+        Object.assign({ type: "value", name: idxName, scale: true, splitNumber: 4, gridIndex: 0, splitLine: { show: false } }, axisStyle()),
+        Object.assign({ type: "value", name: "两融比例(%)", scale: true, splitNumber: 3, gridIndex: 1 }, axisStyle()),
+      ],
+      axisPointer: { link: [{ xAxisIndex: [0, 1] }] },
+      series: [
+        { name: "两融余额", type: "line", xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, connectNulls: false,
+          data: pts.map((p) => [p[0], p[1]]), lineStyle: { width: 1.6, color: "#f0a15a" }, itemStyle: { color: "#f0a15a" },
+          markPoint: mMarks.length ? { symbolSize: 10, data: mMarks } : undefined },
+        { name: idxName, type: "line", xAxisIndex: 0, yAxisIndex: 1, showSymbol: false, connectNulls: false,
+          data: pts.map((p) => [p[0], p[3] == null ? null : p[3]]), lineStyle: { width: 1.4, color: "#7eb6ff" }, itemStyle: { color: "#7eb6ff" } },
+        { name: "两融比例", type: "line", xAxisIndex: 1, yAxisIndex: 2, showSymbol: false, connectNulls: false,
+          data: pts.map((p) => [p[0], p[2] == null ? null : p[2]]), lineStyle: { width: 1.4, color: "#c792ea" }, itemStyle: { color: "#c792ea" },
+          markPoint: rMarks.length ? { symbolSize: 10, data: rMarks } : undefined },
+      ],
+    };
+  }
+
+  let imInst = null;
+  const imState = { id: "csi300", range: "all", payload: null };
+
+  function paintIndexMarginChart(rootEl) {
+    const el = rootEl.querySelector("[data-im-el]");
+    if (!el) return;
+    const entry = ((imState.payload && imState.payload.chart) || {})[imState.id];
+    const cov = entry && entry.relation && entry.relation.status === "ok"
+      ? `${entry.name || ""} 覆盖 ${entry.relation.coverage_start} 起（${entry.relation.n} 日）${entry.relation.constituent_caveat ? "；" + entry.relation.constituent_caveat : ""}。`
+      : "";
+    const note = rootEl.querySelector(".cnflow-im-note");
+    if (note) {
+      if (note.getAttribute("data-base") == null) note.setAttribute("data-base", note.textContent);
+      const snap = imState.payload && imState.payload.from_snapshot
+        ? `上次快照（${imState.payload.snapshot_asof || ""}）。` : "";
+      note.textContent = snap + cov + note.getAttribute("data-base");
+    }
+    if (!entry || !entry.series || !entry.series.length) {
+      if (imInst) { try { imInst.dispose(); } catch (e) { /* ignore */ } imInst = null; }
+      el.innerHTML = `<div class="cnflow-miss">${NO_DATA}</div>`;
+      return;
+    }
+    const echarts = rootObj.echarts;
+    if (!echarts || !echarts.init) { el.innerHTML = `<div class="cnflow-miss">图表库未加载</div>`; return; }
+    if (!imInst || (imInst.isDisposed && imInst.isDisposed())) { el.innerHTML = ""; imInst = echarts.init(el, null, { renderer: "canvas" }); }
+    imInst.setOption(indexMarginChartOption(entry, imState.range), true);
+  }
+
+  function mountIndexMarginChart(host, payload) {
+    const rootEl = host && host.querySelector ? host.querySelector("[data-im-chart]") : null;
+    if (!rootEl) return;
+    imState.payload = payload && payload.chart ? payload : null;
+    const rel = rootEl.querySelector("[data-im-rel]");
+    if (rel) rel.innerHTML = imState.payload ? indexMarginRelationHtml(imState.payload) : `<div class="cnflow-miss">${NO_DATA}</div>`;
+    if (!rootEl._bound) {
+      rootEl._bound = true;
+      rootEl.addEventListener("click", (e) => {
+        const btn = e.target.closest && e.target.closest("button[data-im], button[data-imrange]");
+        if (!btn) return;
+        if (btn.dataset.im) imState.id = btn.dataset.im;
+        if (btn.dataset.imrange) imState.range = btn.dataset.imrange;
+        rootEl.querySelectorAll("button[data-im]").forEach((b) => b.classList.toggle("active", b.dataset.im === imState.id));
+        rootEl.querySelectorAll("button[data-imrange]").forEach((b) => b.classList.toggle("active", b.dataset.imrange === imState.range));
+        paintIndexMarginChart(rootEl);
+      });
+    }
+    rootEl.querySelectorAll("button[data-im]").forEach((b) => b.classList.toggle("active", b.dataset.im === imState.id));
+    rootEl.querySelectorAll("button[data-imrange]").forEach((b) => b.classList.toggle("active", b.dataset.imrange === imState.range));
+    paintIndexMarginChart(rootEl);
+  }
+
   const api = {
     esc: esc, cls: cls, signed: signed, fmtYi: fmtYi, fmtPct, indexMarginTableHtml, indexMarginRow, cardHtml: cardHtml, summaryHtml: summaryHtml,
     chartPanelHtml: chartPanelHtml, mainFlowTableHtml: mainFlowTableHtml,
     downsampleWeekly: downsampleWeekly, filterChartSeries: filterChartSeries, filterFlowSeries: filterFlowSeries,
     chartOption: chartOption, mountChart: mountChart, resizeChart: resizeChart, disposeChart: disposeChart,
+    indexMarginChartPanelHtml: indexMarginChartPanelHtml, indexMarginChartOption: indexMarginChartOption,
+    indexMarginRelationHtml: indexMarginRelationHtml, mountIndexMarginChart: mountIndexMarginChart, imFilter: imFilter,
     NO_DATA: NO_DATA,
   };
   root.cnIndexFlowView = api;

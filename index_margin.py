@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parent
 SEED_PATH = ROOT / "data" / "index_margin_history.json"
 RUNTIME_PATH = ROOT / "data" / "index_margin_history_latest.json"
 NO_DATA = "无数据"
+BACKFILL_PATH = ROOT / "data" / "index_margin_csi1000_backfill.json"
 
 EM_BK_PAGE = "https://data.eastmoney.com/rzrq/bk.html"
 EM_GGMX_PAGE = "https://data.eastmoney.com/rzrq/detail/all.html"
@@ -123,6 +124,33 @@ SRC = {
         "数据来自 datacenter-web，不使用东方财富 push2。"
     ),
 }
+
+
+
+# 指数收盘（新浪日线），只用于图表与关系统计；缺当日收盘为 None，不拿邻日顶替。
+INDEX_SYMBOLS = {"csi300": "sh000300", "sse50": "sh000016", "csi1000": "sh000852"}
+
+
+def index_closes_from_seed(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
+    out: dict[str, list[tuple[date, float]]] = {}
+    raw = (seed or {}).get("index") or {}
+    for iid in INDEX_MARGIN:
+        rows = []
+        for item in raw.get(iid) or []:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                d, v = _to_date(item[0]), _num(item[1])
+                if d is not None and v is not None:
+                    rows.append((d, v))
+        out[iid] = sorted(rows)
+    return out
+
+
+def _merge_closes(*seqs) -> list[tuple[date, float]]:
+    by: dict[date, float] = {}
+    for s in seqs:
+        for d, v in s or []:
+            by[d] = v
+    return sorted(by.items())
 
 
 @dataclass(frozen=True)
@@ -518,7 +546,20 @@ def load_index_margin_seed(paths: tuple[Path, ...] | None = None) -> dict | None
             return max((str(v) for v in a.values() if v), default="")
         return str(a or "")
 
-    return max(cands, key=_asof_key)
+    best = max(cands, key=_asof_key)
+    have: dict[str, list[DayPoint]] = {}
+    closes: dict[str, list[tuple[date, float]]] = {}
+    for c in cands:
+        pts = seed_points_map(c)
+        cl = index_closes_from_seed(c)
+        for iid in INDEX_MARGIN:
+            have[iid] = merge_points(have.get(iid) or [], pts.get(iid) or [])
+            closes[iid] = _merge_closes(closes.get(iid) or [], cl.get(iid) or [])
+    best = dict(best)
+    best["series"] = {iid: rows_from_points(have.get(iid) or []) for iid in INDEX_MARGIN}
+    best["index"] = {iid: [[d.isoformat(), _r(v, 2)] for d, v in closes.get(iid) or []]
+                     for iid in INDEX_MARGIN}
+    return best
 
 
 def seed_points_map(seed: dict | None) -> dict[str, list[DayPoint]]:
@@ -642,10 +683,63 @@ def _cons_from_seed(seed: dict | None, iid: str) -> tuple[list[str], date | None
     return codes, _to_date(block.get("date")), block.get("source")
 
 
+
+def load_backfill_points(path: Path | None = None) -> list[DayPoint]:
+    p = path or BACKFILL_PATH
+    if not p.is_file():
+        return []
+    try:
+        return points_from_rows(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        logger.warning("csi1000 backfill checkpoint unreadable: %s", p, exc_info=True)
+        return []
+
+
+def save_backfill_points(points: list[DayPoint], path: Path | None = None) -> Path:
+    """原子写入检查点，中断后续跑会跳过已完成日期。"""
+    from margin_history import save_history_seed
+    path = path or BACKFILL_PATH
+    # reuse atomic writer: wrap list as JSON via save? it expects dict.
+    text = json.dumps(rows_from_points(points), ensure_ascii=False, separators=(",", ":"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def backfill_csi1000_history(*, start: date, codes: set[str], calendar: list[date],
+                             existing: list[DayPoint] | None = None,
+                             fetch_day: Callable[..., DayPoint | None] | None = None,
+                             checkpoint: Path | None = None,
+                             write_every: int = 20) -> list[DayPoint]:
+    """按交易日合计中证1000两融。跳过 seed/检查点已有日期，每 write_every 天原子落盘，可续跑。"""
+    have = merge_points(existing or [], load_backfill_points(checkpoint))
+    done = {p.d for p in have}
+    todo = [d for d in calendar if d >= start and d not in done]
+    fn = fetch_day or fetch_ggmx_day
+    for i, d in enumerate(todo, 1):
+        pt = fn(d, set(codes))
+        if pt:
+            have = merge_points(have, [pt])
+        if i % max(1, write_every) == 0 or i == len(todo):
+            save_backfill_points(have, checkpoint)
+    return have
+
 def refresh_index_margin_history(*, live: bool = True,
                                  fetch_board: Callable[..., list[DayPoint]] | None = None,
                                  fetch_cons: Callable[..., tuple[list[str], date | None]] | None = None,
                                  fetch_day: Callable[..., DayPoint | None] | None = None,
+                                 fetch_index: Callable[..., list[tuple[date, float]]] | None = None,
                                  seed: dict | None = None,
                                  today: date | None = None,
                                  write: bool = True,
@@ -654,7 +748,9 @@ def refresh_index_margin_history(*, live: bool = True,
     today = today or datetime.now(CST).date()
     seed = seed if seed is not None else load_index_margin_seed()
     have = seed_points_map(seed)
+    have["csi1000"] = merge_points(have.get("csi1000") or [], load_backfill_points())
     cons_codes, cons_date, cons_src = _cons_from_seed(seed, "csi1000")
+    closes = index_closes_from_seed(seed)
     live_ok_ids: list[str] = []
     errors: dict[str, str] = {}
 
@@ -729,6 +825,18 @@ def refresh_index_margin_history(*, live: bool = True,
             if "csi1000_constituents" not in errors:
                 errors["csi1000"] = "无中证1000成分股名单，无法合计"
 
+    if live:
+        from margin_history import fetch_index_closes
+        idx_fn = fetch_index or fetch_index_closes
+        for iid, sym in INDEX_SYMBOLS.items():
+            have_c = closes.get(iid) or []
+            try:
+                part = idx_fn(sym, datalen=8000 if not have_c else 60)
+                closes[iid] = _merge_closes(have_c, part)
+            except Exception as exc:  # noqa: BLE001
+                errors[f"index_{iid}"] = f"{type(exc).__name__}: {str(exc)[:80]}"
+                logger.warning("index close %s fetch failed: %s", sym, errors[f"index_{iid}"])
+
     cons_extra = {}
     if cons_codes:
         cons_extra = {
@@ -784,6 +892,10 @@ def refresh_index_margin_history(*, live: bool = True,
             }
         },
         "series": {iid: rows_from_points(have.get(iid) or []) for iid in INDEX_MARGIN},
+        "index": {iid: [[d.isoformat(), _r(v, 2)] for d, v in closes.get(iid) or []]
+                  for iid in INDEX_MARGIN},
+        "index_source": {"label": "新浪日线收盘价", "function": "CN_MarketData.getKLineData",
+                         "symbols": INDEX_SYMBOLS},
         "stats": stats,
         "live_ok": bool(live and live_ok_ids),
         "errors": errors,
@@ -867,6 +979,22 @@ def public_history_bundle(*, live: bool = False, seed: dict | None = None,
         block.pop("codes", None)
         cons["csi1000"] = block
         out["constituents"] = cons
+    from index_margin_relation import chart_series, relation_for_index
+    pts = seed_points_map(payload)
+    cl = index_closes_from_seed(payload)
+    out["chart"] = {}
+    for iid, meta in INDEX_MARGIN.items():
+        rel = relation_for_index(pts.get(iid) or [], cl.get(iid) or [])
+        if iid == "csi1000" and rel.get("status") == "ok":
+            rel["constituent_caveat"] = "当前中证官方成分名单套用于全部历史日期，指数调样后回看历史会有偏差"
+        out["chart"][iid] = {
+            "name": meta["name"],
+            "index_symbol": INDEX_SYMBOLS.get(iid),
+            "series": chart_series(pts.get(iid) or [], cl.get(iid) or []),
+            "relation": rel,
+        }
+    out.pop("series", None)
+    out.pop("index", None)
     out["status"] = "ok" if any(
         (st or {}).get("status") == "ok" for st in (out.get("stats") or {}).values()
     ) else "missing"
@@ -881,6 +1009,7 @@ __all__ = [
     "load_index_margin_seed", "refresh_index_margin_history",
     "attach_index_margins", "ensure_index_margins", "public_history_bundle",
     "fetch_board_history", "fetch_csindex_constituents", "fetch_ggmx_day",
+    "backfill_csi1000_history", "load_backfill_points", "BACKFILL_PATH",
 ]
 
 

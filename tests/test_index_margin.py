@@ -118,6 +118,8 @@ def test_refresh_offline_no_network(monkeypatch):
     monkeypatch.setattr(M, "fetch_board_history", boom)
     monkeypatch.setattr(M, "fetch_csindex_constituents", boom)
     monkeypatch.setattr(M, "fetch_ggmx_day", boom)
+    import margin_history
+    monkeypatch.setattr(margin_history, "fetch_index_closes", boom)
     seed = {
         "series": {
             "csi300": [["2026-11-10", 8000.0, 7900.0, 100.0, 480000.0, 1.6667, 1.6458],
@@ -168,8 +170,10 @@ def test_refresh_live_incremental_board_and_aggregate(monkeypatch):
     out = M.refresh_index_margin_history(
         live=True, write=False, seed=seed, today=TODAY, agg_days=5,
         fetch_board=fetch_board, fetch_cons=fetch_cons, fetch_day=fetch_day,
+        fetch_index=lambda sym, datalen=None: [(date(2026, 11, 13), 4000.0)],
     )
     assert out["live_ok"] is True
+    assert out["index"]["csi300"] == [["2026-11-13", 4000.0]]
     assert ("500", date(2026, 11, 12)) in seen_board
     assert ("611", None) in seen_board
     # calendar comes from merged csi300 (seed 11-12 + new 11-13); last csi1000 empty → last 5 of calendar (only 2 dates)
@@ -223,3 +227,114 @@ def test_ensure_offline_does_not_call_network(monkeypatch):
     out = M.ensure_index_margins(bundle, live=False)
     assert called == []
     assert out["indices"]["sse50"]["margin"]["margin_balance"] == pytest.approx(2760.0)
+
+
+# ---------------- 历史图表 + 关系统计
+import index_margin_relation as R
+from datetime import timedelta
+
+
+def _series(n=300, start=date(2025, 1, 1)):
+    pts, closes = [], []
+    for i in range(n):
+        d = start + timedelta(days=i)
+        m = 1000.0 + i + (50 if i % 7 == 3 else 0)
+        pts.append(M.DayPoint(d, m, m * 0.98, m * 0.02, 100000.0, m / 1000.0, None))
+        closes.append((d, 3000.0 + 2 * i))
+    return pts, closes
+
+
+def test_pearson_and_percentile():
+    assert R.pearson([1, 2, 3], [1, 2, 3]) is None  # too few
+    xs = list(range(30))
+    assert R.pearson(xs, [2 * x for x in xs]) == pytest.approx(1.0)
+    assert R.pearson(xs, [-x for x in xs]) == pytest.approx(-1.0)
+    assert R.percentile(list(range(1, 101)), 90) == pytest.approx(90.0)
+    assert R.percentile([1, 2], 2) is None
+
+
+def test_relation_extrema_use_same_day_close_and_earliest_tie():
+    pts, closes = _series()
+    closes = [c for c in closes if c[0] != pts[0].d]  # first day has no close
+    rel = R.relation_for_index(pts, closes)
+    assert rel["status"] == "ok"
+    lo = rel["margin_low"]
+    assert lo["date"] == pts[0].d.isoformat() and lo["index_close"] is None  # 不拿邻日顶替
+    hi = rel["margin_high"]
+    assert hi["value"] == pytest.approx(max(p.margin for p in pts))
+    assert hi["index_close"] is not None
+    w = rel["windows"]["all"]
+    assert w["margin_pctile"] is not None and 0 <= w["margin_pctile"] <= 100
+    assert w["corr_level"] > 0.9
+    assert w["corr_chg20"] is not None and w["corr_lead20"] is not None and w["corr_weekly"] is not None
+    assert "不能下单" in rel["note"]
+
+
+def test_relation_short_history_returns_none_not_fabricated():
+    pts, closes = _series(n=10)
+    rel = R.relation_for_index(pts, closes)
+    w = rel["windows"]["all"]
+    assert w["corr_level"] is None and w["corr_chg20"] is None and w["margin_pctile"] is None
+    assert R.relation_for_index([], [])["status"] == "missing"
+
+
+def test_public_bundle_has_chart_and_relation_no_raw_series():
+    pts, closes = _series()
+    seed = {
+        "series": {"csi300": M.rows_from_points(pts)},
+        "index": {"csi300": [[d.isoformat(), c] for d, c in closes]},
+        "asof": {"csi300": pts[-1].d.isoformat()},
+    }
+    pub = M.public_history_bundle(live=False, seed=seed, today=TODAY)
+    c = pub["chart"]["csi300"]
+    assert c["series"][-1][0] == pts[-1].d.isoformat() and c["series"][-1][3] == pytest.approx(closes[-1][1])
+    assert c["relation"]["status"] == "ok"
+    assert pub["chart"]["csi1000"]["relation"]["status"] == "missing"
+    assert "series" not in pub and "index" not in pub
+
+
+def test_relation_low_uses_2014_window_not_pilot_start():
+    # 2010-03-31 极小余额不应成为「历史最低」
+    pts = [
+        M.DayPoint(date(2010, 3, 31), 0.06, 0.05, 0.01, 10000.0, 0.0006, 0.0005),
+        M.DayPoint(date(2014, 9, 21), 10.0, 9.0, 1.0, 10000.0, 0.1, 0.09),
+        M.DayPoint(date(2014, 9, 22), 80.0, 78.0, 2.0, 20000.0, 0.4, 0.39),
+        M.DayPoint(date(2015, 6, 19), 200.0, 190.0, 10.0, 30000.0, 0.667, 0.63),
+    ] + [M.DayPoint(date(2020, 1, 1) + timedelta(days=i), 150.0 + i, 140.0, 10.0, 40000.0, 0.4, 0.35)
+         for i in range(30)]
+    closes = [(p.d, 3000.0 + i) for i, p in enumerate(pts)]
+    rel = R.relation_for_index(pts, closes)
+    assert rel["low_coverage_start"] == "2014-09-22"
+    assert rel["margin_low"]["date"] == "2014-09-22"
+    assert rel["margin_low"]["value"] == pytest.approx(80.0)
+    assert rel["margin_high"]["date"] == pts[-1].d.isoformat() or rel["margin_high"]["value"] >= 150
+    assert rel["ratio_low"]["date"] != "2010-03-31"
+
+
+def test_csi1000_backfill_resumes_from_checkpoint(tmp_path):
+    ck = tmp_path / "bf.json"
+    cal = [date(2026, 11, 10), date(2026, 11, 11), date(2026, 11, 12), date(2026, 11, 13)]
+    codes = {"000012"}
+    seen = []
+
+    def fetch(d, cs, **_k):
+        seen.append(d)
+        if d == date(2026, 11, 11) and seen.count(d) == 1 and len(seen) == 2:
+            raise RuntimeError("interrupt")
+        return _pt(d, 1000.0 + d.day, circ=10000.0, n_cons=1, n_mgn=1)
+
+    # first run dies mid-way; days before the failure should be checkpointed
+    try:
+        M.backfill_csi1000_history(start=date(2026, 11, 10), codes=codes, calendar=cal,
+                                   fetch_day=fetch, checkpoint=ck, write_every=1)
+        raise AssertionError("should have interrupted")
+    except RuntimeError:
+        pass
+    saved = M.load_backfill_points(ck)
+    assert [p.d for p in saved] == [date(2026, 11, 10)]
+    seen.clear()
+    out = M.backfill_csi1000_history(start=date(2026, 11, 10), codes=codes, calendar=cal,
+                                     existing=saved, fetch_day=fetch, checkpoint=ck, write_every=1)
+    assert date(2026, 11, 10) not in seen  # 已完成的日期不重抓
+    assert seen == [date(2026, 11, 11), date(2026, 11, 12), date(2026, 11, 13)]
+    assert [p.d for p in out] == cal

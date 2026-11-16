@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261116mrg1")
+    html = html.replace("{{ asset_v }}", "20261116mrg2")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
