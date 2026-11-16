@@ -1200,6 +1200,12 @@ class IndexFlowProvider:
                 bundle = ensure_index_mains(bundle, live=True)
             except Exception:  # noqa: BLE001
                 logger.warning("index main flow attach failed", exc_info=True)
+        if self._fetchers is None:
+            try:
+                from index_margin import ensure_index_margins
+                bundle = ensure_index_margins(bundle, live=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("index margin attach failed", exc_info=True)
         bundle["fetch_seconds"] = round(time.time() - t0, 1)
         with self._lock:
             self._cache = (time.time(), bundle)

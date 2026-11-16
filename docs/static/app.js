@@ -16,6 +16,7 @@
       '/api/cn-index-etf-holders-history': './api/cn_index_etf_holders_history.json',
       '/api/margin-history': './api/margin_history.json',
       '/api/main-flow-history': './api/main_flow_history.json',
+      '/api/index-margin-history': './api/index_margin_history.json',
       '/api/gold': './api/gold.json',
       '/api/gold/refresh': './api/gold.json',
       '/api/gold/quant': './api/gold_quant.json',

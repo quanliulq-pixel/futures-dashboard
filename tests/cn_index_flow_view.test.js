@@ -328,3 +328,56 @@ const hidden = v.chartOption({
 }, "1y", { series: flowSeries }, false);
 assert.strictEqual(hidden.series.length, 2);
 assert.ok(!hidden.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]).includes("主力净流入"));
+
+// 指数两融余额 + 比例：卡片与两融区表；红涨绿跌；无数据不虚构
+const withMargin = JSON.parse(JSON.stringify(b));
+withMargin.index_margin_definition = "两融余额=融资余额+融券余额。比例分母为成分股流通A股市值。";
+withMargin.indices.csi300.margin = {
+  status: "ok", asof: "2026-11-13",
+  margin_balance: 8240.56, fin_balance: 8112.84, loan_balance: 127.72,
+  circ_mv: 481822.44, margin_ratio: 1.7103, fin_ratio: 1.6838, fin_share: 98.45,
+  chg_1d: -12.3, chg_5d: 45.6, chg_20d: -80.1,
+  ratio_chg_1d: -0.012, ratio_chg_5d: 0.03, ratio_chg_20d: -0.05,
+  denominator: "成分股流通A股市值（东方财富板块字段 NOTLIMITED_MARKETCAP_A，无限售流通A股）",
+  definition: "沪深300两融余额=融资+融券，分母为流通A股市值",
+  source: "东方财富数据中心 板块融资融券",
+  source_url: "https://data.eastmoney.com/rzrq/BK0500.html",
+};
+withMargin.indices.sse50.margin = { status: "missing", reason: "东方财富板块融资融券未提供该指数" };
+withMargin.indices.csi1000 = withMargin.indices.csi1000 || { name: "中证1000", tracked: true };
+withMargin.indices.csi1000.margin = {
+  status: "ok", asof: "2026-11-13", from_snapshot: true, snapshot_asof: "2026-11-13",
+  margin_balance: 3510.2, fin_balance: 3480.0, loan_balance: 30.2,
+  circ_mv: 90000.0, margin_ratio: 3.9002, fin_ratio: 3.8667, fin_share: 99.14,
+  chg_1d: 8.4, chg_5d: -11.2, chg_20d: 20.0,
+  ratio_chg_1d: 0.01, ratio_chg_5d: -0.02, ratio_chg_20d: 0.04,
+  denominator: "当日有两融明细的成分股流通市值合计",
+  source: "中证指数官方成分股 + 东方财富个股两融明细",
+  source_url: "https://data.eastmoney.com/rzrq/detail/all.html",
+  constituent_caveat: "当前中证官方成分名单套用于全部历史日期",
+};
+withMargin.index_margins = {
+  csi300: withMargin.indices.csi300.margin,
+  sse50: withMargin.indices.sse50.margin,
+  csi1000: withMargin.indices.csi1000.margin,
+};
+withMargin.order = ["csi300", "sse50", "csi1000"];
+const mcard = v.cardHtml(withMargin, "csi300");
+assert.ok(mcard.includes("两融余额") && mcard.includes("8240.6亿"), mcard);
+assert.ok(mcard.includes("两融比例") && mcard.includes("1.71%"));
+assert.ok(mcard.includes('class="down">-12.3') && mcard.includes('class="up">+45.6'));
+assert.ok(mcard.includes("占两融 98.45%") && mcard.includes("流通A股"));
+assert.ok(mcard.includes("2026-11-13"));
+const mmiss = v.cardHtml(withMargin, "sse50");
+assert.ok(mmiss.includes("两融余额") && mmiss.includes("无数据"));
+const msum = v.summaryHtml(withMargin);
+assert.ok(msum.includes("指数两融余额"));
+assert.ok(msum.includes("8240.6") && msum.includes("1.71%"));
+assert.ok(msum.includes("3510.2") && msum.includes("3.90%"));
+assert.ok(msum.includes("上次快照"));
+assert.ok(msum.includes("无数据（东方财富板块融资融券未提供该指数）") || msum.includes("无数据"));
+assert.ok(msum.includes('class="down">-12.3') && msum.includes('class="up">+8.4'));
+// 未挂 margin 的卡片不加两融行
+const plain = v.cardHtml(b, "csi300");
+assert.ok(!plain.includes("两融余额"));
+console.log("index margin view tests ok");

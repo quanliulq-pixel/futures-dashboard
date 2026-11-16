@@ -133,6 +133,7 @@ def test_refresh_sse_failure_falls_back_to_remote_snapshot(monkeypatch):
     """Production path (no injected fetchers): SSE empty → bundled failed seed + newer GitHub snapshot."""
     monkeypatch.setattr(F, "skip_push2", lambda: True)
     monkeypatch.setenv("SKIP_INDEX_HOLDERS", "1")
+    monkeypatch.setattr("index_margin.ensure_index_margins", lambda bundle, live=False: bundle)
     cal = [TODAY - timedelta(days=k) for k in range(25, 0, -1)]
     monkeypatch.setattr(F, "default_fetchers", lambda: {
         "cal": lambda: cal, "etf_prices": lambda: {}, "margin_sh": lambda: []})
@@ -156,6 +157,7 @@ def test_refresh_sse_failure_falls_back_to_remote_snapshot(monkeypatch):
 def test_refresh_sse_failure_without_any_snapshot_stays_missing(monkeypatch):
     monkeypatch.setattr(F, "skip_push2", lambda: True)
     monkeypatch.setenv("SKIP_INDEX_HOLDERS", "1")
+    monkeypatch.setattr("index_margin.ensure_index_margins", lambda bundle, live=False: bundle)
     cal = [TODAY - timedelta(days=k) for k in range(25, 0, -1)]
     monkeypatch.setattr(F, "default_fetchers", lambda: {
         "cal": lambda: cal, "etf_prices": lambda: {}, "margin_sh": lambda: []})
@@ -204,6 +206,7 @@ def test_with_cn_flows_uses_cached_remote_seed_and_labels_etf(monkeypatch):
     monkeypatch.delenv("CN_INDEX_FLOW_AUTO", raising=False)
     monkeypatch.setattr(F.DEFAULT_FLOW_PROVIDER, "_cache", None)
     monkeypatch.setattr("index_main_flow.ensure_index_mains", lambda bundle, live=False: bundle)
+    monkeypatch.setattr("index_margin.ensure_index_margins", lambda bundle, live=False: bundle)
     bundled = _bundle("2026-11-12T15:41:08+08:00", lambda i: _etf_missing(), main_asof=_d(1))
     remote = _bundle("2026-11-13T05:34:28+08:00", lambda i: _etf_ok(_d(1), net=-9.7), main_asof=_d(1))
     monkeypatch.setattr(F, "_REMOTE_SEED_CACHE", (time.time(), remote))
