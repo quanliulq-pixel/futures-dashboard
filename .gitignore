@@ -36,3 +36,6 @@ data/index_main_flow_history_latest.tmp
 
 data/index_margin_history_latest.json
 data/index_margin_history_latest.tmp
+
+data/index_margin_csi1000_backfill.json
+data/index_margin_csi1000_backfill.json.tmp

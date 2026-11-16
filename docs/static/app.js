@@ -2072,6 +2072,10 @@
       if (m && f) m.main_flow = f;
       window.cnIndexFlowView.mountChart(host, m);
     });
+    if (window.cnIndexFlowView.mountIndexMarginChart) {
+      fetch(apiUrl("/api/index-margin-history"), opt).then((res) => res.ok ? res.json() : null).catch(() => null)
+        .then((im) => { window.cnIndexFlowView.mountIndexMarginChart(host, im); });
+    }
   }
 
   function resizeHolderHistoryCharts() {
