@@ -39,3 +39,7 @@ data/index_margin_history_latest.tmp
 
 data/index_margin_csi1000_backfill.json
 data/index_margin_csi1000_backfill.json.tmp
+
+# Gold sell-put research runtime cache (committed seed is data/gold_put.json)
+data/gold_put_latest.json
+data/gold_put_latest.tmp

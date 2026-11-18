@@ -21,6 +21,8 @@
       '/api/gold/refresh': './api/gold.json',
       '/api/gold/quant': './api/gold_quant.json',
       '/api/gold/quant/refresh': './api/gold_quant.json',
+      '/api/gold/put': './api/gold_put.json',
+      '/api/gold/put/refresh': './api/gold_put.json',
       '/api/us-etf': './api/us_etf.json',
       '/api/us-etf/refresh': './api/us_etf.json',
       '/api/health': './api/health.json',
