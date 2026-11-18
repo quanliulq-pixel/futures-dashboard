@@ -369,6 +369,7 @@
     const el = root.document && root.document.getElementById('gold-content');
     if (!el || loading) return;
     loadQuant(force);
+    if (root.GoldPutView && root.GoldPutView.load) root.GoldPutView.load(force);
     if (!force && lastData && Date.now() - loadedAt < 60000) { setTimeout(resize, 60); return; }
     loading = true;
     const status = root.document.getElementById('gold-status');

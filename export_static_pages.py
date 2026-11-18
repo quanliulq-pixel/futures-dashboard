@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261116mrg2")
+    html = html.replace("{{ asset_v }}", "20261118gput1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -124,6 +124,10 @@ def export_html() -> None:
     dump(API / "ng_boil_kold.json", snapshot())
     from ng_put_quant import snapshot as put_snapshot
     dump(API / "ng_sell_put.json", put_snapshot())
+    from gold_put_quant import stored_payload as gold_put_seed
+    gp = gold_put_seed()
+    if gp:
+        dump(API / "gold_put.json", gp)
     from ng_strategy_lab import snapshot as lab_snapshot
     dump(API / "ng_strategy_lab.json", lab_snapshot())
     from ng_strategy_lab2 import snapshot as lab2_snapshot
@@ -348,6 +352,19 @@ def main() -> None:
             print("gold quant refresh returned no data; keep previous docs/api/gold_quant.json")
     except Exception as exc:
         print("gold quant failed:", exc)
+        traceback.print_exc()
+
+    print("gold put (沪金期权卖Put研究)...")
+    try:
+        import gold_put_quant
+
+        gp_payload = gold_put_quant.refresh(use_remote=False)
+        if gp_payload.get("status") == "ok":
+            dump(API / "gold_put.json", gp_payload)
+        else:
+            print("gold put refresh returned no data; keep previous docs/api/gold_put.json")
+    except Exception as exc:
+        print("gold put failed:", exc)
         traceback.print_exc()
 
     print("us etf (美股ETF页)...")
