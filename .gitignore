@@ -43,3 +43,7 @@ data/index_margin_csi1000_backfill.json.tmp
 # Gold sell-put research runtime cache (committed seed is data/gold_put.json)
 data/gold_put_latest.json
 data/gold_put_latest.tmp
+
+# CN index cards runtime cache (committed seeds: data/cn_index_daily.json, docs/api/cn_indices.json)
+data/cn_index_analysis_latest.json
+data/cn_index_analysis_latest.tmp
