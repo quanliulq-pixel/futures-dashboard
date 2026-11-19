@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261118gput1"
+    asset_v = "20261119idx1"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -762,52 +762,65 @@ def _with_cn_advice(payload: dict) -> dict:
 
 @app.route("/api/cn-indices")
 def cn_indices_api():
-    force = request.args.get("force") == "1"
+    """请求路径只读快照（内存 / 运行时缓存 / 提交 seed），不联网。过期则排队后台增量刷新。"""
     try:
-        import os
-        from cn_index_analysis import build_cn_index_analysis
+        from cn_index_analysis import snapshot, needs_refresh, refresh as refresh_cn_indices
 
-        seed = _read_api_seed("cn_indices.json")
-        if seed is not None and (os.environ.get("RENDER") or not force):
-            seed = dict(seed)
-            seed["source"] = "seed"
-            return jsonify(_with_cn_advice(seed))
-
-        return jsonify(_with_cn_advice(build_cn_index_analysis(force=force)))
+        data = snapshot()
+        if needs_refresh(data):
+            status = _spawn_bg_refresh(
+                "cn-index-analysis",
+                lambda: refresh_cn_indices(live=True, attach_bundles=False),
+                min_interval=900.0,
+            )
+            data = dict(data)
+            data["refresh_status"] = status
+            data["refresh"] = bg_tasks.refresh_meta(status)
+        return jsonify(_with_cn_advice(data))
     except Exception as exc:
         logger.exception("cn indices failed")
         seed = _read_api_seed("cn_indices.json")
         if seed:
             seed = dict(seed)
-            seed["source"] = "seed"
+            seed["source"] = seed.get("source") or "seed"
+            asof = seed.get("asof") or seed.get("snapshot_asof")
+            if seed.get("from_snapshot") or not seed.get("asof"):
+                seed["note"] = f"上次快照（{asof}）" if asof else (seed.get("note") or "上次快照")
             return jsonify(_with_cn_advice(seed))
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": str(exc), "note": "无数据"}), 500
 
 
 @app.route("/api/cn-indices/refresh")
 def cn_indices_refresh_api():
     try:
-        import os
-        from cn_index_analysis import build_cn_index_analysis
+        from cn_index_analysis import snapshot, refresh as refresh_cn_indices
 
-        seed = _read_api_seed("cn_indices.json")
-        if seed is not None and os.environ.get("RENDER"):
-            status = _spawn_bg_refresh("cn-index-analysis", lambda: build_cn_index_analysis(force=True),
-                                       min_interval=120.0, provider="yahoo")
-            seed = dict(seed)
-            seed["source"] = "seed"
-            seed["note"] = _queued_note(status, "后台更新（美国节点拉 A 股源较慢）").lstrip(" ·")
-            seed["refresh"] = bg_tasks.refresh_meta(status)
-            return jsonify(_with_cn_advice(seed))
-        return jsonify(_with_cn_advice(build_cn_index_analysis(force=True)))
+        status = _spawn_bg_refresh(
+            "cn-index-analysis",
+            lambda: refresh_cn_indices(live=True, attach_bundles=False),
+            min_interval=120.0,
+        )
+        data = dict(snapshot())
+        data["refresh_status"] = status
+        data["refresh"] = bg_tasks.refresh_meta(status)
+        queued = _queued_note(status, "后台指数日线刷新").lstrip(" ·")
+        # 失败/排队时保留「上次快照（日期）」；不要盖掉
+        note = (data.get("note") or "").strip()
+        if "上次快照" in note:
+            data["note"] = f"{note} · {queued}" if queued else note
+        else:
+            data["note"] = queued
+        return jsonify(_with_cn_advice(data))
     except Exception as exc:
         logger.exception("cn indices refresh failed")
         seed = _read_api_seed("cn_indices.json")
         if seed:
             seed = dict(seed)
-            seed["source"] = "seed"
+            asof = seed.get("asof") or seed.get("snapshot_asof")
+            seed["note"] = f"上次快照（{asof}）" if asof else (seed.get("note") or "上次快照")
+            seed["from_snapshot"] = True
             return jsonify(_with_cn_advice(seed))
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": str(exc), "note": "无数据"}), 500
 
 
 @app.route("/api/cn-index-etf-holders-history")

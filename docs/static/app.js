@@ -2154,11 +2154,36 @@
     </div>`;
   }
 
+  function cnidxChgCell(val, digits) {
+    if (val == null) return `<span class="v">—</span>`;
+    const cls = val > 0 ? "up" : val < 0 ? "down" : "flat";
+    const sign = val > 0 ? "+" : "";
+    return `<span class="v ${cls}">${sign}${fmt(val, digits)}%</span>`;
+  }
+
+  function cnidxSnapLabel(data, row) {
+    const asof = (row && row.asof) || (data && (data.snapshot_asof || data.asof)) || "";
+    const snap = !!(data && (data.from_snapshot || data.source === "snapshot"))
+      || !!(row && row.from_snapshot);
+    if (snap && asof) return `上次快照（${asof}）`;
+    if (snap) return "上次快照";
+    if (asof) return `数据 ${asof}`;
+    return "";
+  }
+
   function renderCnIndices(data) {
     if (!data) return;
     state.cnidxPayload = data;
     const meta = $("#cnidx-meta");
-    if (meta) meta.textContent = `更新 ${data.updated_at || "—"}`;
+    if (meta) {
+      const snap = cnidxSnapLabel(data);
+      const bits = [`更新 ${data.updated_at || "—"}`];
+      if (snap) bits.push(snap);
+      if (data.note && String(data.note).includes("上次快照") && !bits.some((b) => b.includes("上次快照"))) {
+        bits.push(String(data.note).replace(/^\s*·\s*/, "").split(" · ")[0]);
+      }
+      meta.textContent = bits.join(" · ");
+    }
     const method = $("#cnidx-method");
     if (method && data.method) {
       const m = data.method;
@@ -2191,15 +2216,15 @@
           <div class="put-card-top">
             <div>
               <div class="put-sym">${esc(r.name)} <span class="tag-pill">${esc(r.short || "")}</span></div>
-              <div class="put-name">${esc(r.yahoo || "")}</div>
+              <div class="put-name">${esc(r.yahoo || "")}${cnidxSnapLabel(data, r) ? " · " + cnidxSnapLabel(data, r) : ""}</div>
             </div>
             <div class="put-score">${esc(r.bias_cn || "中性")}</div>
           </div>
           <div class="put-metrics">
             <div class="put-metric"><span class="l">现价</span><span class="v">${fmt(r.price, 2)}</span></div>
-            <div class="put-metric"><span class="l">今日</span><span class="v ${chgCls}">${chgTxt}</span></div>
-            <div class="put-metric"><span class="l">5日</span><span class="v">${r.chg_5d == null ? "—" : fmt(r.chg_5d, 2) + "%"}</span></div>
-            <div class="put-metric"><span class="l">21日</span><span class="v">${r.chg_21d == null ? "—" : fmt(r.chg_21d, 2) + "%"}</span></div>
+            <div class="put-metric"><span class="l">今日</span>${cnidxChgCell(chg, 2)}</div>
+            <div class="put-metric"><span class="l">5日</span>${cnidxChgCell(r.chg_5d, 2)}</div>
+            <div class="put-metric"><span class="l">21日</span>${cnidxChgCell(r.chg_21d, 2)}</div>
           </div>
           <div class="put-metrics">
             <div class="put-metric"><span class="l">HV20</span><span class="v">${fmt(r.hv20, 1)}%</span></div>
@@ -2236,9 +2261,9 @@
           <td><strong>${esc(r.symbol)}</strong></td>
           <td>${esc(r.name || "")}</td>
           <td class="num">${fmt(r.price, 2)}</td>
-          <td class="num ${chgCls}">${chg == null ? "—" : fmt(chg, 2) + "%"}</td>
-          <td class="num">${r.chg_5d == null ? "—" : fmt(r.chg_5d, 2) + "%"}</td>
-          <td class="num">${r.chg_21d == null ? "—" : fmt(r.chg_21d, 2) + "%"}</td>
+          <td class="num ${chgCls}">${chg == null ? "—" : (chg > 0 ? "+" : "") + fmt(chg, 2) + "%"}</td>
+          <td class="num ${r.chg_5d > 0 ? "up" : r.chg_5d < 0 ? "down" : "flat"}">${r.chg_5d == null ? "—" : (r.chg_5d > 0 ? "+" : "") + fmt(r.chg_5d, 2) + "%"}</td>
+          <td class="num ${r.chg_21d > 0 ? "up" : r.chg_21d < 0 ? "down" : "flat"}">${r.chg_21d == null ? "—" : (r.chg_21d > 0 ? "+" : "") + fmt(r.chg_21d, 2) + "%"}</td>
           <td class="num">${fmt(r.hv20, 1)}%</td>
           <td class="num">${fmt(r.hv60, 1)}%</td>
           <td class="num">${fmt(r.rsi14, 1)}</td>
