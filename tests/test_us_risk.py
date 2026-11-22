@@ -15,7 +15,7 @@ os.environ.setdefault("SKIP_BG_WARMUP", "1")
 import us_risk  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261122usrisk2"
+ASSET_V = "20261122usrisk3"
 NOW = datetime(2026, 11, 22, 16, 0, tzinfo=us_risk.CST)
 
 
@@ -233,6 +233,9 @@ def test_frontend_and_static_wiring():
     assert "研究参考，不能下单" in tpl
     docs = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
     assert f"./static/us_risk_view.js?v={ASSET_V}" in docs
+    view = (ROOT / "static" / "us_risk_view.js").read_text(encoding="utf-8")
+    assert "历次重大下跌对比" in view and "cycleTable" in view
+    assert "研究参考，不能下单" in view
     js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
     assert "'/api/us/risk': './api/us_risk.json'" in js and "UsRiskView" in js
     assert (ROOT / "static" / "us_risk_view.js").read_bytes() == (ROOT / "docs" / "static" / "us_risk_view.js").read_bytes()
@@ -349,3 +352,144 @@ def test_named_window_not_swallowed():
     assert ev20["dd"] == pytest.approx(990 / 1690 - 1, abs=1e-4)
     # 窗口内无数据
     assert us_risk.named_event_drawdown(c, date(1995, 1, 1), date(1995, 12, 31)) is None
+
+def test_event_context_no_lookahead_and_missing_fields():
+    import us_risk_context as ctx
+    # GDP published lag: Q3 2026 ends 9-30, +30d = 10-30, so 10-06 still uses Q2
+    gdp = pd.Series({"2026Q2": 32563030.0, "2026Q3": 33010036.0})
+    assert ctx.gdp_published_asof(gdp, date(2026, 10, 6))[1] == "2026Q2"
+    assert ctx.gdp_published_asof(gdp, date(2026, 10, 30))[1] == "2026Q3"
+    # Z.1 Q2 2026 ends 6-30, +75d = 9-13
+    zlvl = pd.DataFrame({
+        "date": ["2025:Q4", "2026:Q1", "2026:Q2"],
+        "period": ["2025Q4", "2026Q1", "2026Q2"],
+        "quarter_end": [date(2025, 12, 31), date(2026, 3, 31), date(2026, 6, 30)],
+        "LM893064105.Q": [100.0, 110.0, 120.0],
+        "LM153064105.Q": [40.0, 44.0, 50.4],
+        "LM653064100.Q": [15.0, 16.0, 18.0],
+        "LM563064100.Q": [10.0, 11.0, 12.0],
+        "LM573064105.Q": [5.0, 5.0, 6.0],
+        "LM343064105.Q": [1.0, 1.0, 1.0],
+        "LM223064145.Q": [3.0, 3.0, 3.0],
+        "LM263064105.Q": [18.0, 19.0, 21.6],
+    })
+    row = ctx.z1_row_published(zlvl, date(2026, 9, 1))
+    assert row["period"] == "2026Q1"  # Q2 not yet published
+    row = ctx.z1_row_published(zlvl, date(2026, 9, 13))
+    assert row["period"] == "2026Q2"
+    own = ctx.ownership_from_row(row)
+    assert own["status"] == "ok" and own["hh_direct_pct"] == 42.0
+    assert own["mf_etf_pct"] == 25.0 and own["foreign_pct"] == 18.0 and own["pension_pct"] == 8.3
+    # flows SAAR/4
+    zfl = pd.DataFrame({
+        "date": ["2020:Q1", "2020:Q2"],
+        "period": ["2020Q1", "2020Q2"],
+        "quarter_end": [date(2020, 3, 31), date(2020, 6, 30)],
+        "FA653064100.Q": [-400.0, -80.0],
+        "FA563064100.Q": [200.0, 40.0],
+        "FA153064105.Q": [100.0, 20.0],
+        "FA263064105.Q": [40.0, 8.0],
+        "FA573064105.Q": [-10.0, 0.0],
+        "FA343064105.Q": [0.0, 0.0],
+        "FA223064145.Q": [0.0, 0.0],
+    })
+    # 以谷底日为公布截止时，Q1 要到 2020-06-14 才发布 → 无数据（防止把当时未公布的季报提前写入）
+    early = ctx.z1_flow_window(zfl, date(2020, 2, 19), date(2020, 3, 23))
+    assert early["status"] == "missing"
+    # 历史回填：以今日为公布截止，则可计入与窗口相交的 Q1
+    filled = ctx.z1_flow_window(zfl, date(2020, 2, 19), date(2020, 3, 23), published_asof=date(2026, 11, 20))
+    assert filled["status"] == "ok" and filled["mf_usd_millions"] == pytest.approx(-100.0)
+    assert filled["etf_usd_millions"] == pytest.approx(50.0)
+    # 窗口延伸到 8 月、以谷底/截止日 8-1 计：只有已公布的 Q1
+    mid = ctx.z1_flow_window(zfl, date(2020, 2, 19), date(2020, 8, 1))
+    assert mid["status"] == "ok" and mid["mf_usd_millions"] == pytest.approx(-100.0)
+    assert mid["etf_usd_millions"] == pytest.approx(50.0)
+    # gold missing before series start
+    gold = pd.Series([300.0, 330.0], index=pd.to_datetime(["2000-08-30", "2002-10-09"]))
+    w = ctx.series_window(gold, date(2000, 3, 24), date(2002, 10, 9))
+    assert w["status"] == "missing" and w["trough"]["close"] == 330.0
+    w2 = ctx.series_window(gold, date(2000, 8, 30), date(2002, 10, 9))
+    assert w2["status"] == "ok" and w2["chg_pct"] == pytest.approx(330 / 300 - 1, abs=1e-4)
+
+
+def test_cycle_row_and_payload_event_context():
+    import us_risk_context as ctx
+    idx = pd.bdate_range("1999-12-01", "2026-11-20")
+    w = pd.Series(50000.0 + pd.RangeIndex(len(idx)) * 0.5, index=idx)
+    # plant known points
+    w.loc["2020-02-19"] = 35000.0
+    w.loc["2020-03-23"] = 25000.0
+    gdp = pd.Series({"2019Q4": 21000.0, "2020Q1": 19500.0})  # millions
+    margin = pd.Series({"2020-02": 500000.0, "2020-03": 400000.0})
+    gold = pd.Series([1600.0, 1500.0], index=pd.to_datetime(["2020-02-19", "2020-03-23"]))
+    tnx = pd.Series([1.50, 0.80], index=pd.to_datetime(["2020-02-19", "2020-03-23"]))
+    row = ctx.build_cycle_row(
+        "2020-03 新冠", date(2020, 2, 19), date(2020, 3, 23),
+        w5000=w, gdp=gdp, margin=margin, z1_levels=None, z1_flows=None,
+        gold=gold, tnx=tnx, tlt=None, ongoing=False,
+    )
+    assert row["market"]["peak"]["status"] == "ok"
+    assert row["market"]["peak"]["w5000"] == 35000.0
+    assert row["leverage"]["peak"]["month"] == "2020-02"
+    assert row["leverage"]["debit_chg_pct"] == pytest.approx(400000 / 500000 - 1, abs=1e-4)
+    assert row["haven"]["gold"]["chg_pct"] == pytest.approx(1500 / 1600 - 1, abs=1e-4)
+    assert row["haven"]["ust10y"]["chg_pp"] == pytest.approx(-0.70, abs=1e-3)
+    assert row["haven"]["tlt"]["status"] == "missing"
+    assert row["flows"]["ici"]["status"] == "missing"
+    assert row["ownership"]["peak"]["status"] == "missing"
+    # payload includes event_context
+    spx = pd.Series([100.0, 120.0, 80.0, 130.0, 140.0, 130.0], index=pd.to_datetime(
+        ["2019-12-31", "2020-02-19", "2020-03-23", "2020-08-18", "2026-11-01", "2026-11-20"]))
+    yahoo = {"^GSPC": spx, "^NDX": spx, "^RUT": spx, "^DJI": spx, "^W5000": w, "GC=F": gold, "^TNX": tnx}
+    p = us_risk.build_payload(yahoo=yahoo, margin=margin, gdp=gdp, now=NOW)
+    assert p["event_context"]["status"] == "ok"
+    labels = [c["label"] for c in p["event_context"]["cycles"]]
+    assert "2020-03 新冠" in labels and "当前回撤" in labels
+
+
+def test_parse_z1_period_colon_dates():
+    import us_risk_context as ctx
+    assert ctx.parse_z1_period("2026:Q2") == date(2026, 6, 30)
+    assert ctx.normalize_period_label("2026:Q2") == "2026Q2"
+    csv = b"date,LM893064105.Q,LM153064105.Q\n2026:Q1,110,44\n2026:Q2,120,50.4\n"
+    df = ctx.parse_z1_table(csv)
+    assert list(df["period"]) == ["2026Q1", "2026Q2"]
+    assert list(df["quarter_end"]) == [date(2026, 3, 31), date(2026, 6, 30)]
+
+
+def test_current_extras_latest_flow_uses_asof():
+    import us_risk_context as ctx
+    zfl = pd.DataFrame({
+        "date": ["2025:Q3", "2025:Q4", "2026:Q1", "2026:Q2"],
+        "period": ["2025Q3", "2025Q4", "2026Q1", "2026Q2"],
+        "quarter_end": [date(2025, 9, 30), date(2025, 12, 31), date(2026, 3, 31), date(2026, 6, 30)],
+        "FA653064100.Q": [80.0, 40.0, 20.0, 8.0],
+        "FA563064100.Q": [0.0, 0.0, 0.0, 4.0],
+        "FA153064105.Q": [0.0, 0.0, 0.0, 0.0],
+        "FA263064105.Q": [0.0, 0.0, 0.0, 0.0],
+        "FA573064105.Q": [0.0, 0.0, 0.0, 0.0],
+        "FA343064105.Q": [0.0, 0.0, 0.0, 0.0],
+        "FA223064145.Q": [0.0, 0.0, 0.0, 0.0],
+    })
+    out = ctx.current_extras(
+        asof=date(2026, 11, 20), equity_peak=date(2026, 10, 6),
+        w5000=None, z1_levels=None, z1_flows=zfl, gold=None, tnx=None, tlt=None,
+    )
+    assert out["flows_latest_quarter"]["status"] == "ok"
+    assert out["flows_latest_quarter"]["quarters"] == ["2026Q2"]
+    assert out["flows_latest_quarter"]["mf_etf_usd_millions"] == pytest.approx(3.0)
+    assert out["flows_last_four_quarters"]["quarters"] == ["2025Q3", "2025Q4", "2026Q1", "2026Q2"]
+
+
+def test_debit_chg_missing_when_trough_month_unpublished():
+    import us_risk_context as ctx
+    w = pd.Series([70000.0, 68000.0], index=pd.to_datetime(["2026-10-30", "2026-11-20"]))
+    margin = pd.Series({"2026-10": 1448360.0})
+    row = ctx.build_cycle_row(
+        "当前回撤", date(2026, 10, 6), date(2026, 11, 20),
+        w5000=w, gdp=None, margin=margin, z1_levels=None, z1_flows=None,
+        gold=None, tnx=None, tlt=None, ongoing=True,
+    )
+    assert row["leverage"]["trough"]["month"] == "2026-10"
+    assert row["leverage"]["trough"]["month_requested"] == "2026-11"
+    assert row["leverage"]["debit_chg_pct"] is None

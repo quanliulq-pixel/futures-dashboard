@@ -167,6 +167,117 @@
     </tr></thead><tbody>${body}</tbody></table></div>`;
   }
 
+
+  function ownLine(o) {
+    if (!o || o.status !== 'ok') return na((o && o.reason) || '无数据');
+    const bits = [
+      isNum(o.hh_direct_pct) ? `家庭直接 ${fmt(o.hh_direct_pct, 1)}%` : null,
+      isNum(o.mf_etf_pct) ? `基金+ETF ${fmt(o.mf_etf_pct, 1)}%` : null,
+      isNum(o.pension_pct) ? `养老金 ${fmt(o.pension_pct, 1)}%` : null,
+      isNum(o.foreign_pct) ? `外资 ${fmt(o.foreign_pct, 1)}%` : null,
+    ].filter(Boolean);
+    return bits.length ? `${bits.join(' · ')}<br><small>季度 ${esc(o.quarter || '无数据')}</small>` : na();
+  }
+
+  function capCell(m) {
+    if (!m || m.status !== 'ok') return na((m && m.reason) || '无数据');
+    const cap = isNum(m.total_cap_trillion) ? `${fmt(m.total_cap_trillion, 2)} 万亿` : '无数据';
+    const b = isNum(m.buffett_ratio_pct) ? `巴菲特 ${fmt(m.buffett_ratio_pct, 1)}%` : '巴菲特 无数据';
+    const g = m.gdp_period ? `GDP ${esc(m.gdp_period)}` : 'GDP 无数据';
+    return `${esc(cap)}<br><small>${esc(b)} · ${g}<br>${esc(m.asof || '')}</small>`;
+  }
+
+  function levCell(l) {
+    if (!l || l.status !== 'ok') return na((l && l.reason) || '无数据');
+    const d = isNum(l.debit_trillion) ? `${fmt(l.debit_trillion, 2)} 万亿` : (isNum(l.debit_usd_millions) ? fmt(l.debit_usd_millions, 0) + ' 百万美元' : '无数据');
+    const r = isNum(l.cap_ratio_pct) ? `占市值 ${fmt(l.cap_ratio_pct, 2)}%` : '占市值 无数据';
+    const mon = l.month || '无数据';
+    const lag = (l.month_requested && l.month && l.month_requested !== l.month) ? `（${esc(l.month_requested)} 未公布，用 ${esc(mon)}）` : esc(mon);
+    return `${esc(d)}<br><small>${esc(r)} · ${lag}</small>`;
+  }
+
+  function flowLine(z) {
+    if (!z || z.status !== 'ok') return na((z && (z.reason || z.status)) || '无数据');
+    const q = (z.quarters || []).length ? `季度 ${esc((z.quarters || []).join('、'))}` : '无季度';
+    const v = (lab, x) => (isNum(x) ? `${lab} <span class="${cls(x)}">${x > 0 ? '+' : ''}${fmt(x, 0)}</span>` : `${lab} 无数据`);
+    return `${v('家庭', z.hh_direct_usd_millions)}；${v('基金+ETF', z.mf_etf_usd_millions)}；${v('养老金', z.pension_usd_millions)}；${v('外资', z.foreign_usd_millions)}<br><small>${esc(q)} · 百万美元</small>`;
+  }
+
+  function havenGold(h) {
+    if (!h || h.status !== 'ok') return na((h && h.reason) || '无数据');
+    const p = h.peak && isNum(h.peak.close) ? fmt(h.peak.close, 1) : '无数据';
+    const q = h.trough && isNum(h.trough.close) ? fmt(h.trough.close, 1) : '无数据';
+    return `${esc(p)} → ${esc(q)} ${pct(h.chg_pct, 1)}<br><small>${esc((h.peak && h.peak.asof) || '')} → ${esc((h.trough && h.trough.asof) || '')}</small>`;
+  }
+
+  function havenYield(h) {
+    if (!h || h.status !== 'ok') return na((h && h.reason) || '无数据');
+    const p = h.peak && isNum(h.peak.close) ? fmt(h.peak.close, 2) + '%' : '无数据';
+    const q = h.trough && isNum(h.trough.close) ? fmt(h.trough.close, 2) + '%' : '无数据';
+    const pp = isNum(h.chg_pp) ? `<span class="${cls(h.chg_pp)}">${h.chg_pp > 0 ? '+' : ''}${h.chg_pp.toFixed(2)}pp</span>` : na();
+    return `${esc(p)} → ${esc(q)} ${pp}<br><small>${esc((h.peak && h.peak.asof) || '')} → ${esc((h.trough && h.trough.asof) || '')}</small>`;
+  }
+
+  function cycleTable(ctx) {
+    ctx = ctx || {};
+    if (ctx.status !== 'ok') {
+      return `<section class="panel etf-card" aria-label="历次重大下跌对比"><h3>历次重大下跌对比 ${snapBadge(ctx)}</h3><p class="etf-na">${esc((ctx && ctx.reason) || '无数据')}</p></section>`;
+    }
+    const rows = (ctx.cycles || []).map((c) => {
+      const haven = c.haven || {};
+      const tlt = haven.tlt && haven.tlt.status === 'ok' ? `TLT ${pct(haven.tlt.chg_pct, 1)}` : 'TLT 无数据';
+      return `<tr>
+        <td><strong>${esc(c.label || '')}</strong>${c.ongoing ? ' <small>进行中</small>' : ''}<br><small>${esc(c.peak_date || '')} → ${esc(c.trough_date || '')}</small></td>
+        <td>${capCell((c.market || {}).peak)}<hr class="usrisk-hr">${capCell((c.market || {}).trough)}${isNum((c.market || {}).cap_chg_pct) ? `<br>${pct(c.market.cap_chg_pct, 1)}` : ''}</td>
+        <td>${levCell((c.leverage || {}).peak)}<hr class="usrisk-hr">${levCell((c.leverage || {}).trough)}${isNum((c.leverage || {}).debit_chg_pct) ? `<br>余额 ${pct(c.leverage.debit_chg_pct, 1)}` : ''}</td>
+        <td>${ownLine((c.ownership || {}).peak)}<hr class="usrisk-hr">${ownLine((c.ownership || {}).trough)}</td>
+        <td>${flowLine(((c.flows || {}).z1))}
+          <br><small>ICI ${((c.flows || {}).ici && (c.flows.ici.status === 'ok')) ? '有数据' : '无数据'}</small></td>
+        <td>${havenGold(haven.gold)}</td>
+        <td>${havenYield(haven.ust10y)}<br><small>${tlt}</small></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="7" class="etf-na">无数据</td></tr>`;
+    return `<section class="panel etf-card" aria-label="历次重大下跌对比">
+      <h3>历次重大下跌对比 ${snapBadge(ctx)} <span class="etf-asof">${esc(asofLine(ctx))}</span></h3>
+      <p class="sub">每一轮按标普500 峰值日→谷底日窗口。上格为峰值时（或峰值月/当时已公布季度），下格为谷底时。日期频率不同已标注。ICI 资金流向无数据，改列 Z.1 净买入。</p>
+      <div class="table-wrap" tabindex="0"><table class="etf-table usrisk-dd-table usrisk-cycle-table"><thead><tr>
+        <th>事件</th><th>总市值 / 巴菲特指标</th><th>杠杆率（FINRA）</th><th>持股比例（Z.1）</th><th>资金流向（期间累计）</th><th>黄金</th><th>10年美债 / TLT</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="sub">${esc(ctx.method || '')}</p>
+    </section>`;
+  }
+
+  function currentExtrasCard(ctx) {
+    const cur = (ctx && ctx.current) || {};
+    if (!ctx || ctx.status !== 'ok') return '';
+    const o = cur.ownership_latest || {};
+    const g = cur.gold || {};
+    const y = cur.ust10y || {};
+    const tlt = cur.tlt || {};
+    const fq = cur.flows_latest_quarter || {};
+    const f4 = cur.flows_last_four_quarters || {};
+    return `<section class="panel etf-card" aria-label="当前持股、资金流与避险">
+      <h3>当前持股 / 资金流向 / 黄金与美债 <span class="etf-asof">${esc(cur.asof || ctx.asof || '无数据')}</span></h3>
+      <div class="etf-kpis">
+        <div class="etf-kpi"><span class="etf-kpi-label">持股结构（最新已公布季）</span>
+          ${o.status === 'ok' ? `<strong>家庭直接 ${isNum(o.hh_direct_pct) ? fmt(o.hh_direct_pct, 1) + '%' : '无数据'}</strong>
+          <span class="etf-kpi-sub">基金+ETF ${isNum(o.mf_etf_pct) ? fmt(o.mf_etf_pct, 1) + '%' : '无数据'} · 养老金 ${isNum(o.pension_pct) ? fmt(o.pension_pct, 1) + '%' : '无数据'} · 外资 ${isNum(o.foreign_pct) ? fmt(o.foreign_pct, 1) + '%' : '无数据'}</span>
+          <span class="etf-kpi-sub">季度 ${esc(o.quarter || '无数据')} · 分母为 Z.1 公司股票总额</span>` : na(o.reason)}</div>
+        <div class="etf-kpi"><span class="etf-kpi-label">Z.1 净买入（最新季）</span>
+          ${fq.status === 'ok' ? `<strong>${isNum(fq.mf_etf_usd_millions) ? `<span class="${cls(fq.mf_etf_usd_millions)}">${fq.mf_etf_usd_millions > 0 ? '+' : ''}${fmt(fq.mf_etf_usd_millions, 0)}</span> 百万美元（基金+ETF）` : '无数据'}</strong>
+          <span class="etf-kpi-sub">${esc((fq.quarters || []).join('、') || '无数据')}</span>` : na(fq.reason)}
+          <span class="etf-kpi-sub">ICI 无数据。近四季基金+ETF ${f4.status === 'ok' && isNum(f4.mf_etf_usd_millions) ? ((f4.mf_etf_usd_millions > 0 ? '+' : '') + fmt(f4.mf_etf_usd_millions, 0) + ' 百万美元') : '无数据'}</span></div>
+        <div class="etf-kpi"><span class="etf-kpi-label">黄金 GC=F</span>
+          ${g.status === 'ok' ? `<strong>${fmt(g.close, 1)} ${pct(g.chg_1d_pct, 2)}</strong>
+          <span class="etf-kpi-sub">自本轮股市高点（${esc(cur.equity_peak_date || '无数据')}） ${isNum(g.from_equity_peak_chg_pct) ? pct(g.from_equity_peak_chg_pct, 1) : '无数据'} · ${esc(g.asof || '')}</span>` : na(g.reason)}</div>
+        <div class="etf-kpi"><span class="etf-kpi-label">10年期美债收益率</span>
+          ${y.status === 'ok' ? `<strong>${fmt(y.close, 2)}% ${isNum(y.chg_1d_pp) ? `<span class="${cls(y.chg_1d_pp)}">${y.chg_1d_pp > 0 ? '+' : ''}${y.chg_1d_pp.toFixed(2)}pp</span>` : ''}</strong>
+          <span class="etf-kpi-sub">自本轮股市高点 ${isNum(y.from_equity_peak_chg_pp) ? `<span class="${cls(y.from_equity_peak_chg_pp)}">${y.from_equity_peak_chg_pp > 0 ? '+' : ''}${y.from_equity_peak_chg_pp.toFixed(2)}pp</span>` : '无数据'} · TLT ${isNum(tlt.from_equity_peak_chg_pct) ? pct(tlt.from_equity_peak_chg_pct, 1) : '无数据'}</span>` : na(y.reason)}</div>
+      </div>
+      <p class="sub">${esc((o && o.note) || '')} ${esc(cur.flows_note || '')} ${esc(cur.haven_note || '')}</p>
+    </section>`;
+  }
+
   function drawdownCard(p) {
     const dd = p.drawdowns || {};
     if (dd.status !== 'ok') {
@@ -220,6 +331,8 @@
       ${leverageCard(p.leverage)}
       ${vixCard(p.vix)}
       ${drawdownCard(p)}
+      ${cycleTable(p.event_context)}
+      ${currentExtrasCard(p.event_context)}
       ${sourcesBlock(p)}`;
   }
 
@@ -266,7 +379,7 @@
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
   }
-  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, drawdownCard, highsGrid, annualTable, majorTable, cls, pct, signed };
+  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, drawdownCard, cycleTable, currentExtrasCard, highsGrid, annualTable, majorTable, cls, pct, signed };
   root.UsRiskView = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

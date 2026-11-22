@@ -105,6 +105,7 @@ NAMED_DRAWDOWNS = (
     ("2018Q4", "2018-09-01", "2018-12-31"),
     ("2020-03 新冠", "2020-01-01", "2020-06-30"),
     ("2022 熊市", "2021-11-01", "2023-12-31"),
+    ("2025", "2025-01-01", "2025-06-30"),
 )
 # 列入「重大回撤」表的完成回撤深度阈值；当前这轮不论深度都列出。
 MAJOR_DD_THRESHOLD = -0.10
@@ -909,11 +910,17 @@ def fetch_bea_gdp() -> tuple[pd.Series, dict]:
     return parse_bea_gdp(raw)
 
 
+def fetch_z1() -> dict:
+    import us_risk_context
+
+    return us_risk_context.fetch_z1(_http_get)
+
+
 def fetch_yahoo_closes() -> dict[str, pd.Series]:
     import net_limits
 
     # 指数高低点/回撤用未复权收盘（官方点位）；价格型指数通常与复权相同。
-    symbols = ["^W5000", "^GSPC", "^NDX", "^RUT", "^DJI"]
+    symbols = ["^W5000", "^GSPC", "^NDX", "^RUT", "^DJI", "GC=F", "^TNX", "TLT"]
     raw = net_limits.yf_download(
         symbols, period="max", auto_adjust=False, group_by="ticker", threads=True, progress=False
     )
@@ -943,6 +950,7 @@ def default_fetchers() -> dict[str, Callable[[], Any]]:
         "finra": fetch_finra,
         "bea": fetch_bea_gdp,
         "yahoo": fetch_yahoo_closes,
+        "z1": fetch_z1,
     }
 
 
@@ -1243,6 +1251,7 @@ def build_payload(
     margin_source: str | None = None,
     gdp: pd.Series | None = None,
     gdp_meta: dict | None = None,
+    z1: dict | None = None,
     errors: dict | None = None,
     prev: dict | None = None,
     now: datetime | None = None,
@@ -1254,12 +1263,27 @@ def build_payload(
     leverage = build_leverage(margin, margin_source, (yahoo or {}).get("^W5000"), prev, today, errors)
     vix = build_vix(cboe, prev, today, errors)
     drawdowns = build_drawdowns(yahoo, cboe, prev, today, errors)
+    import us_risk_context
+    yahoo = yahoo or {}
+    event_context = us_risk_context.build_event_context(
+        drawdowns,
+        w5000=yahoo.get("^W5000"),
+        gdp=gdp,
+        margin=margin,
+        z1=z1,
+        gold=yahoo.get("GC=F"),
+        tnx=yahoo.get("^TNX"),
+        tlt=yahoo.get("TLT"),
+        errors=errors,
+        prev=prev,
+        today=today,
+    )
     judgment = build_judgment(market, leverage, vix)
     asofs = [b.get("asof") for b in (market, vix, drawdowns) if b.get("status") == "ok" and b.get("asof")]
     asof = max(asofs) if asofs else (leverage.get("month") if leverage.get("status") == "ok" else None)
     from_snap = bool(
         market.get("from_snapshot") or leverage.get("from_snapshot") or vix.get("from_snapshot")
-        or drawdowns.get("from_snapshot")
+        or drawdowns.get("from_snapshot") or event_context.get("from_snapshot")
     )
     ok = any(b.get("status") == "ok" for b in (market, leverage, vix, drawdowns))
     notes = [
@@ -1269,6 +1293,7 @@ def build_payload(
         "融资余额为 FINRA 官方月度 Debit Balances，单位百万美元；占比用对应月末总市值。",
         "VIX 族来自 Cboe 官方日频 CSV，不是 Yahoo 估算。",
         "回撤与高点用 Yahoo 官方未复权收盘；年内最大回撤不跨年带入上年高点；重大回撤的持续/恢复天数为日历日。",
+        "历次下跌对比：总市值为窗口日威尔希尔口径；巴菲特指标只用当时已公布 GDP（季末日+30天）；融资余额为峰值月/谷底月 FINRA 月末值；持股与资金流为美联储 Z.1 季度（已公布滞后约75天）；ICI 流向因无法抓取官方页记为无数据；黄金 Yahoo GC=F，10年期收益率 Yahoo ^TNX，长债 TLT。",
         "红涨绿跌。研究参考，不能下单。",
     ]
     sources = [
@@ -1281,6 +1306,10 @@ def build_payload(
         {"label": "Cboe VIX9D History CSV", "url": CBOE_CSV["vix9d"]},
         {"label": "Cboe VIX3M History CSV", "url": CBOE_CSV["vix3m"]},
         {"label": "Cboe VVIX History CSV", "url": CBOE_CSV["vvix"]},
+        {"label": "Federal Reserve Z.1 Financial Accounts（F51.1.s / F51.1.t Corporate equities）", "url": "https://www.federalreserve.gov/releases/z1/"},
+        {"label": "Yahoo Finance GC=F（COMEX 黄金连续期货）", "url": "https://finance.yahoo.com/quote/GC%3DF/history/"},
+        {"label": "Yahoo Finance ^TNX（CBOE 10年期国债收益率）", "url": "https://finance.yahoo.com/quote/%5ETNX/history/"},
+        {"label": "Yahoo Finance TLT（20年+美债 ETF）", "url": "https://finance.yahoo.com/quote/TLT/history/"},
     ]
     return {
         "schema_version": 1,
@@ -1293,6 +1322,7 @@ def build_payload(
         "leverage": leverage,
         "vix": vix,
         "drawdowns": drawdowns,
+        "event_context": event_context,
         "judgment": judgment,
         "notes": notes,
         "sources": sources,
@@ -1346,7 +1376,7 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
         if use_remote:
             prev = _newest([prev, fetch_remote_seed()]) or prev
         errors: dict = {}
-        yahoo = cboe = gdp = margin = None
+        yahoo = cboe = gdp = margin = z1 = None
         gdp_meta: dict | None = None
         margin_source = None
         fns = fetchers or default_fetchers()
@@ -1374,6 +1404,11 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
                     margin = got
             except Exception as exc:  # noqa: BLE001
                 errors["finra"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        if "z1" in fns:
+            try:
+                z1 = fns["z1"]()
+            except Exception as exc:  # noqa: BLE001
+                errors["z1"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         if yahoo is None and cboe is None and margin is None and gdp is None:
             if prev:
                 out = copy.deepcopy(prev)
@@ -1382,7 +1417,7 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
             return {**build_payload(errors=errors, prev=None, now=now), "status": "no_data"}
         payload = build_payload(
             yahoo=yahoo, cboe=cboe, margin=margin, margin_source=margin_source,
-            gdp=gdp, gdp_meta=gdp_meta, errors=errors, prev=prev, now=now,
+            gdp=gdp, gdp_meta=gdp_meta, z1=z1, errors=errors, prev=prev, now=now,
         )
         if payload.get("status") == "ok":
             _cache = payload
@@ -1451,6 +1486,11 @@ if __name__ == "__main__":
                 ("asof", "close", "chg", "vix9d", "vix3m", "vvix", "term", "term_detail",
                  "percentile_1y", "status", "reason", "snapshot")},
         "judgment": data.get("judgment"),
+        "event_context_asof": (data.get("event_context") or {}).get("asof"),
+        "event_labels": [c.get("label") for c in ((data.get("event_context") or {}).get("cycles") or [])],
+        "current_ownership": ((data.get("event_context") or {}).get("current") or {}).get("ownership_latest"),
+        "current_gold": ((data.get("event_context") or {}).get("current") or {}).get("gold"),
+        "current_ust10y": ((data.get("event_context") or {}).get("current") or {}).get("ust10y"),
         "drawdowns": {
             "asof": (data.get("drawdowns") or {}).get("asof"),
             "overview": (data.get("drawdowns") or {}).get("overview"),

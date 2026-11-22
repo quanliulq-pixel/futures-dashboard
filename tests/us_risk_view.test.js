@@ -49,3 +49,19 @@ if (!dd.includes('距高点') && !dd.includes('历史最高') && !dd.includes('2
 if (!dd.includes('历史最高收盘') || !dd.includes('2020-03 新冠') || !dd.includes('年内最大回撤')) throw new Error('drawdown sections missing');
 const missingDd = V.drawdownCard({ drawdowns: { status: 'missing', reason: '无数据' } });
 if (!missingDd.includes('无数据')) throw new Error('missing drawdowns should be 无数据');
+
+const cycle = V.cycleTable({
+  status: 'ok', asof: '2026-11-20', method: '口径',
+  cycles: [{
+    label: '2020-03 新冠', peak_date: '2020-02-19', trough_date: '2020-03-23',
+    market: { peak: { status: 'ok', total_cap_trillion: 30, buffett_ratio_pct: 140, gdp_period: '2019Q4', asof: '2020-02-19' }, trough: { status: 'ok', total_cap_trillion: 22, buffett_ratio_pct: 110, gdp_period: '2019Q4', asof: '2020-03-23' }, cap_chg_pct: -0.27 },
+    leverage: { peak: { status: 'ok', debit_trillion: 0.5, cap_ratio_pct: 2.1, month: '2020-02' }, trough: { status: 'ok', debit_trillion: 0.4, cap_ratio_pct: 1.8, month: '2020-03' }, debit_chg_pct: -0.2 },
+    ownership: { peak: { status: 'ok', hh_direct_pct: 36.6, mf_etf_pct: 22, pension_pct: 8, foreign_pct: 16, quarter: '2019Q3' }, trough: { status: 'missing', reason: '无数据' } },
+    flows: { ici: { status: 'missing', reason: 'ICI 无数据' }, z1: { status: 'ok', mf_etf_usd_millions: -100, hh_direct_usd_millions: 50, pension_usd_millions: -10, foreign_usd_millions: 20, quarters: ['2020Q1'] } },
+    haven: { gold: { status: 'ok', peak: { close: 1600, asof: '2020-02-19' }, trough: { close: 1480, asof: '2020-03-23' }, chg_pct: -0.075 }, ust10y: { status: 'ok', peak: { close: 1.5, asof: '2020-02-19' }, trough: { close: 0.8, asof: '2020-03-23' }, chg_pp: -0.7 }, tlt: { status: 'missing', reason: '无数据' } },
+  }],
+});
+if (!cycle.includes('2020-03 新冠') || !cycle.includes('巴菲特') || !cycle.includes('ICI') || !cycle.includes('无数据')) throw new Error('cycle table missing text');
+if (!cycle.includes('down')) throw new Error('cycle table should color down moves green');
+const missingCycle = V.cycleTable({ status: 'missing', reason: '无数据' });
+if (!missingCycle.includes('无数据')) throw new Error('missing cycle should be 无数据');
