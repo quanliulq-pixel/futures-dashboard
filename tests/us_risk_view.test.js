@@ -30,3 +30,22 @@ V.render({ status: 'no_data' }, el);
 assert(el.innerHTML.includes('无数据') && el.innerHTML.includes('不能下单'), 'no data + disclaimer');
 
 console.log('us_risk_view ok');
+
+const dd = V.drawdownCard({
+  drawdowns: {
+    status: 'ok', asof: '2026-11-20', overview: '当前距历史最高收盘回撤 -3.7%。',
+    method: '口径',
+    indices: [{
+      key: 'sp500', name: '标普500', symbol: '^GSPC', status: 'ok', asof: '2026-11-20', history_start: '1990-01-02', annual_from: 1990,
+      highs: { status: 'ok', close: 6910.39, ath: 7175.83, ath_date: '2026-11-19', dd_ath: -0.037, ytd_high: 7175.83, ytd_high_date: '2026-11-19', dd_ytd: -0.037, asof: '2026-11-20' },
+      annual: [{ year: 2026, max_dd: -0.037, peak_date: '2026-11-19', peak: 7175.83, trough_date: '2026-11-20', trough: 6910.39, year_return: 0.10, incomplete: true, asof: '2026-11-20' }],
+      major: [{ label: '2020-03 新冠', peak_date: '2020-02-19', peak: 3386.15, trough_date: '2020-03-23', trough: 2237.4, dd: -0.3392, duration_days: 33, recovery_days: 148, recovery_date: '2020-08-18', vix_peak: 82.69, vix_peak_date: '2020-03-16' }],
+    }],
+  },
+});
+if (!dd.includes('距高点') && !dd.includes('历史最高') && !dd.includes('2020-03 新冠') && !dd.includes('down')) {
+  throw new Error('drawdown card missing expected text');
+}
+if (!dd.includes('历史最高收盘') || !dd.includes('2020-03 新冠') || !dd.includes('年内最大回撤')) throw new Error('drawdown sections missing');
+const missingDd = V.drawdownCard({ drawdowns: { status: 'missing', reason: '无数据' } });
+if (!missingDd.includes('无数据')) throw new Error('missing drawdowns should be 无数据');

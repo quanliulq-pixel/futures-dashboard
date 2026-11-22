@@ -17,7 +17,12 @@ GDP 取美国经济分析局（BEA）NIPA Table 1.1.5「Gross Domestic Product�
 某一交易日使用「该日及之前已结束季度」的 GDP（不含未来季，不做向前插值）。
 历史分位为有重叠样本的交易日比率中，不高于当日比率的占比（含当日）。
 
-指数：标普500（^GSPC）、纳指100（^NDX）、罗素2000（^RUT）Yahoo 最新收盘与前一交易日涨跌幅。
+指数：标普500（^GSPC）、纳指100（^NDX）、罗素2000（^RUT）、道指（^DJI）Yahoo 最新收盘与前一交易日涨跌幅。
+
+回撤与高点：各指数历史最高收盘及日期、当前距高点回撤、今年以来最高点与回撤；
+历年回撤表为每个日历年的年内最大回撤（高点日期→低点日期）与年度涨跌（标普500/道指自 1990 年，纳指100/罗素2000 从有数据起）；
+重大回撤轮次给出峰值、谷底、跌幅、持续日历日、恢复到前高用时，以及该轮峰值日至谷底日的 Cboe VIX 收盘峰值。
+当前这轮回撤与历年最大回撤、历史≥10%完成回撤的分布对比。
 
 杠杆率：FINRA 官方 Customer Margin Balances（Debit Balances in Customers' Securities Margin Accounts，
 单位百万美元）。文件 https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx
@@ -88,8 +93,21 @@ INDEX_META = (
     ("sp500", "^GSPC", "标普500"),
     ("ndx", "^NDX", "纳指100"),
     ("rut", "^RUT", "罗素2000"),
+    ("dji", "^DJI", "道指"),
 )
 PEAK_YEARS = (2000, 2007, 2021)
+# 历年回撤表起点：标普/道指从 1990 年；纳指100、罗素2000 从有数据起。
+ANNUAL_START_YEAR = {"sp500": 1990, "dji": 1990, "ndx": None, "rut": None}
+# 重大回撤标签（按峰值—谷底与窗口重叠匹配，取窗口内最深的一轮）
+NAMED_DRAWDOWNS = (
+    ("2000-02 互联网泡沫", "2000-01-01", "2003-03-31"),
+    ("2007-09 金融危机", "2007-07-01", "2009-06-30"),
+    ("2018Q4", "2018-09-01", "2018-12-31"),
+    ("2020-03 新冠", "2020-01-01", "2020-06-30"),
+    ("2022 熊市", "2021-11-01", "2023-12-31"),
+)
+# 列入「重大回撤」表的完成回撤深度阈值；当前这轮不论深度都列出。
+MAJOR_DD_THRESHOLD = -0.10
 
 _lock = threading.Lock()
 _cache: dict | None = None
@@ -242,6 +260,429 @@ def index_quote(close: pd.Series, name: str, symbol: str) -> dict:
         "prev_close": _r(prev, 2) if prev is not None else None,
         "chg_pct": _r(chg, 4) if chg is not None else None,
         "asof": str(_to_date(c.index[-1])),
+    }
+
+
+# ---------------------------------------------------------------- drawdowns (pure)
+
+def _series_close(close: pd.Series) -> pd.Series:
+    c = pd.to_numeric(close, errors="coerce").dropna().sort_index()
+    if c.empty:
+        return c
+    c.index = pd.DatetimeIndex(c.index).tz_localize(None)
+    return c
+
+
+def vix_peak_in_range(vix: pd.Series | None, start: date | None, end: date | None) -> dict:
+    """区间内（含端点）VIX 收盘最高值；缺序列或区间无点则为无数据。"""
+    if vix is None or start is None or end is None:
+        return {"status": "missing", "reason": "无数据"}
+    s = _series_close(vix)
+    if s.empty:
+        return {"status": "missing", "reason": "无数据"}
+    sl = s.loc[(s.index.date >= start) & (s.index.date <= end)]
+    if sl.empty:
+        return {"status": "missing", "reason": "该区间无 VIX"}
+    px = float(sl.max())
+    d = _to_date(sl.idxmax())
+    return {"status": "ok", "close": _r(px, 2), "asof": str(d) if d else None}
+
+
+def named_event_drawdown(close: pd.Series, start: date, end: date, lookback_days: int = 180) -> dict | None:
+    """命名事件窗口内的峰值—谷底：谷底取窗口内收盘最低，峰值取窗口开始前 lookback 至谷底日的收盘最高。
+
+    用于 2018Q4 / 2020-03 等可能被更长未收复前高轮次吞并的事件；不编造，窗口内无收盘则返回 None。
+    """
+    c = _series_close(close)
+    if c.empty:
+        return None
+    win = c[(c.index.date >= start) & (c.index.date <= end)]
+    if win.empty:
+        return None
+    trough = float(win.min())
+    trough_d = _to_date(win.idxmin())
+    peak_from = start - timedelta(days=lookback_days)
+    pre = c[(c.index.date >= peak_from) & (c.index.date <= trough_d)]
+    if pre.empty:
+        return None
+    peak = float(pre.max())
+    peak_d = _to_date(pre.idxmax())
+    if not peak or trough_d is None or peak_d is None:
+        return None
+    dd = trough / peak - 1.0
+    rec_d = rec_days = None
+    after = c[c.index.date > trough_d]
+    hit = after[after >= peak]
+    if len(hit):
+        rec_d = _to_date(hit.index[0])
+        rec_days = (rec_d - trough_d).days if rec_d else None
+    return {
+        "peak": _r(peak, 2),
+        "peak_date": str(peak_d),
+        "trough": _r(trough, 2),
+        "trough_date": str(trough_d),
+        "dd": _r(dd, 4),
+        "duration_days": (trough_d - peak_d).days,
+        "recovery_date": str(rec_d) if rec_d else None,
+        "recovery_days": rec_days,
+        "ongoing": rec_d is None,
+        "named_window": True,
+    }
+
+
+def highs_and_current_drawdown(close: pd.Series) -> dict | None:
+
+    """历史最高收盘、当前距高点回撤、今年以来最高与回撤。"""
+    c = _series_close(close)
+    if c.empty:
+        return None
+    last = float(c.iloc[-1])
+    last_d = _to_date(c.index[-1])
+    ath = float(c.max())
+    ath_d = _to_date(c.idxmax())
+    dd_ath = last / ath - 1.0 if ath else None
+    ytd = c[c.index.year == last_d.year] if last_d else c.iloc[0:0]
+    if ytd.empty:
+        ytd_high = ytd_d = dd_ytd = None
+    else:
+        ytd_high = float(ytd.max())
+        ytd_d = _to_date(ytd.idxmax())
+        dd_ytd = last / ytd_high - 1.0 if ytd_high else None
+    return {
+        "status": "ok",
+        "asof": str(last_d),
+        "close": _r(last, 2),
+        "ath": _r(ath, 2),
+        "ath_date": str(ath_d) if ath_d else None,
+        "dd_ath": _r(dd_ath, 4) if dd_ath is not None else None,
+        "ytd_high": _r(ytd_high, 2) if ytd_high is not None else None,
+        "ytd_high_date": str(ytd_d) if ytd_d else None,
+        "dd_ytd": _r(dd_ytd, 4) if dd_ytd is not None else None,
+        "history_start": str(_to_date(c.index[0])),
+    }
+
+
+def annual_drawdowns(close: pd.Series, start_year: int | None = None) -> list[dict]:
+    """各日历年年内最大回撤（当年已出现收盘高点→后续低点，不把上年高点跨年带入）与年度涨跌。
+
+    年度涨跌 = 该年最后收盘 / 上一年最后收盘 − 1；当前未完成年份为截至 asof 的年内涨跌。
+    样本首年若没有上年收盘，年度涨跌为无数据。
+    """
+    c = _series_close(close)
+    if c.empty:
+        return []
+    years = sorted({int(y) for y in c.index.year})
+    if start_year is not None:
+        years = [y for y in years if y >= start_year]
+    out: list[dict] = []
+    last_d = _to_date(c.index[-1])
+    for year in years:
+        sl = c[c.index.year == year]
+        if sl.empty:
+            continue
+        run_peak = float(sl.iloc[0])
+        run_peak_d = _to_date(sl.index[0])
+        max_dd = 0.0
+        dd_peak = run_peak
+        dd_peak_d = run_peak_d
+        dd_trough = run_peak
+        dd_trough_d = run_peak_d
+        for ts, px in sl.items():
+            px = float(px)
+            d = _to_date(ts)
+            if px >= run_peak:
+                run_peak = px
+                run_peak_d = d
+            dd = px / run_peak - 1.0 if run_peak else 0.0
+            if dd < max_dd:
+                max_dd = dd
+                dd_peak = run_peak
+                dd_peak_d = run_peak_d
+                dd_trough = px
+                dd_trough_d = d
+        prior = c[c.index.year < year]
+        year_ret = None
+        if len(prior):
+            base = float(prior.iloc[-1])
+            year_ret = float(sl.iloc[-1]) / base - 1.0 if base else None
+        incomplete = bool(last_d and year == last_d.year)
+        out.append({
+            "year": year,
+            "max_dd": _r(max_dd, 4),
+            "peak": _r(dd_peak, 2),
+            "peak_date": str(dd_peak_d) if dd_peak_d else None,
+            "trough": _r(dd_trough, 2),
+            "trough_date": str(dd_trough_d) if dd_trough_d else None,
+            "year_return": _r(year_ret, 4) if year_ret is not None else None,
+            "incomplete": incomplete,
+            "asof": str(_to_date(sl.index[-1])),
+        })
+    return out
+
+
+def drawdown_episodes(close: pd.Series, min_dd: float = MAJOR_DD_THRESHOLD) -> list[dict]:
+    """从官方收盘识别峰值—谷底—收复前高的回撤轮次。
+
+    新高或收复前高时结束上一轮；深度浅于 min_dd 的完成轮次不保留。
+    当前仍未收复前高的一轮无论深度都保留（ongoing=True，恢复用时无数据）。
+    持续天数、恢复用时均为日历日（峰值→谷底，谷底→收复日）。
+    """
+    c = _series_close(close)
+    if len(c) < 5:
+        return []
+    peak = float(c.iloc[0])
+    peak_d = _to_date(c.index[0])
+    trough = peak
+    trough_d = peak_d
+    in_dd = False
+    episodes: list[dict] = []
+
+    def _pack(*, recovered_on: date | None, ongoing: bool) -> dict:
+        dd = trough / peak - 1.0 if peak else None
+        rec_days = None
+        if recovered_on is not None and trough_d is not None:
+            rec_days = (recovered_on - trough_d).days
+        dur = (trough_d - peak_d).days if trough_d and peak_d else None
+        return {
+            "peak": _r(peak, 2),
+            "peak_date": str(peak_d) if peak_d else None,
+            "trough": _r(trough, 2),
+            "trough_date": str(trough_d) if trough_d else None,
+            "dd": _r(dd, 4) if dd is not None else None,
+            "duration_days": dur,
+            "recovery_date": str(recovered_on) if recovered_on else None,
+            "recovery_days": rec_days,
+            "ongoing": ongoing,
+        }
+
+    for ts, px in c.items():
+        px = float(px)
+        d = _to_date(ts)
+        if px >= peak:
+            if in_dd:
+                ep = _pack(recovered_on=d, ongoing=False)
+                if ep["dd"] is not None and ep["dd"] <= min_dd:
+                    episodes.append(ep)
+            peak = px
+            peak_d = d
+            trough = px
+            trough_d = d
+            in_dd = False
+        else:
+            in_dd = True
+            if px < trough:
+                trough = px
+                trough_d = d
+    if in_dd:
+        # 当前这轮：无论是否达到阈值都留下
+        episodes.append(_pack(recovered_on=None, ongoing=True))
+    return episodes
+
+
+def label_episodes(episodes: list[dict], asof: date | None = None) -> list[dict]:
+    """为重大窗口打标签；同一窗口多轮时保留最深的一轮。未匹配的深度回撤保持无标签（仍列出）。"""
+    windows = []
+    for name, a, b in NAMED_DRAWDOWNS:
+        windows.append((name, date.fromisoformat(a), date.fromisoformat(b)))
+    used: set[int] = set()
+    labeled = [dict(ep) for ep in episodes]
+    for name, a, b in windows:
+        best_i = None
+        best_dd = 1.0
+        for i, ep in enumerate(labeled):
+            if i in used:
+                continue
+            pd0 = date.fromisoformat(ep["peak_date"]) if ep.get("peak_date") else None
+            td0 = date.fromisoformat(ep["trough_date"]) if ep.get("trough_date") else None
+            if pd0 is None or td0 is None:
+                continue
+            # overlap of [peak, trough] with the named window
+            if pd0 <= b and td0 >= a:
+                dd = ep.get("dd")
+                if dd is not None and dd < best_dd:
+                    best_dd = dd
+                    best_i = i
+        if best_i is not None:
+            labeled[best_i]["label"] = name
+            used.add(best_i)
+    for ep in labeled:
+        if ep.get("ongoing") and not ep.get("label"):
+            ep["label"] = "当前回撤"
+        ep.setdefault("label", None)
+    return labeled
+
+
+def select_major_episodes(episodes: list[dict], threshold: float = MAJOR_DD_THRESHOLD) -> list[dict]:
+    """重大表：已命名事件 + 深度达到阈值的轮次 + 当前这轮。按峰值日期排序。"""
+    out = []
+    for ep in episodes:
+        if ep.get("label") or ep.get("ongoing") or (ep.get("dd") is not None and ep["dd"] <= threshold):
+            out.append(ep)
+    out.sort(key=lambda x: str(x.get("peak_date") or ""))
+    return out
+
+
+def merge_major_rows(named_rows: list[dict], episodes: list[dict], threshold: float = MAJOR_DD_THRESHOLD) -> list[dict]:
+    """命名事件（按窗口独立计算）优先；再补深度达到阈值的完成轮次与当前这轮，按峰值日期去重。"""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+
+    def _key(ep: dict) -> tuple:
+        return (str(ep.get("peak_date") or ""), str(ep.get("trough_date") or ""))
+
+    def _add(ep: dict) -> None:
+        k = _key(ep)
+        if k != ("", "") and k in seen:
+            return
+        if k != ("", ""):
+            seen.add(k)
+        out.append(ep)
+
+    named_labels = {ep.get("label") for ep in named_rows if ep.get("label")}
+    for ep in named_rows:
+        _add(ep)
+    for ep in select_major_episodes(episodes, threshold=threshold):
+        # 已有同名窗口行时不再重复列出被吞并的完整轮次
+        if ep.get("label") in named_labels:
+            continue
+        _add(ep)
+    out.sort(key=lambda x: (str(x.get("peak_date") or "9999"), str(x.get("label") or "")))
+    return out
+
+
+def attach_vix_peaks(episodes: list[dict], vix: pd.Series | None) -> list[dict]:
+    out = []
+    for ep in episodes:
+        item = dict(ep)
+        start = date.fromisoformat(ep["peak_date"]) if ep.get("peak_date") else None
+        end = date.fromisoformat(ep["trough_date"]) if ep.get("trough_date") else None
+        vp = vix_peak_in_range(vix, start, end)
+        if vp.get("status") == "ok":
+            item["vix_peak"] = vp.get("close")
+            item["vix_peak_date"] = vp.get("asof")
+        else:
+            item["vix_peak"] = None
+            item["vix_peak_date"] = None
+        out.append(item)
+    return out
+
+
+def compare_to_history(current_dd: float | None, annual: list[dict], episodes: list[dict]) -> dict:
+    """当前距高点回撤在历年最大回撤、以及历史≥10%完成回撤中的位置。分位 100%＝浅于或等于全部样本。"""
+    if current_dd is None:
+        return {"status": "missing", "reason": "无数据", "line": None}
+    annual_dds = [r["max_dd"] for r in annual if r.get("max_dd") is not None]
+    # 完成且已收复的深度回撤（不含当前 ongoing）
+    hist_eps = [
+        e["dd"] for e in episodes
+        if e.get("dd") is not None and not e.get("ongoing") and e["dd"] <= MAJOR_DD_THRESHOLD
+    ]
+    def _pct_shallow(sample: list[float], value: float) -> float | None:
+        if len(sample) < 5:
+            return None
+        return _r(float(sum(1 for x in sample if x >= value) / len(sample)) * 100.0, 1)
+
+    n_ann = len(annual_dds)
+    deeper_years = sum(1 for x in annual_dds if x < current_dd) if annual_dds else None
+    p_ann = _pct_shallow(annual_dds, current_dd)
+    p_ep = _pct_shallow(hist_eps, current_dd)
+    deeper_eps = sum(1 for x in hist_eps if x < current_dd) if hist_eps else None
+    parts = [f"当前距历史最高收盘回撤 {current_dd * 100:+.1f}%"]
+    if n_ann and deeper_years is not None:
+        parts.append(f"在 {n_ann} 个日历年的年内最大回撤中，有 {deeper_years} 年更深")
+        if p_ann is not None:
+            parts.append(f"分位 {p_ann:.0f}%（100%=最浅）")
+    if hist_eps and deeper_eps is not None:
+        parts.append(f"在 {len(hist_eps)} 次历史≥10%完成回撤中，有 {deeper_eps} 次更深")
+        if p_ep is not None:
+            parts.append(f"分位 {p_ep:.0f}%")
+    if current_dd > MAJOR_DD_THRESHOLD:
+        parts.append("尚未达到 10% 深度回撤阈值")
+    return {
+        "status": "ok",
+        "current_dd": _r(current_dd, 4),
+        "annual_sample": n_ann or None,
+        "annual_deeper": deeper_years,
+        "annual_percentile": p_ann,
+        "episode_sample": len(hist_eps) or None,
+        "episode_deeper": deeper_eps,
+        "episode_percentile": p_ep,
+        "line": "；".join(parts) + "。",
+    }
+
+
+def build_index_drawdown(close: pd.Series, *, key: str, name: str, symbol: str,
+                         vix: pd.Series | None, start_year: int | None) -> dict:
+    highs = highs_and_current_drawdown(close)
+    if not highs:
+        return {"status": "missing", "key": key, "name": name, "symbol": symbol, "reason": "无数据"}
+    annual = annual_drawdowns(close, start_year=start_year)
+    episodes = attach_vix_peaks(label_episodes(drawdown_episodes(close)), vix)
+    named_rows = []
+    for ev_name, a, b in NAMED_DRAWDOWNS:
+        ev = named_event_drawdown(close, date.fromisoformat(a), date.fromisoformat(b))
+        if ev is None:
+            named_rows.append({"label": ev_name, "status": "missing", "reason": "无数据", "named_window": True})
+        else:
+            ev["label"] = ev_name
+            ev["status"] = "ok"
+            named_rows.append(ev)
+    named_rows = attach_vix_peaks(named_rows, vix)
+    major = merge_major_rows(named_rows, episodes)
+    cmp_ = compare_to_history(highs.get("dd_ath"), annual, episodes)
+    return {
+        "status": "ok",
+        "key": key,
+        "name": name,
+        "symbol": symbol,
+        "asof": highs.get("asof"),
+        "history_start": highs.get("history_start"),
+        "annual_from": start_year,
+        "highs": highs,
+        "annual": annual,
+        "major": major,
+        "comparison": cmp_,
+    }
+
+
+def build_drawdowns(yahoo: dict[str, pd.Series] | None, cboe: dict[str, pd.Series] | None,
+                    prev: dict | None, today: date, errors: dict) -> dict:
+    yahoo = yahoo or {}
+    vix = (cboe or {}).get("vix")
+    items = []
+    for key, sym, name in INDEX_META:
+        if yahoo.get(sym) is None:
+            items.append({"status": "missing", "key": key, "name": name, "symbol": sym, "reason": "无数据"})
+            continue
+        start = ANNUAL_START_YEAR.get(key)
+        items.append(build_index_drawdown(yahoo[sym], key=key, name=name, symbol=sym, vix=vix, start_year=start))
+    ok_items = [x for x in items if x.get("status") == "ok"]
+    if not ok_items:
+        reason = errors.get("yahoo") or "指数日线无数据"
+        return _maybe_snapshot((prev or {}).get("drawdowns"), today, reason)
+    asof = max(str(x.get("asof")) for x in ok_items if x.get("asof"))
+    # 以标普500的对比作为总览一行；没有则用第一只
+    spx = next((x for x in ok_items if x.get("key") == "sp500"), ok_items[0])
+    lines = []
+    for x in ok_items:
+        h = x.get("highs") or {}
+        if h.get("dd_ath") is not None:
+            lines.append(f"{x['name']}距高点 {h['dd_ath'] * 100:+.1f}%（高点 {h.get('ath_date') or '无数据'}）")
+    overview = (spx.get("comparison") or {}).get("line")
+    return {
+        "status": "ok",
+        "block": "drawdowns",
+        "asof": asof,
+        "method": (
+            "用 Yahoo 官方未复权收盘计算。年内最大回撤只在该日历年的收盘序列上取当年高点到后续低点，"
+            "不把上年高点跨年带入。年度涨跌以上一年最后收盘为基准；未结束年份为截至最新收盘。"
+            "重大回撤为收盘峰值到谷底的完整轮次（新高或收复前高视为结束）；持续天数与恢复用时为日历日。"
+            "VIX 峰值为该轮峰值日至谷底日（含）Cboe 收盘最高值。"
+        ),
+        "source": "Yahoo Finance ^GSPC / ^NDX / ^RUT / ^DJI close；VIX 来自 Cboe 官方日频 CSV",
+        "overview": overview,
+        "lines": lines,
+        "indices": items,
     }
 
 
@@ -471,9 +912,10 @@ def fetch_bea_gdp() -> tuple[pd.Series, dict]:
 def fetch_yahoo_closes() -> dict[str, pd.Series]:
     import net_limits
 
-    symbols = ["^W5000", "^GSPC", "^NDX", "^RUT"]
+    # 指数高低点/回撤用未复权收盘（官方点位）；价格型指数通常与复权相同。
+    symbols = ["^W5000", "^GSPC", "^NDX", "^RUT", "^DJI"]
     raw = net_limits.yf_download(
-        symbols, period="max", auto_adjust=True, group_by="ticker", threads=True, progress=False
+        symbols, period="max", auto_adjust=False, group_by="ticker", threads=True, progress=False
     )
     if raw is None or raw.empty:
         raise ValueError("Yahoo 无数据")
@@ -811,23 +1253,26 @@ def build_payload(
     market = build_market(yahoo, gdp, gdp_meta, prev, today, errors)
     leverage = build_leverage(margin, margin_source, (yahoo or {}).get("^W5000"), prev, today, errors)
     vix = build_vix(cboe, prev, today, errors)
+    drawdowns = build_drawdowns(yahoo, cboe, prev, today, errors)
     judgment = build_judgment(market, leverage, vix)
-    asofs = [b.get("asof") for b in (market, vix) if b.get("status") == "ok" and b.get("asof")]
+    asofs = [b.get("asof") for b in (market, vix, drawdowns) if b.get("status") == "ok" and b.get("asof")]
     asof = max(asofs) if asofs else (leverage.get("month") if leverage.get("status") == "ok" else None)
     from_snap = bool(
         market.get("from_snapshot") or leverage.get("from_snapshot") or vix.get("from_snapshot")
+        or drawdowns.get("from_snapshot")
     )
-    ok = any(b.get("status") == "ok" for b in (market, leverage, vix))
+    ok = any(b.get("status") == "ok" for b in (market, leverage, vix, drawdowns))
     notes = [
         DISCLAIMER,
         "总市值口径：Yahoo ^W5000（Wilshire 5000 Full Cap Price Index）× 10亿美元；FRED 威尔希尔序列已停更。",
         "巴菲特指标分母为 BEA Table 1.1.5 名义 GDP（SAAR）；交易日使用已结束季度，无前瞻。",
         "融资余额为 FINRA 官方月度 Debit Balances，单位百万美元；占比用对应月末总市值。",
         "VIX 族来自 Cboe 官方日频 CSV，不是 Yahoo 估算。",
+        "回撤与高点用 Yahoo 官方未复权收盘；年内最大回撤不跨年带入上年高点；重大回撤的持续/恢复天数为日历日。",
         "红涨绿跌。研究参考，不能下单。",
     ]
     sources = [
-        {"label": "Yahoo Finance ^W5000 / ^GSPC / ^NDX / ^RUT", "url": "https://finance.yahoo.com/quote/%5EW5000/history/"},
+        {"label": "Yahoo Finance ^W5000 / ^GSPC / ^NDX / ^RUT / ^DJI", "url": "https://finance.yahoo.com/quote/%5EGSPC/history/"},
         {"label": "BEA NIPA Table 1.1.5（Section1All_xls.xlsx，T10105-Q / A191RC）", "url": BEA_SECTION1_XLSX},
         {"label": "BEA GDP 新闻稿（当期口径说明）", "url": "https://www.bea.gov/data/gdp/gross-domestic-product"},
         {"label": "FINRA Margin Statistics 官方表", "url": FINRA_PAGE},
@@ -847,6 +1292,7 @@ def build_payload(
         "market": market,
         "leverage": leverage,
         "vix": vix,
+        "drawdowns": drawdowns,
         "judgment": judgment,
         "notes": notes,
         "sources": sources,
@@ -1005,6 +1451,23 @@ if __name__ == "__main__":
                 ("asof", "close", "chg", "vix9d", "vix3m", "vvix", "term", "term_detail",
                  "percentile_1y", "status", "reason", "snapshot")},
         "judgment": data.get("judgment"),
+        "drawdowns": {
+            "asof": (data.get("drawdowns") or {}).get("asof"),
+            "overview": (data.get("drawdowns") or {}).get("overview"),
+            "lines": (data.get("drawdowns") or {}).get("lines"),
+            "indices": [
+                {
+                    "key": ix.get("key"),
+                    "name": ix.get("name"),
+                    "highs": ix.get("highs"),
+                    "comparison": (ix.get("comparison") or {}).get("line"),
+                    "annual_n": len(ix.get("annual") or []),
+                    "annual_tail": (ix.get("annual") or [])[-5:],
+                    "major": ix.get("major"),
+                }
+                for ix in ((data.get("drawdowns") or {}).get("indices") or [])
+            ],
+        },
     }, ensure_ascii=False, indent=2, default=str))
     if "--write-seed" in sys.argv and data.get("status") == "ok":
         write_seed(data)

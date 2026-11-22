@@ -11,7 +11,7 @@
   const isStatic = () => root.STATIC_MODE === true || /github\.io$/i.test((root.location && root.location.hostname) || '') ||
     String((root.location && root.location.search) || '').includes('static=1');
   const BAND_CLS = { '偏热': 'up', '偏冷': 'down', '中性': 'etf-flat' };
-  const state = { data: null };
+  const state = { data: null, ddIndex: 'sp500' };
 
   function snapBadge(block) {
     if (block && (block.snapshot || block.from_snapshot) && (block.snapshot_date || block.asof || block.month)) {
@@ -119,7 +119,82 @@
     </section>`;
   }
 
+  function daysText(n, missingLabel) {
+    return isNum(n) ? `${n} 天` : (missingLabel || '无数据');
+  }
+
+  function highsGrid(ix) {
+    const h = (ix && ix.highs) || {};
+    if (!ix || ix.status !== 'ok' || !h || h.status !== 'ok') {
+      return `<div class="etf-kpi"><span class="etf-kpi-label">${esc((ix && ix.name) || '')}</span><strong class="etf-na">无数据</strong></div>`;
+    }
+    return `<div class="etf-kpi"><span class="etf-kpi-label">${esc(ix.name)} <small>${esc(ix.symbol)}</small></span>
+      <strong>${pct(h.dd_ath, 1)}</strong>
+      <span class="etf-kpi-sub">历史最高收盘 ${isNum(h.ath) ? fmt(h.ath, 2) : '无数据'}（${esc(h.ath_date || '无数据')}）</span>
+      <span class="etf-kpi-sub">今年最高 ${isNum(h.ytd_high) ? fmt(h.ytd_high, 2) : '无数据'}（${esc(h.ytd_high_date || '无数据')}）· 今年回撤 ${pct(h.dd_ytd, 1)}</span>
+      <span class="etf-kpi-sub">最新 ${isNum(h.close) ? fmt(h.close, 2) : '无数据'} · ${esc(h.asof || '无数据')}</span></div>`;
+  }
+
+  function annualTable(ix) {
+    const rows = (ix && ix.annual) || [];
+    if (!rows.length) return '<p class="etf-na">无数据</p>';
+    const body = rows.slice().reverse().map((r) => `<tr>
+      <td>${esc(String(r.year))}${r.incomplete ? ' <small>截至 ' + esc(r.asof || '') + '</small>' : ''}</td>
+      <td class="num">${pct(r.max_dd, 1)}</td>
+      <td>${esc(r.peak_date || '无数据')}${isNum(r.peak) ? '（' + fmt(r.peak, 2) + '）' : ''}</td>
+      <td>${esc(r.trough_date || '无数据')}${isNum(r.trough) ? '（' + fmt(r.trough, 2) + '）' : ''}</td>
+      <td class="num">${pct(r.year_return, 1)}</td>
+    </tr>`).join('');
+    return `<div class="table-wrap" tabindex="0"><table class="etf-table usrisk-dd-table"><thead><tr>
+      <th>年份</th><th class="num">年内最大回撤</th><th>高点日期</th><th>低点日期</th><th class="num">年度涨跌</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function majorTable(ix) {
+    const rows = (ix && ix.major) || [];
+    if (!rows.length) return '<p class="etf-na">无数据</p>';
+    const body = rows.map((r) => `<tr>
+      <td>${esc(r.label || (r.ongoing ? '当前回撤' : '回撤'))}${r.ongoing ? ' <small>进行中</small>' : ''}</td>
+      <td>${esc(r.peak_date || '无数据')}${isNum(r.peak) ? '（' + fmt(r.peak, 2) + '）' : ''}</td>
+      <td>${esc(r.trough_date || '无数据')}${isNum(r.trough) ? '（' + fmt(r.trough, 2) + '）' : ''}</td>
+      <td class="num">${pct(r.dd, 1)}</td>
+      <td class="num">${esc(daysText(r.duration_days))}</td>
+      <td class="num">${r.ongoing ? na('未收复') : esc(daysText(r.recovery_days))}${!r.ongoing && r.recovery_date ? '<br><small>' + esc(r.recovery_date) + '</small>' : ''}</td>
+      <td class="num">${isNum(r.vix_peak) ? fmt(r.vix_peak, 2) : '无数据'}${r.vix_peak_date ? '<br><small>' + esc(r.vix_peak_date) + '</small>' : ''}</td>
+    </tr>`).join('');
+    return `<div class="table-wrap" tabindex="0"><table class="etf-table usrisk-dd-table"><thead><tr>
+      <th>事件</th><th>峰值</th><th>谷底</th><th class="num">跌幅</th><th class="num">持续天数</th><th class="num">恢复到前高</th><th class="num">VIX 峰值</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function drawdownCard(p) {
+    const dd = p.drawdowns || {};
+    if (dd.status !== 'ok') {
+      return `<section class="panel etf-card" aria-label="历年回撤"><h3>历年回撤与高点 ${snapBadge(dd)}</h3><p class="etf-na">${esc((dd && dd.reason) || '无数据')}</p></section>`;
+    }
+    const items = dd.indices || [];
+    const curKey = items.some((x) => x.key === state.ddIndex) ? state.ddIndex : ((items[0] && items[0].key) || 'sp500');
+    const ix = items.find((x) => x.key === curKey) || items[0];
+    const chips = items.map((x) =>
+      `<button type="button" class="etf-chip${x.key === curKey ? ' active' : ''}" data-dd-index="${esc(x.key)}" aria-pressed="${x.key === curKey}">${esc(x.name)}</button>`
+    ).join('');
+    const highs = items.map(highsGrid).join('');
+    const startNote = ix && ix.annual_from ? `${esc(ix.name)} 历年表自 ${esc(String(ix.annual_from))} 年` : (ix ? `${esc(ix.name)} 历年表从有数据起（${esc(ix.history_start || '无数据')}）` : '');
+    return `<section class="panel etf-card" aria-label="历年回撤与高点">
+      <h3>历年回撤与高点 ${snapBadge(dd)} <span class="etf-asof">${esc(asofLine(dd))}</span></h3>
+      <div class="etf-kpis">${highs || '<p class="etf-na">无数据</p>'}</div>
+      <p>${esc(dd.overview || (dd.lines || []).join('；') || '无数据')}</p>
+      <div class="etf-chips" role="tablist" aria-label="选择指数">${chips}</div>
+      <h4 class="usrisk-sub">${esc((ix && ix.name) || '')} 历年年内最大回撤 <span class="etf-asof">${esc(startNote)}</span></h4>
+      ${annualTable(ix)}
+      <h4 class="usrisk-sub">${esc((ix && ix.name) || '')} 历史重大回撤</h4>
+      ${majorTable(ix)}
+      <p class="sub">${esc(dd.method || '')}</p>
+    </section>`;
+  }
+
   function sourcesBlock(p) {
+
     const errs = Object.entries(p.errors || {});
     return `<details class="panel etf-card"><summary>美股风险：数据来源、口径与局限</summary>
       <ul>${(p.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
@@ -144,6 +219,7 @@
       ${marketCard(p.market)}
       ${leverageCard(p.leverage)}
       ${vixCard(p.vix)}
+      ${drawdownCard(p)}
       ${sourcesBlock(p)}`;
   }
 
@@ -171,7 +247,17 @@
     }
   }
 
+  function onClick(ev) {
+    const t = ev.target && ev.target.closest ? ev.target.closest('[data-dd-index]') : null;
+    if (!t) return;
+    state.ddIndex = t.getAttribute('data-dd-index') || 'sp500';
+    const el = root.document.getElementById('usrisk-content');
+    if (el && state.data) render(state.data, el);
+  }
+
   function bind() {
+    const el = root.document.getElementById('usrisk-content');
+    if (el) el.addEventListener('click', onClick);
     const btn = root.document.getElementById('usetf-refresh');
     if (!btn) return;
     if (isStatic()) return;
@@ -180,7 +266,7 @@
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
   }
-  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, cls, pct, signed };
+  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, drawdownCard, highsGrid, annualTable, majorTable, cls, pct, signed };
   root.UsRiskView = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -15,7 +15,7 @@ os.environ.setdefault("SKIP_BG_WARMUP", "1")
 import us_risk  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261122usrisk1"
+ASSET_V = "20261122usrisk2"
 NOW = datetime(2026, 11, 22, 16, 0, tzinfo=us_risk.CST)
 
 
@@ -261,3 +261,91 @@ def test_snapshot_needs_refresh_age(tmp_path, monkeypatch):
     monkeypatch.setattr(us_risk, "_now", lambda: NOW)
     s = us_risk.snapshot()
     assert s["age_hours"] == 1.0 and not us_risk.needs_refresh(s)
+
+
+
+def test_drawdown_highs_annual_and_episodes():
+    """可控日线：最高点、年内回撤、完成轮次恢复日、进行中轮次、VIX 峰值，均无前瞻。"""
+    # 2021: 100 → 110 (May 3) → 90 (May 17) → 120 (year end). intra-year DD = 90/110-1.
+    # 2022: 120 → 150 (Mar 1) → 75 (Jun 1) → 80 (year end, not recovered). ATH=150.
+    idx = pd.to_datetime([
+        "2021-01-04", "2021-05-03", "2021-05-17", "2021-12-31",
+        "2022-03-01", "2022-06-01", "2022-12-30",
+    ])
+    c = pd.Series([100.0, 110.0, 90.0, 120.0, 150.0, 75.0, 80.0], index=idx)
+    h = us_risk.highs_and_current_drawdown(c)
+    assert h["ath"] == 150.0 and h["ath_date"] == "2022-03-01"
+    assert h["dd_ath"] == pytest.approx(80 / 150 - 1, abs=1e-4)
+    assert h["ytd_high"] == 150.0 and h["dd_ytd"] == pytest.approx(80 / 150 - 1, abs=1e-4)
+    ann = us_risk.annual_drawdowns(c, start_year=2021)
+    by = {r["year"]: r for r in ann}
+    assert by[2021]["max_dd"] == pytest.approx(90 / 110 - 1, abs=1e-4)
+    assert by[2021]["peak_date"] == "2021-05-03" and by[2021]["trough_date"] == "2021-05-17"
+    assert by[2021]["year_return"] is None  # no prior year close
+    assert by[2022]["max_dd"] == pytest.approx(75 / 150 - 1, abs=1e-4)
+    assert by[2022]["year_return"] == pytest.approx(80 / 120 - 1, abs=1e-4)
+    assert by[2022]["incomplete"] is True  # last date is year end of sample's last year... last is 2022-12-30, year==last year
+    eps = us_risk.drawdown_episodes(c, min_dd=-0.10)
+    assert len(eps) == 2
+    done, cur = eps[0], eps[1]
+    assert done["peak_date"] == "2021-05-03" and done["trough_date"] == "2021-05-17"
+    assert done["dd"] == pytest.approx(90 / 110 - 1, abs=1e-4)
+    assert done["recovery_date"] == "2021-12-31"
+    assert done["duration_days"] == (date(2021, 5, 17) - date(2021, 5, 3)).days
+    assert done["recovery_days"] == (date(2021, 12, 31) - date(2021, 5, 17)).days
+    assert done["ongoing"] is False
+    assert cur["ongoing"] is True and cur["recovery_date"] is None and cur["recovery_days"] is None
+    assert cur["peak_date"] == "2022-03-01" and cur["trough"] == 75.0
+    # recovery must not precede trough
+    assert date.fromisoformat(done["recovery_date"]) >= date.fromisoformat(done["trough_date"])
+    vix = pd.Series([12.0, 40.0, 18.0], index=pd.to_datetime(["2022-03-01", "2022-05-15", "2022-06-01"]))
+    vp = us_risk.vix_peak_in_range(vix, date(2022, 3, 1), date(2022, 6, 1))
+    assert vp["status"] == "ok" and vp["close"] == 40.0 and vp["asof"] == "2022-05-15"
+    assert us_risk.vix_peak_in_range(None, date(2022, 3, 1), date(2022, 6, 1))["status"] == "missing"
+    # 浅回撤完成轮次（min_dd=-0.10）不应进入列表：再造一段只有 -5% 的完成回撤
+    shallow = pd.Series([100.0, 95.0, 101.0], index=pd.to_datetime(["2020-01-02", "2020-01-15", "2020-02-03"]))
+    assert us_risk.drawdown_episodes(shallow, min_dd=-0.10) == []
+
+
+def test_named_events_and_comparison_and_payload_drawdowns():
+    # 覆盖 2020-03 窗口的一轮 + 当前浅回撤
+    idx = pd.to_datetime(["2019-12-31", "2020-02-19", "2020-03-23", "2020-08-18", "2026-11-01", "2026-11-20"])
+    c = pd.Series([100.0, 120.0, 80.0, 130.0, 140.0, 130.0], index=idx)
+    eps = us_risk.label_episodes(us_risk.drawdown_episodes(c, min_dd=-0.10))
+    labels = {e.get("label"): e for e in eps}
+    assert "2020-03 新冠" in labels
+    assert labels["2020-03 新冠"]["dd"] == pytest.approx(80 / 120 - 1, abs=1e-4)
+    assert labels["当前回撤"]["ongoing"] is True
+    major = us_risk.select_major_episodes(eps)
+    assert any(e.get("label") == "2020-03 新冠" for e in major)
+    highs = us_risk.highs_and_current_drawdown(c)
+    ann = us_risk.annual_drawdowns(c, start_year=2019)
+    cmp_ = us_risk.compare_to_history(highs["dd_ath"], ann, eps)
+    assert cmp_["status"] == "ok" and "当前距历史最高收盘回撤" in cmp_["line"]
+    yahoo = {"^GSPC": c, "^NDX": c, "^RUT": c, "^DJI": c, "^W5000": c * 400}
+    p = us_risk.build_payload(yahoo=yahoo, now=NOW)
+    assert p["drawdowns"]["status"] == "ok"
+    spx = next(x for x in p["drawdowns"]["indices"] if x["key"] == "sp500")
+    assert spx["highs"]["ath_date"] == "2026-11-01"
+    assert spx["annual"][0]["year"] >= 1990 or spx["annual"][0]["year"] == 2019
+    # 缺数据不编造
+    p2 = us_risk.build_payload(now=NOW)
+    assert p2["drawdowns"]["status"] == "missing"
+
+
+
+def test_named_window_not_swallowed():
+    """2018 高点未收复就遇到 2020 疫情时，2018Q4 与 2020-03 仍应分别给出窗口峰值/谷底。"""
+    idx = pd.to_datetime([
+        "2018-08-31", "2018-12-24", "2019-06-03",
+        "2020-02-19", "2020-03-23", "2020-11-16",
+    ])
+    c = pd.Series([1740.0, 1260.0, 1500.0, 1690.0, 990.0, 1750.0], index=idx)
+    ev18 = us_risk.named_event_drawdown(c, date(2018, 9, 1), date(2018, 12, 31))
+    ev20 = us_risk.named_event_drawdown(c, date(2020, 1, 1), date(2020, 6, 30))
+    assert ev18["peak_date"] == "2018-08-31" and ev18["trough_date"] == "2018-12-24"
+    assert ev18["dd"] == pytest.approx(1260 / 1740 - 1, abs=1e-4)
+    assert ev20["peak_date"] == "2020-02-19" and ev20["trough_date"] == "2020-03-23"
+    assert ev20["dd"] == pytest.approx(990 / 1690 - 1, abs=1e-4)
+    # 窗口内无数据
+    assert us_risk.named_event_drawdown(c, date(1995, 1, 1), date(1995, 12, 31)) is None
