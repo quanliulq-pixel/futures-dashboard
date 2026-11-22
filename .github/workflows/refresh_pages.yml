@@ -24,6 +24,7 @@ on:
       - "gold.py"
       - "gold_quant.py"
       - "us_etf.py"
+      - "us_risk.py"
       - "static/**"
       - "templates/**"
       - ".github/workflows/refresh_pages.yml"
