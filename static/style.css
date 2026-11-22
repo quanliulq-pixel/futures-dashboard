@@ -2068,3 +2068,8 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
   .etf-chart-rrg { height: 340px; }
   .etf-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
+
+.usrisk-content { display: flex; flex-direction: column; gap: var(--space-3); }
+.usrisk-title { margin: 4px 0 0; font-size: 18px; }
+.usrisk-judge .etf-regime { font-size: 22px; margin: 4px 0 8px; }
+#usrisk-status { color: var(--muted); font-size: 12.5px; margin-left: 8px; }

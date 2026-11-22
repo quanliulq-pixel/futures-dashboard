@@ -90,7 +90,7 @@ def export_html() -> None:
         )
     # Keep every local UI asset (including index fundamentals) in sync with Flask.
     html = html.replace('"/static/', '"./static/')
-    html = html.replace("{{ asset_v }}", "20261119idx1")
+    html = html.replace("{{ asset_v }}", "20261122usrisk1")
 
     html = html.replace("refreshSec: {{ refresh_sec }}", "refreshSec: 0")
     DOCS.mkdir(parents=True, exist_ok=True)
@@ -128,6 +128,13 @@ def export_html() -> None:
     gp = gold_put_seed()
     if gp:
         dump(API / "gold_put.json", gp)
+    try:
+        import us_risk
+        risk = us_risk.snapshot()
+        if risk and risk.get("status") == "ok":
+            dump(API / "us_risk.json", risk)
+    except Exception as exc:  # noqa: BLE001
+        print("us risk seed dump failed:", exc)
     from ng_strategy_lab import snapshot as lab_snapshot
     dump(API / "ng_strategy_lab.json", lab_snapshot())
     from ng_strategy_lab2 import snapshot as lab2_snapshot

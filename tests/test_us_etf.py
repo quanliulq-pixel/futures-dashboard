@@ -15,7 +15,7 @@ os.environ.setdefault("SKIP_BG_WARMUP", "1")
 import us_etf  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261119idx1"
+ASSET_V = "20261122usrisk1"
 NOW = datetime(2026, 11, 14, 16, 0, tzinfo=us_etf.CST)  # = 2026-11-14 03:00 ET（周六）
 
 

@@ -25,6 +25,8 @@
       '/api/gold/put/refresh': './api/gold_put.json',
       '/api/us-etf': './api/us_etf.json',
       '/api/us-etf/refresh': './api/us_etf.json',
+      '/api/us/risk': './api/us_risk.json',
+      '/api/us/risk/refresh': './api/us_risk.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -792,10 +794,15 @@
       setTimeout(() => window.GoldView.resize(), 60);
       setTimeout(() => window.GoldView.resize(), 250);
     }
-    if (name === "usetf" && window.UsEtfView) {
-      window.UsEtfView.load(false);
-      setTimeout(() => window.UsEtfView.resize(), 60);
-      setTimeout(() => window.UsEtfView.resize(), 250);
+    if (name === "usetf") {
+      if (window.UsEtfView) {
+        window.UsEtfView.load(false);
+        setTimeout(() => window.UsEtfView.resize(), 60);
+        setTimeout(() => window.UsEtfView.resize(), 250);
+      }
+      if (window.UsRiskView) {
+        window.UsRiskView.load(false);
+      }
     }
     if (name === "ng") {
       state.ngLoading = false;
