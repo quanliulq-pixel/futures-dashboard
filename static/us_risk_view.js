@@ -111,9 +111,10 @@
   function judgmentCard(j, fromSnapshot, asof) {
     j = j || {};
     const line = j.line || '无数据';
+    const darkBand = j.dark ? `<span class="${({'偏多':'up','偏少':'down','中性':'etf-flat'})[j.dark] || ''}">暗盘${esc(j.dark)}</span>` : na('暗盘无数据');
     return `<section class="panel etf-card usrisk-judge" aria-label="综合判断">
-      <h3>综合判断 ${fromSnapshot && asof ? `<span class="etf-snap">上次快照（${esc(asof)}）</span>` : ''} <span class="etf-asof">估值 / 杠杆 / 情绪</span></h3>
-      <p class="etf-regime">${band(j.valuation)}　${band(j.leverage)}　${band(j.sentiment)}</p>
+      <h3>综合判断 ${fromSnapshot && asof ? `<span class="etf-snap">上次快照（${esc(asof)}）</span>` : ''} <span class="etf-asof">估值 / 杠杆 / 情绪 / 暗盘</span></h3>
+      <p class="etf-regime">${band(j.valuation)}　${band(j.leverage)}　${band(j.sentiment)}　${darkBand}</p>
       <p>${esc(line)}</p>
       <p class="sub">${esc(j.rules || '')}</p>
     </section>`;
@@ -226,6 +227,7 @@
     const rows = (ctx.cycles || []).map((c) => {
       const haven = c.haven || {};
       const tlt = haven.tlt && haven.tlt.status === 'ok' ? `TLT ${pct(haven.tlt.chg_pct, 1)}` : 'TLT 无数据';
+      const dark = c.dark || {};
       return `<tr>
         <td><strong>${esc(c.label || '')}</strong>${c.ongoing ? ' <small>进行中</small>' : ''}<br><small>${esc(c.peak_date || '')} → ${esc(c.trough_date || '')}</small></td>
         <td>${capCell((c.market || {}).peak)}<hr class="usrisk-hr">${capCell((c.market || {}).trough)}${isNum((c.market || {}).cap_chg_pct) ? `<br>${pct(c.market.cap_chg_pct, 1)}` : ''}</td>
@@ -235,13 +237,14 @@
           <br><small>ICI ${((c.flows || {}).ici && (c.flows.ici.status === 'ok')) ? '有数据' : '无数据'}</small></td>
         <td>${havenGold(haven.gold)}</td>
         <td>${havenYield(haven.ust10y)}<br><small>${tlt}</small></td>
+        <td>${darkCell(dark.peak)}<hr class="usrisk-hr">${darkCell(dark.trough)}</td>
       </tr>`;
     }).join('') || `<tr><td colspan="7" class="etf-na">无数据</td></tr>`;
     return `<section class="panel etf-card" aria-label="历次重大下跌对比">
       <h3>历次重大下跌对比 ${snapBadge(ctx)} <span class="etf-asof">${esc(asofLine(ctx))}</span></h3>
       <p class="sub">每一轮按标普500 峰值日→谷底日窗口。上格为峰值时（或峰值月/当时已公布季度），下格为谷底时。日期频率不同已标注。ICI 资金流向无数据，改列 Z.1 净买入。</p>
       <div class="table-wrap" tabindex="0"><table class="etf-table usrisk-dd-table usrisk-cycle-table"><thead><tr>
-        <th>事件</th><th>总市值 / 巴菲特指标</th><th>杠杆率（FINRA）</th><th>持股比例（Z.1）</th><th>资金流向（期间累计）</th><th>黄金</th><th>10年美债 / TLT</th>
+        <th>事件</th><th>总市值 / 巴菲特指标</th><th>杠杆率（FINRA）</th><th>持股比例（Z.1）</th><th>资金流向（期间累计）</th><th>黄金</th><th>10年美债 / TLT</th><th>暗盘 DIX / GEX / 场外占比</th>
       </tr></thead><tbody>${rows}</tbody></table></div>
       <p class="sub">${esc(ctx.method || '')}</p>
     </section>`;
@@ -276,6 +279,89 @@
       </div>
       <p class="sub">${esc((o && o.note) || '')} ${esc(cur.flows_note || '')} ${esc(cur.haven_note || '')}</p>
     </section>`;
+  }
+
+
+  function sparkline(points, key) {
+    const pts = (points || []).map((p) => (isNum(p.value) ? p.value : (isNum(p[key]) ? p[key] : null))).filter(isNum);
+    if (pts.length < 2) return '<span class="etf-na">无数据</span>';
+    const w = 120, h = 28, pad = 2;
+    const lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+    const span = hi - lo || 1;
+    const coords = pts.map((v, i) => {
+      const x = pad + (i * (w - pad * 2) / (pts.length - 1));
+      const y = pad + (h - pad * 2) * (1 - (v - lo) / span);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    const last = pts[pts.length - 1];
+    const first = pts[0];
+    const clsName = last > first ? 'up' : last < first ? 'down' : '';
+    return `<svg class="usrisk-spark ${clsName}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${coords}" /></svg>`;
+  }
+
+  function darkCard(p) {
+    const d = (p && p.dark) || {};
+    if (d.status !== 'ok') {
+      return `<section class="panel etf-card" aria-label="暗盘"><h3>暗盘（暗池 / 场外成交） ${snapBadge(d)}</h3><p class="etf-na">${esc((d && d.reason) || '无数据')}</p></section>`;
+    }
+    const dg = d.dix_gex || {};
+    const dix = dg.dix || {};
+    const gex = dg.gex || {};
+    const off = d.off_exchange || {};
+    const ats = d.ats_weekly || {};
+    const dixVal = dix.status === 'ok' && isNum(dix.value_pct)
+      ? `<strong>${fmt(dix.value_pct, 2)}% ${isNum(dix.chg_1d_pp) ? `<span class="${cls(dix.chg_1d_pp)}">${dix.chg_1d_pp > 0 ? '+' : ''}${dix.chg_1d_pp.toFixed(2)}pp</span>` : ''}</strong>
+         <span class="etf-kpi-sub">1年分位 ${isNum(dix.percentile_1y) ? fmt(dix.percentile_1y, 1) + '%' : '无数据'} · ${esc(dix.asof || '')}</span>
+         <span class="etf-kpi-sub">DIX 高=暗池买盘偏多。近20日 ${sparkline(dix.spark)}</span>`
+      : na(dix.reason);
+    const gexVal = gex.status === 'ok' && isNum(gex.value_billion)
+      ? `<strong>${gex.value_billion > 0 ? '+' : ''}${fmt(gex.value_billion, 2)} 十亿美元 ${isNum(gex.chg_1d_billion) ? `<span class="${cls(gex.chg_1d_billion)}">${gex.chg_1d_billion > 0 ? '+' : ''}${gex.chg_1d_billion.toFixed(2)}</span>` : ''}</strong>
+         <span class="etf-kpi-sub">1年分位 ${isNum(gex.percentile_1y) ? fmt(gex.percentile_1y, 1) + '%' : '无数据'} · ${esc(gex.asof || '')}</span>
+         <span class="etf-kpi-sub">正值或抑制波动，负值或放大波动。近20日 ${sparkline(gex.spark)}</span>`
+      : na(gex.reason);
+    const offVal = off.status === 'ok' && isNum(off.share_pct)
+      ? `<strong>${fmt(off.share_pct, 2)}% ${isNum(off.chg_1d_pp) ? `<span class="${cls(off.chg_1d_pp)}">${off.chg_1d_pp > 0 ? '+' : ''}${off.chg_1d_pp.toFixed(2)}pp</span>` : ''}</strong>
+         <span class="etf-kpi-sub">1年分位 ${isNum(off.percentile_1y) ? fmt(off.percentile_1y, 1) + '%' : '无数据'} · ${esc(off.asof || '')}</span>
+         <span class="etf-kpi-sub">FINRA TRF 占全市场成交（含批发商/内化，不等于纯暗池）。近20日 ${sparkline(off.spark)}</span>`
+      : na(off.reason);
+    const tops = (ats.top_ats || []).slice(0, 5).map((a) => {
+      if (!a) return '';
+      const pcts = isNum(a.share_of_ats_pct) ? fmt(a.share_of_ats_pct, 1) + '%' : '无数据';
+      return `${esc((a.name || a.mpid || '').replace(/^[A-Z0-9]{3,4}\s/, ''))} ${pcts}`;
+    }).filter(Boolean).join(' · ') || '无数据';
+    const symLine = (x, name) => {
+      if (!x || x.status !== 'ok') return `${name} 无数据`;
+      const sh = isNum(x.ats_shares) ? fmt(x.ats_shares, 0) + ' 股' : '无数据';
+      return `${name} ATS ${sh}`;
+    };
+    const atsVal = ats.status === 'ok'
+      ? `<strong>周次 ${esc(ats.week_start || '无数据')}</strong>
+         <span class="etf-kpi-sub">${esc(ats.lag_note || '')}</span>
+         <span class="etf-kpi-sub">前五大 ATS（占 NMS 暗池）：${esc(tops)}</span>
+         <span class="etf-kpi-sub">${esc(symLine(ats.spy, 'SPY'))} · ${esc(symLine(ats.qqq, 'QQQ'))} · 占该 ETF 总成交比例无数据</span>`
+      : na(ats.reason);
+    return `<section class="panel etf-card" aria-label="暗盘">
+      <h3>暗盘（暗池 / 场外成交） ${snapBadge(d)} <span class="etf-asof">${esc(asofLine(d))}</span></h3>
+      <div class="etf-kpis">
+        <div class="etf-kpi"><span class="etf-kpi-label">DIX 暗池指数</span>${dixVal}</div>
+        <div class="etf-kpi"><span class="etf-kpi-label">GEX gamma 敞口</span>${gexVal}</div>
+        <div class="etf-kpi"><span class="etf-kpi-label">场外成交占比（FINRA TRF）</span>${offVal}</div>
+        <div class="etf-kpi"><span class="etf-kpi-label">FINRA ATS 周度（暗池）</span>${atsVal}</div>
+      </div>
+      <p class="sub">${esc((dg.note || '') + ' ' + (off.note || '') + ' ' + (ats.note || ''))}</p>
+    </section>`;
+  }
+
+  function darkCell(side) {
+    if (!side) return na();
+    const dix = side.dix || {};
+    const gex = side.gex || {};
+    const off = side.off_exchange || {};
+    const d = dix.status === 'ok' && isNum(dix.value_pct) ? `DIX ${fmt(dix.value_pct, 2)}%` : 'DIX 无数据';
+    const g = gex.status === 'ok' && isNum(gex.value_billion) ? `GEX ${gex.value_billion > 0 ? '+' : ''}${fmt(gex.value_billion, 2)} 十亿` : 'GEX 无数据';
+    const o = off.status === 'ok' && isNum(off.share_pct) ? `场外 ${fmt(off.share_pct, 2)}%` : '场外 无数据';
+    const ds = [dix.asof, gex.asof, off.asof].filter(Boolean)[0] || '';
+    return `${esc(d)}<br>${esc(g)}<br>${esc(o)}${ds ? `<br><small>${esc(ds)}</small>` : ''}`;
   }
 
   function drawdownCard(p) {
@@ -330,6 +416,7 @@
       ${marketCard(p.market)}
       ${leverageCard(p.leverage)}
       ${vixCard(p.vix)}
+      ${darkCard(p)}
       ${drawdownCard(p)}
       ${cycleTable(p.event_context)}
       ${currentExtrasCard(p.event_context)}
@@ -379,7 +466,7 @@
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
   }
-  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, drawdownCard, cycleTable, currentExtrasCard, highsGrid, annualTable, majorTable, cls, pct, signed };
+  const api = { load, render, state, marketCard, leverageCard, vixCard, judgmentCard, darkCard, drawdownCard, cycleTable, currentExtrasCard, highsGrid, annualTable, majorTable, cls, pct, signed };
   root.UsRiskView = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
