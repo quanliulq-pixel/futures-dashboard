@@ -855,16 +855,35 @@ def parse_bea_gdp(data: bytes) -> tuple[pd.Series, dict]:
 
 # ---------------------------------------------------------------- fetch
 
-def _http_get(url: str, timeout: float = 25.0, retries: int = 2) -> bytes:
+def _http_get(url: str, timeout: float = 25.0, retries: int = 2, headers: dict | None = None) -> bytes:
     import requests
 
     last: Exception | None = None
-    headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
+    hdr = {"User-Agent": USER_AGENT, "Accept": "*/*"}
+    if headers:
+        hdr.update(headers)
     for attempt in range(retries + 1):
         try:
-            r = requests.get(url, timeout=timeout, headers=headers, allow_redirects=True)
+            r = requests.get(url, timeout=timeout, headers=hdr, allow_redirects=True)
             if r.status_code == 200 and r.content:
                 return r.content
+            last = RuntimeError(f"HTTP {r.status_code} {url}")
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+    assert last is not None
+    raise last
+
+
+def _http_post(url: str, body: dict, timeout: float = 40.0, retries: int = 1) -> object:
+    import requests
+
+    last: Exception | None = None
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json", "Content-Type": "application/json"}
+    for attempt in range(retries + 1):
+        try:
+            r = requests.post(url, json=body, timeout=timeout, headers=headers)
+            if r.status_code == 200 and r.content:
+                return r.json()
             last = RuntimeError(f"HTTP {r.status_code} {url}")
         except Exception as exc:  # noqa: BLE001
             last = exc
@@ -916,6 +935,24 @@ def fetch_z1() -> dict:
     return us_risk_context.fetch_z1(_http_get)
 
 
+def fetch_dix():
+    import us_risk_dark
+
+    return us_risk_dark.fetch_dix(_http_get)
+
+
+def fetch_cboe_volume():
+    import us_risk_dark
+
+    return us_risk_dark.fetch_cboe_volume(_http_get)
+
+
+def fetch_finra_ats_weekly():
+    import us_risk_dark
+
+    return us_risk_dark.fetch_finra_ats_weekly(_http_post)
+
+
 def fetch_yahoo_closes() -> dict[str, pd.Series]:
     import net_limits
 
@@ -951,6 +988,9 @@ def default_fetchers() -> dict[str, Callable[[], Any]]:
         "bea": fetch_bea_gdp,
         "yahoo": fetch_yahoo_closes,
         "z1": fetch_z1,
+        "dix": fetch_dix,
+        "cboe_volume": fetch_cboe_volume,
+        "finra_ats": fetch_finra_ats_weekly,
     }
 
 
@@ -1211,12 +1251,12 @@ def build_vix(cboe: dict[str, pd.Series] | None, prev: dict | None, today: date,
     }
 
 
-def build_judgment(market: dict, leverage: dict, vix: dict) -> dict:
+def build_judgment(market: dict, leverage: dict, vix: dict, dark: dict | None = None) -> dict:
     rules = (
         "估值：巴菲特指标历史分位≥80%偏热、≤20%偏冷，否则中性。"
         "杠杆：FINRA 融资余额/月末威尔希尔总市值 的历史分位，同样 80/20。"
         "情绪：VIX 1年分位≥80%，或期限倒挂且 VIX≥25 为偏冷；分位≤20%且升水为偏热；否则中性。"
-        "缺分位或关键数据时该项为无数据，不填造。"
+        "暗盘：DIX 近1年分位≥80% 为暗池买盘偏多，≤20% 为偏少，否则中性；并注明 GEX 正负含义。缺分位或关键数据时该项为无数据，不填造。"
     )
     val = None
     if (market or {}).get("status") == "ok":
@@ -1233,11 +1273,18 @@ def build_judgment(market: dict, leverage: dict, vix: dict) -> dict:
     def _lab(x: str | None, title: str) -> str:
         return f"{title}{x or '无数据'}"
 
-    line = "，".join([_lab(val, "估值"), _lab(lev, "杠杆"), _lab(sent, "情绪")])
+    import us_risk_dark
+    dix = ((dark or {}).get("dix_gex") or {}).get("dix")
+    gex = ((dark or {}).get("dix_gex") or {}).get("gex")
+    dark_j = us_risk_dark.judge_dark(dix, gex)
+    line = "，".join([_lab(val, "估值"), _lab(lev, "杠杆"), _lab(sent, "情绪"), "暗盘" + (dark_j.get("line") or "无数据")])
     return {
         "valuation": val,
         "leverage": lev,
         "sentiment": sent,
+        "dark": dark_j.get("dix_band"),
+        "dark_line": dark_j.get("line"),
+        "gex_sign": dark_j.get("gex_sign"),
         "line": line,
         "rules": rules,
     }
@@ -1252,6 +1299,9 @@ def build_payload(
     gdp: pd.Series | None = None,
     gdp_meta: dict | None = None,
     z1: dict | None = None,
+    dix_df: "pd.DataFrame | None" = None,
+    cboe_volume: "pd.DataFrame | None" = None,
+    ats_weekly: dict | None = None,
     errors: dict | None = None,
     prev: dict | None = None,
     now: datetime | None = None,
@@ -1278,14 +1328,28 @@ def build_payload(
         prev=prev,
         today=today,
     )
-    judgment = build_judgment(market, leverage, vix)
-    asofs = [b.get("asof") for b in (market, vix, drawdowns) if b.get("status") == "ok" and b.get("asof")]
+    import us_risk_dark
+    dark = us_risk_dark.build_dark_payload(dix_df=dix_df, volume=cboe_volume, ats_weekly=ats_weekly, errors=errors)
+    if dark.get("status") != "ok":
+        dark = _maybe_snapshot((prev or {}).get("dark"), today, errors.get("dix") or errors.get("cboe_volume") or errors.get("finra_ats") or "无数据")
+    event_context = us_risk_dark.attach_dark_to_cycles(event_context, dix_df, cboe_volume) or event_context
+    # 若本轮未取到序列，则沿用快照里已写好的各轮暗盘字段
+    if (dix_df is None or getattr(dix_df, "empty", True)) and (cboe_volume is None or getattr(cboe_volume, "empty", True)):
+        prev_ec = (prev or {}).get("event_context") or {}
+        if prev_ec.get("status") == "ok" and event_context.get("status") == "ok":
+            prev_map = {c.get("label"): c.get("dark") for c in (prev_ec.get("cycles") or []) if c.get("dark")}
+            if prev_map:
+                for c in event_context.get("cycles") or []:
+                    if not c.get("dark") and c.get("label") in prev_map:
+                        c["dark"] = prev_map[c["label"]]
+    judgment = build_judgment(market, leverage, vix, dark)
+    asofs = [b.get("asof") for b in (market, vix, drawdowns, dark) if b.get("status") == "ok" and b.get("asof")]
     asof = max(asofs) if asofs else (leverage.get("month") if leverage.get("status") == "ok" else None)
     from_snap = bool(
         market.get("from_snapshot") or leverage.get("from_snapshot") or vix.get("from_snapshot")
-        or drawdowns.get("from_snapshot") or event_context.get("from_snapshot")
+        or drawdowns.get("from_snapshot") or event_context.get("from_snapshot") or dark.get("from_snapshot")
     )
-    ok = any(b.get("status") == "ok" for b in (market, leverage, vix, drawdowns))
+    ok = any(b.get("status") == "ok" for b in (market, leverage, vix, drawdowns, dark))
     notes = [
         DISCLAIMER,
         "总市值口径：Yahoo ^W5000（Wilshire 5000 Full Cap Price Index）× 10亿美元；FRED 威尔希尔序列已停更。",
@@ -1294,6 +1358,7 @@ def build_payload(
         "VIX 族来自 Cboe 官方日频 CSV，不是 Yahoo 估算。",
         "回撤与高点用 Yahoo 官方未复权收盘；年内最大回撤不跨年带入上年高点；重大回撤的持续/恢复天数为日历日。",
         "历次下跌对比：总市值为窗口日威尔希尔口径；巴菲特指标只用当时已公布 GDP（季末日+30天）；融资余额为峰值月/谷底月 FINRA 月末值；持股与资金流为美联储 Z.1 季度（已公布滞后约75天）；ICI 流向因无法抓取官方页记为无数据；黄金 Yahoo GC=F，10年期收益率 Yahoo ^TNX，长债 TLT。",
+        "暗盘：DIX/GEX 为 SqueezeMetrics 公开日频 CSV；场外成交占比为 Cboe 统计的 FINRA TRF 占总成交比例（含批发商/内化，不等于纯暗池）；FINRA ATS 周报有约 2–5 周延迟。2011 年以前的 DIX/GEX、以及缺少年份文件的场外占比为无数据。",
         "红涨绿跌。研究参考，不能下单。",
     ]
     sources = [
@@ -1310,6 +1375,9 @@ def build_payload(
         {"label": "Yahoo Finance GC=F（COMEX 黄金连续期货）", "url": "https://finance.yahoo.com/quote/GC%3DF/history/"},
         {"label": "Yahoo Finance ^TNX（CBOE 10年期国债收益率）", "url": "https://finance.yahoo.com/quote/%5ETNX/history/"},
         {"label": "Yahoo Finance TLT（20年+美债 ETF）", "url": "https://finance.yahoo.com/quote/TLT/history/"},
+        {"label": "SqueezeMetrics DIX.csv（DIX / GEX 公开日频）", "url": "https://squeezemetrics.com/monitor/static/DIX.csv"},
+        {"label": "Cboe U.S. Equities Historical Market Volume（含 FINRA TRF）", "url": "https://www.cboe.com/markets/us/equities/market-statistics/historical-market-volume/"},
+        {"label": "FINRA OTC Transparency（ATS 周度）", "url": "https://otctransparency.finra.org/"},
     ]
     return {
         "schema_version": 1,
@@ -1323,6 +1391,7 @@ def build_payload(
         "vix": vix,
         "drawdowns": drawdowns,
         "event_context": event_context,
+        "dark": dark,
         "judgment": judgment,
         "notes": notes,
         "sources": sources,
@@ -1376,7 +1445,7 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
         if use_remote:
             prev = _newest([prev, fetch_remote_seed()]) or prev
         errors: dict = {}
-        yahoo = cboe = gdp = margin = z1 = None
+        yahoo = cboe = gdp = margin = z1 = dix_df = cboe_volume = ats_weekly = None
         gdp_meta: dict | None = None
         margin_source = None
         fns = fetchers or default_fetchers()
@@ -1409,6 +1478,21 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
                 z1 = fns["z1"]()
             except Exception as exc:  # noqa: BLE001
                 errors["z1"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        if "dix" in fns:
+            try:
+                dix_df = fns["dix"]()
+            except Exception as exc:  # noqa: BLE001
+                errors["dix"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        if "cboe_volume" in fns:
+            try:
+                cboe_volume = fns["cboe_volume"]()
+            except Exception as exc:  # noqa: BLE001
+                errors["cboe_volume"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        if "finra_ats" in fns:
+            try:
+                ats_weekly = fns["finra_ats"]()
+            except Exception as exc:  # noqa: BLE001
+                errors["finra_ats"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         if yahoo is None and cboe is None and margin is None and gdp is None:
             if prev:
                 out = copy.deepcopy(prev)
@@ -1417,7 +1501,8 @@ def refresh(fetchers: dict | None = None, *, use_remote: bool = True, now: datet
             return {**build_payload(errors=errors, prev=None, now=now), "status": "no_data"}
         payload = build_payload(
             yahoo=yahoo, cboe=cboe, margin=margin, margin_source=margin_source,
-            gdp=gdp, gdp_meta=gdp_meta, z1=z1, errors=errors, prev=prev, now=now,
+            gdp=gdp, gdp_meta=gdp_meta, z1=z1, dix_df=dix_df, cboe_volume=cboe_volume,
+            ats_weekly=ats_weekly, errors=errors, prev=prev, now=now,
         )
         if payload.get("status") == "ok":
             _cache = payload
@@ -1491,6 +1576,9 @@ if __name__ == "__main__":
         "current_ownership": ((data.get("event_context") or {}).get("current") or {}).get("ownership_latest"),
         "current_gold": ((data.get("event_context") or {}).get("current") or {}).get("gold"),
         "current_ust10y": ((data.get("event_context") or {}).get("current") or {}).get("ust10y"),
+        "dark_asof": (data.get("dark") or {}).get("asof"),
+        "dix": (((data.get("dark") or {}).get("dix_gex") or {}).get("dix")),
+        "off_exchange": (data.get("dark") or {}).get("off_exchange"),
         "drawdowns": {
             "asof": (data.get("drawdowns") or {}).get("asof"),
             "overview": (data.get("drawdowns") or {}).get("overview"),

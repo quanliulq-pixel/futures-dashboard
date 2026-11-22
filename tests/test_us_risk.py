@@ -15,7 +15,7 @@ os.environ.setdefault("SKIP_BG_WARMUP", "1")
 import us_risk  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261122usrisk3"
+ASSET_V = "20261122dark1"
 NOW = datetime(2026, 11, 22, 16, 0, tzinfo=us_risk.CST)
 
 
@@ -235,12 +235,13 @@ def test_frontend_and_static_wiring():
     assert f"./static/us_risk_view.js?v={ASSET_V}" in docs
     view = (ROOT / "static" / "us_risk_view.js").read_text(encoding="utf-8")
     assert "历次重大下跌对比" in view and "cycleTable" in view
+    assert "暗盘" in view and "darkCard" in view and "DIX" in view
     assert "研究参考，不能下单" in view
     js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
     assert "'/api/us/risk': './api/us_risk.json'" in js and "UsRiskView" in js
     assert (ROOT / "static" / "us_risk_view.js").read_bytes() == (ROOT / "docs" / "static" / "us_risk_view.js").read_bytes()
     assert "data/us_risk_latest.json" in (ROOT / ".gitignore").read_text(encoding="utf-8")
-    src = (ROOT / "us_risk.py").read_text(encoding="utf-8")
+    src = (ROOT / "us_risk.py").read_text(encoding="utf-8") + "\n" + (ROOT / "us_risk_dark.py").read_text(encoding="utf-8")
     assert "eastmoney.com" not in src.lower() and "push2" not in src and "push2his" not in src
     a = (ROOT / "data" / "us_risk.json").read_bytes()
     b = (ROOT / "docs" / "api" / "us_risk.json").read_bytes()
@@ -493,3 +494,63 @@ def test_debit_chg_missing_when_trough_month_unpublished():
     assert row["leverage"]["trough"]["month"] == "2026-10"
     assert row["leverage"]["trough"]["month_requested"] == "2026-11"
     assert row["leverage"]["debit_chg_pct"] is None
+
+
+def test_dark_dix_gex_and_offexchange():
+    import us_risk_dark as dark
+    csv = (
+        "date,price,dix,gex\n"
+        "2011-05-02,1361.22,0.3788,1897312571\n"
+        "2026-11-19,7175.83,0.430765,-900000756\n"
+        "2026-11-20,6910.39,0.388471,-2159921683\n"
+    )
+    df = dark.parse_dix_csv(csv)
+    assert str(df["date"].iloc[0].date()) == "2011-05-02"
+    blk = dark.build_dix_gex(df)
+    assert blk["status"] == "ok" and blk["asof"] == "2026-11-20"
+    assert blk["dix"]["value_pct"] == pytest.approx(38.85, abs=0.02)
+    assert blk["dix"]["chg_1d_pp"] == pytest.approx(-4.23, abs=0.02)
+    assert blk["gex"]["value_billion"] == pytest.approx(-2.16, abs=0.01)
+    # 2011 之前无数据
+    early = dark.dark_at(date(2007, 10, 9), df, None)
+    assert early["dix"]["status"] == "missing" and early["gex"]["status"] == "missing"
+    late = dark.dark_at(date(2026, 11, 20), df, None)
+    assert late["dix"]["status"] == "ok" and late["dix"]["value_pct"] == pytest.approx(38.85, abs=0.02)
+    vol = pd.DataFrame({
+        "date": pd.to_datetime(["2026-11-19", "2026-11-19", "2026-11-20", "2026-11-20"]),
+        "participant": ["NASDAQ (Q)", "FINRA / Nasdaq TRF Carteret (DQ)", "NASDAQ (Q)", "FINRA / Nasdaq TRF Carteret (DQ)"],
+        "shares": [100.0, 50.0, 100.0, 80.0],
+    })
+    off = dark.build_offexchange(vol)
+    assert off["status"] == "ok" and off["share_pct"] == pytest.approx(44.44, abs=0.02)
+    assert off["chg_1d_pp"] == pytest.approx((80 / 180 - 50 / 150) * 100, abs=0.05)
+    j = dark.judge_dark(
+        {"status": "ok", "percentile_1y": 1.2, "value_pct": 38.85},
+        {"status": "ok", "value": -2159921683.0},
+    )
+    assert j["dix_band"] == "偏少" and "买盘偏少" in j["line"] and "GEX 为负" in j["line"]
+    payload = dark.build_dark_payload(dix_df=df, volume=vol, ats_weekly={"status": "missing", "reason": "无数据"})
+    assert payload["status"] == "ok" and payload["off_exchange"]["share_pct"] == pytest.approx(44.44, abs=0.02)
+    # 判断写入 payload
+    p = us_risk.build_payload(now=NOW)
+    assert p["dark"]["status"] in {"missing", "no_data"} or p["dark"].get("reason")
+    assert "暗盘" in (p["judgment"].get("line") or "")
+
+
+def test_parse_cboe_offexchange_venues():
+    import us_risk_dark as dark
+    raw = (
+        "Day,Market Participant,Tape A Shares,Tape B Shares,Tape C Shares,Total Shares,"
+        "Tape A Notional,Tape B Notional,Tape C Notional,Total Notional,"
+        "Tape A Trade Count,Tape B Trade Count,Tape C Trade Count,Total Trade Count\n"
+        "2026-11-20,NYSE (N),1,1,1,50,0,0,0,0,0,0,0,0\n"
+        "2026-11-20,FINRA / Nasdaq TRF Carteret (DQ),1,1,1,40,0,0,0,0,0,0,0,0\n"
+        "2026-11-20,FINRA / NYSE TRF (DN),1,1,1,10,0,0,0,0,0,0,0,0\n"
+    )
+    vol = dark.parse_cboe_market_history(raw)
+    daily = dark.offexchange_daily(vol)
+    assert abs(float(daily.iloc[0]["share"]) - 0.5) < 1e-9
+    import us_risk_dark as dark
+    assert dark.is_offexchange_venue('NASDAQ (DQ)') and dark.is_offexchange_venue('NYSE (DN)')
+    assert dark.is_offexchange_venue('ADF (D)') and dark.is_offexchange_venue('FINRA / Nasdaq TRF Carteret (DQ)')
+    assert not dark.is_offexchange_venue('NASDAQ (Q)') and not dark.is_offexchange_venue('NYSE (N)')

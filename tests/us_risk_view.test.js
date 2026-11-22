@@ -65,3 +65,20 @@ if (!cycle.includes('2020-03 新冠') || !cycle.includes('巴菲特') || !cycle.
 if (!cycle.includes('down')) throw new Error('cycle table should color down moves green');
 const missingCycle = V.cycleTable({ status: 'missing', reason: '无数据' });
 if (!missingCycle.includes('无数据')) throw new Error('missing cycle should be 无数据');
+
+const darkMissing = V.darkCard({ dark: { status: 'missing', reason: '无数据' } });
+if (!darkMissing.includes('无数据') || !darkMissing.includes('暗盘')) throw new Error('dark missing');
+const darkOk = V.darkCard({
+  dark: {
+    status: 'ok', asof: '2026-11-20',
+    dix_gex: {
+      dix: { status: 'ok', value_pct: 38.85, chg_1d_pp: -4.23, percentile_1y: 1.2, asof: '2026-11-20', spark: [{asof:'2026-11-19', value:0.43},{asof:'2026-11-20', value:0.39}] },
+      gex: { status: 'ok', value_billion: -2.16, chg_1d_billion: -1.26, percentile_1y: 1.2, asof: '2026-11-20', spark: [{value:-0.9},{value:-2.16}] },
+    },
+    off_exchange: { status: 'ok', share_pct: 47.07, chg_1d_pp: -0.31, percentile_1y: 13.9, asof: '2026-11-20', spark: [{value:0.47},{value:0.47}] },
+    ats_weekly: { status: 'ok', week_start: '2026-10-12', lag_note: '滞后约 35 天', top_ats: [{name:'INTELLIGENT CROSS LLC', share_of_ats_pct: 14.3}], spy: {status:'ok', ats_shares: 48147874}, qqq: {status:'missing', reason:'无数据'} },
+  },
+});
+if (!darkOk.includes('38.85') || !darkOk.includes('down') || !darkOk.includes('2026-10-12')) throw new Error('dark card values');
+const judgeDark = V.judgmentCard({ valuation: '偏热', leverage: '中性', sentiment: '偏冷', dark: '偏少', line: '估值偏热，杠杆中性，情绪偏冷，暗盘暗池买盘偏少', rules: '规则' });
+if (!judgeDark.includes('暗盘偏少') || !judgeDark.includes('买盘偏少')) throw new Error('judgment dark');
