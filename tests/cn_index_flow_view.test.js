@@ -329,6 +329,54 @@ const hidden = v.chartOption({
 assert.strictEqual(hidden.series.length, 2);
 assert.ok(!hidden.tooltip.formatter([{ dataIndex: 1, axisValue: "2026-06-25", seriesName: "融资余额" }]).includes("主力净流入"));
 
+assert.ok(chartSum.includes("data-idx-toggle=\"sse\"") && chartSum.includes("上证指数"));
+assert.ok(chartSum.includes("data-idx-toggle=\"csi300\"") && chartSum.includes("沪深300"));
+assert.ok(chartSum.includes("data-idx-toggle=\"sse50\"") && chartSum.includes("上证50"));
+assert.ok(chartSum.includes("data-idx-toggle=\"csi1000\"") && chartSum.includes("中证1000"));
+assert.ok(chartSum.includes("data-idx-normalize") && chartSum.includes("指数归一化（区间首日=100）"));
+
+const idxPayload = {
+  sse: { name: "上证指数", series: [["2014-09-22", 2289.87], ["2026-06-25", 4120.28], ["2026-06-26", 4100.0]] },
+  csi300: { name: "沪深300", series: [["2014-09-22", 2400.0], ["2026-06-25", 5020.1], ["2026-06-26", 5000.0]] },
+  sse50: { name: "上证50", series: [["2014-09-22", 1600.0], ["2026-06-25", 2800.0], ["2026-06-26", 2790.0]] },
+  csi1000: { name: "中证1000", series: [["2026-06-25", 7000.0], ["2026-06-26", 7010.0]] },
+};
+const showAll = { sse: true, csi300: true, sse50: true, csi1000: true };
+const multi = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200, index_close: 4120.28 },
+  hist_low: { date: "2014-09-22", balance: 100, index_close: 2289.87 },
+}, "all", null, false, { indices: idxPayload, showIndices: showAll, normalize: true });
+assert.strictEqual(multi.yAxis[1].name, "指数（首日=100）");
+assert.strictEqual(multi.series.length, 5);
+assert.ok(multi.series.every((ser) => ser.connectNulls === false));
+const csi1000 = multi.series.find((ser) => ser.name === "中证1000");
+const early = csi1000.data.find((row) => row[0] === "2014-09-22");
+assert.ok(early && early[1] == null);
+const sse = multi.series.find((ser) => ser.name === "上证指数");
+const sseFirst = sse.data.find((row) => row[0] === "2014-09-22");
+assert.strictEqual(sseFirst[1], 100);
+const sseHigh = sse.data.find((row) => row[0] === "2026-06-25");
+assert.ok(Math.abs(sseHigh[1] - (100 * 4120.28 / 2289.87)) < 1e-6);
+const tipM = multi.tooltip.formatter([{ dataIndex: allPts.findIndex((row) => row[0] === "2026-06-25"), axisValue: "2026-06-25" }]);
+assert.ok(tipM.includes("上证指数") && tipM.includes("4120.28") && tipM.includes("中证1000") && tipM.includes("7000"));
+const missEarly = multi.tooltip.formatter([{ dataIndex: allPts.findIndex((row) => row[0] === "2014-09-22"), axisValue: "2014-09-22" }]);
+assert.ok(missEarly.includes("中证1000") && missEarly.includes("无数据"));
+
+const absOpt = v.chartOption({
+  index_name: "沪深300",
+  series: daily,
+  hist_high: { date: "2026-06-25", balance: 200 },
+  hist_low: { date: "2014-09-22", balance: 100 },
+}, "all", null, false, { indices: idxPayload, showIndices: { sse: true, csi300: false, sse50: false, csi1000: true }, normalize: false });
+assert.strictEqual(absOpt.yAxis[1].name, "指数收盘");
+assert.deepStrictEqual(absOpt.series.slice(1).map((ser) => ser.name), ["上证指数", "中证1000"]);
+assert.strictEqual(absOpt.series.find((ser) => ser.name === "上证指数").data.find((row) => row[0] === "2014-09-22")[1], 2289.87);
+
+const aligned = v.alignIndexToDates([["2014-09-22", 10], ["2026-06-26", 20]], ["2014-09-22", "2014-09-23", "2026-06-26"]);
+assert.deepStrictEqual(aligned, [["2014-09-22", 10], ["2014-09-23", null], ["2026-06-26", 20]]);
+
 // 指数两融余额 + 比例：卡片与两融区表；红涨绿跌；无数据不虚构
 const withMargin = JSON.parse(JSON.stringify(b));
 withMargin.index_margin_definition = "两融余额=融资余额+融券余额。比例分母为成分股流通A股市值。";

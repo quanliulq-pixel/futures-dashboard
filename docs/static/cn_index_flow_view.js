@@ -498,8 +498,15 @@
       `</div>` +
       `<label class="cnflow-chart-toggle"><input type="checkbox" data-flow-toggle checked /> 叠加主力净流入</label>` +
       `</div>` +
-      `<div class="cnflow-margin-chart-el" role="img" aria-label="融资余额、对应指数与主力净流入走势"></div>` +
-      `<div class="cnflow-src cnflow-chart-note">上图左轴融资余额（亿元），右轴对应指数收盘；下方柱为新浪口径主力净流入（特大单 r0，红流入绿流出），与融资余额同一市场、同一区间。缺当日数据不插补。历史最低仅标注 2014-09-22 起窗口内的最低点。全部区间按周保留实际交易日。</div>` +
+      `<div class="cnflow-chart-idx" role="group" aria-label="叠加指数">` +
+      `<label class="cnflow-chart-toggle"><input type="checkbox" data-idx-toggle="sse" checked /> 上证指数</label>` +
+      `<label class="cnflow-chart-toggle"><input type="checkbox" data-idx-toggle="csi300" checked /> 沪深300</label>` +
+      `<label class="cnflow-chart-toggle"><input type="checkbox" data-idx-toggle="sse50" checked /> 上证50</label>` +
+      `<label class="cnflow-chart-toggle"><input type="checkbox" data-idx-toggle="csi1000" checked /> 中证1000</label>` +
+      `<label class="cnflow-chart-toggle"><input type="checkbox" data-idx-normalize checked /> 指数归一化（区间首日=100）</label>` +
+      `</div>` +
+      `<div class="cnflow-margin-chart-el" role="img" aria-label="融资余额、四条指数与主力净流入走势"></div>` +
+      `<div class="cnflow-src cnflow-chart-note">上图左轴融资余额（亿元），右轴叠加上证指数、沪深300、上证50、中证1000；默认按当前区间第一个有效收盘=100 对齐（也可改回绝对点位），可用勾选框开关各指数。缺当日收盘不插补，中证1000 自有数据之日起。下方柱为新浪口径主力净流入（特大单 r0，红流入绿流出），与融资余额同一市场、同一区间。历史最低仅标注 2014-09-22 起窗口内的最低点。全部区间按周保留实际交易日。</div>` +
       `</div>`;
   }
 
@@ -512,9 +519,37 @@
     };
   }
 
-  function chartOption(market, range, flowMarket, showFlow) {
+  const CHART_INDEX_META = [
+    { id: "sse", name: "上证指数", color: "#7eb6ff" },
+    { id: "csi300", name: "沪深300", color: "#c4a35a" },
+    { id: "sse50", name: "上证50", color: "#67e8f9" },
+    { id: "csi1000", name: "中证1000", color: "#f9a8d4" },
+  ];
+
+  function indexCloseMap(series) {
+    const m = Object.create(null);
+    (series || []).forEach((p) => {
+      if (p && p[0] && p[1] != null && p[1] !== "") m[p[0]] = Number(p[1]);
+    });
+    return m;
+  }
+
+  function alignIndexToDates(series, dates) {
+    const m = indexCloseMap(series);
+    return (dates || []).map((d) => [d, Object.prototype.hasOwnProperty.call(m, d) ? m[d] : null]);
+  }
+
+  function normalizeToFirst(pts) {
+    const first = (pts || []).find((p) => p && p[1] != null && Number(p[1]) !== 0);
+    if (!first) return (pts || []).map((p) => [p[0], null]);
+    const base = Number(first[1]);
+    return pts.map((p) => [p[0], p[1] == null ? null : (100 * Number(p[1]) / base)]);
+  }
+
+  function chartOption(market, range, flowMarket, showFlow, opts) {
     market = market || {};
     range = range || "all";
+    opts = opts || {};
     const pts = filterChartSeries(market.series, range, market.hist_high, market.hist_low);
     const start = pts.length ? pts[0][0] : "";
     const end = pts.length ? pts[pts.length - 1][0] : "";
@@ -529,6 +564,25 @@
     const bal = pts.map((p) => [p[0], p[1] == null ? null : p[1]]);
     const idx = pts.map((p) => [p[0], p[2] == null ? null : p[2]]);
     const flow = flowPts.map((p) => [p[0], p[1] == null ? null : p[1]]);
+    const dates = pts.map((p) => p[0]);
+    const multiSrc = opts.indices && typeof opts.indices === "object" ? opts.indices : null;
+    const showMap = opts.showIndices || {};
+    const normalize = !!opts.normalize;
+    const multiLines = [];
+    if (multiSrc) {
+      CHART_INDEX_META.forEach((meta) => {
+        const src = multiSrc[meta.id] || {};
+        const name = src.name || meta.name;
+        if (showMap[meta.id] === false) return;
+        const aligned = alignIndexToDates(src.series, dates);
+        const plotted = normalize ? normalizeToFirst(aligned) : aligned;
+        multiLines.push({
+          id: meta.id, name: name, color: meta.color,
+          aligned: aligned, plotted: plotted,
+        });
+      });
+    }
+    const useMulti = !!multiSrc;
     const marks = [];
     function addMark(pt, name, color, pos) {
       if (!pt || !pt.date || pt.balance == null) return;
@@ -544,7 +598,9 @@
     addMark(market.hist_high, "历史最高", "#ef5350", "top");
     addMark(market.hist_low, "历史最低", "#26a69a", "bottom");
     const withFlow = !!(showFlow && flow.length);
-    const legendData = withFlow ? [balName, idxName, flowName] : [balName, idxName];
+    const rightName = useMulti ? (normalize ? "指数（首日=100）" : "指数收盘") : idxName;
+    const legendData = [balName].concat(useMulti ? multiLines.map((l) => l.name) : [idxName]);
+    if (withFlow) legendData.push(flowName);
     const tooltip = {
       trigger: "axis",
       axisPointer: { type: "cross" },
@@ -562,8 +618,23 @@
         }
         const p = pts.find((r) => r[0] === date) || [];
         const balTxt = p[1] == null ? NO_DATA : (fmtYi(p[1]) + " 亿元");
-        const idxTxt = p[2] == null ? NO_DATA : Number(p[2]).toFixed(2);
-        let html = `<b>${esc(date)}</b><br/>融资余额：${esc(balTxt)}<br/>${esc(idxName)}：${esc(idxTxt)}`;
+        let html = `<b>${esc(date)}</b><br/>融资余额：${esc(balTxt)}`;
+        if (useMulti) {
+          multiLines.forEach((l) => {
+            const rawRow = (l.aligned || []).find((r) => r[0] === date);
+            const raw = rawRow ? rawRow[1] : null;
+            const rawTxt = raw == null ? NO_DATA : Number(raw).toFixed(2);
+            let line = `${esc(l.name)}：${esc(rawTxt)}`;
+            if (normalize && raw != null) {
+              const nRow = (l.plotted || []).find((r) => r[0] === date);
+              if (nRow && nRow[1] != null) line += `（${Number(nRow[1]).toFixed(1)}）`;
+            }
+            html += `<br/>${line}`;
+          });
+        } else {
+          const idxTxt = p[2] == null ? NO_DATA : Number(p[2]).toFixed(2);
+          html += `<br/>${esc(idxName)}：${esc(idxTxt)}`;
+        }
         if (withFlow) {
           const fv = Object.prototype.hasOwnProperty.call(flowByDate, date) ? flowByDate[date] : null;
           const flowTxt = fv == null ? NO_DATA : (fmtYi(fv) + " 亿元");
@@ -592,12 +663,12 @@
       yAxis: withFlow
         ? [
             Object.assign({ type: "value", name: "融资余额(亿元)", scale: true, splitNumber: 4, gridIndex: 0 }, axisStyle()),
-            Object.assign({ type: "value", name: idxName, scale: true, splitNumber: 4, gridIndex: 0, splitLine: { show: false } }, axisStyle()),
+            Object.assign({ type: "value", name: rightName, scale: true, splitNumber: 4, gridIndex: 0, splitLine: { show: false } }, axisStyle()),
             Object.assign({ type: "value", name: "主力净流入(亿元)", scale: true, splitNumber: 3, gridIndex: 1 }, axisStyle()),
           ]
         : [
             Object.assign({ type: "value", name: "融资余额(亿元)", scale: true, splitNumber: 4 }, axisStyle()),
-            Object.assign({ type: "value", name: idxName, scale: true, splitNumber: 4, splitLine: { show: false } }, axisStyle()),
+            Object.assign({ type: "value", name: rightName, scale: true, splitNumber: 4, splitLine: { show: false } }, axisStyle()),
           ],
       axisPointer: withFlow ? { link: [{ xAxisIndex: [0, 1] }] } : undefined,
       series: [
@@ -606,12 +677,22 @@
           data: bal, lineStyle: { width: 1.6, color: "#f0a15a" }, itemStyle: { color: "#f0a15a" },
           markPoint: marks.length ? { symbolSize: 10, data: marks } : undefined,
         },
-        {
-          name: idxName, type: "line", yAxisIndex: 1, xAxisIndex: withFlow ? 0 : 0, showSymbol: false, connectNulls: false,
-          data: idx, lineStyle: { width: 1.4, color: "#7eb6ff" }, itemStyle: { color: "#7eb6ff" },
-        },
       ],
     };
+    if (useMulti) {
+      multiLines.forEach((l) => {
+        opt.series.push({
+          name: l.name, type: "line", yAxisIndex: 1, xAxisIndex: withFlow ? 0 : 0,
+          showSymbol: false, connectNulls: false,
+          data: l.plotted, lineStyle: { width: 1.4, color: l.color }, itemStyle: { color: l.color },
+        });
+      });
+    } else {
+      opt.series.push({
+        name: idxName, type: "line", yAxisIndex: 1, xAxisIndex: withFlow ? 0 : 0, showSymbol: false, connectNulls: false,
+        data: idx, lineStyle: { width: 1.4, color: "#7eb6ff" }, itemStyle: { color: "#7eb6ff" },
+      });
+    }
     if (withFlow) {
       opt.series.push({
         name: flowName, type: "bar", yAxisIndex: 2, xAxisIndex: 1, barMaxWidth: 6,
@@ -625,7 +706,11 @@
   }
 
   let chartInst = null;
-  const chartState = { mkt: "margin_total", range: "all", payload: null, flowPayload: null, showFlow: true };
+  const chartState = {
+    mkt: "margin_total", range: "all", payload: null, flowPayload: null, showFlow: true,
+    showIndices: { sse: true, csi300: true, sse50: true, csi1000: true },
+    normalize: true,
+  };
 
   function showChartMiss(el, msg) {
     if (chartInst) {
@@ -656,7 +741,11 @@
     const flowKey = FLOW_KEY[chartState.mkt] || "main_total";
     const flowMarket = ((chartState.flowPayload && chartState.flowPayload.markets) || {})[flowKey];
     el.classList.toggle("has-flow", !!(chartState.showFlow && flowMarket && flowMarket.series && flowMarket.series.length));
-    chartInst.setOption(chartOption(market, chartState.range, flowMarket, chartState.showFlow), true);
+    chartInst.setOption(chartOption(market, chartState.range, flowMarket, chartState.showFlow, {
+      indices: (chartState.payload && chartState.payload.indices) || null,
+      showIndices: chartState.showIndices,
+      normalize: chartState.normalize,
+    }), true);
   }
 
   const rootObj = root;
@@ -693,10 +782,24 @@
         paintChart(rootEl);
       });
       rootEl.addEventListener("change", (e) => {
-        const box = e.target && e.target.closest && e.target.closest("[data-flow-toggle]");
-        if (!box) return;
-        chartState.showFlow = !!box.checked;
-        paintChart(rootEl);
+        const t = e.target;
+        if (!t) return;
+        if (t.closest && t.closest("[data-flow-toggle]")) {
+          chartState.showFlow = !!t.checked;
+          paintChart(rootEl);
+          return;
+        }
+        const idxBox = t.closest && t.closest("[data-idx-toggle]");
+        if (idxBox) {
+          const id = idxBox.getAttribute("data-idx-toggle");
+          if (id) chartState.showIndices[id] = !!idxBox.checked;
+          paintChart(rootEl);
+          return;
+        }
+        if (t.closest && t.closest("[data-idx-normalize]")) {
+          chartState.normalize = !!t.checked;
+          paintChart(rootEl);
+        }
       });
     }
     // restore active buttons for current state
@@ -708,6 +811,12 @@
     });
     const tog = rootEl.querySelector("[data-flow-toggle]");
     if (tog) tog.checked = !!chartState.showFlow;
+    rootEl.querySelectorAll("[data-idx-toggle]").forEach((box) => {
+      const id = box.getAttribute("data-idx-toggle");
+      if (id) box.checked = chartState.showIndices[id] !== false;
+    });
+    const norm = rootEl.querySelector("[data-idx-normalize]");
+    if (norm) norm.checked = !!chartState.normalize;
     paintChart(rootEl);
   }
 
@@ -938,6 +1047,7 @@
     chartPanelHtml: chartPanelHtml, mainFlowTableHtml: mainFlowTableHtml,
     downsampleWeekly: downsampleWeekly, filterChartSeries: filterChartSeries, filterFlowSeries: filterFlowSeries,
     chartOption: chartOption, mountChart: mountChart, resizeChart: resizeChart, disposeChart: disposeChart,
+    alignIndexToDates: alignIndexToDates, normalizeToFirst: normalizeToFirst, CHART_INDEX_META: CHART_INDEX_META,
     indexMarginChartPanelHtml: indexMarginChartPanelHtml, indexMarginChartOption: indexMarginChartOption,
     indexMarginRelationHtml: indexMarginRelationHtml, mountIndexMarginChart: mountIndexMarginChart, imFilter: imFilter,
     NO_DATA: NO_DATA,

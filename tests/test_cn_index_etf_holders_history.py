@@ -216,7 +216,7 @@ def test_export_html_copies_history_seed(tmp_path, monkeypatch):
     assert mf.is_file()
     fdata = json.loads(mf.read_text(encoding="utf-8"))
     assert fdata["markets"]["main_total"]["series"]
-    assert "20261123acc1" in (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "20261123midx2" in (tmp_path / "index.html").read_text(encoding="utf-8")
 
     assert (tmp_path / "static" / "cn_index_holders_charts.js").is_file()
 
@@ -227,7 +227,7 @@ def test_docs_snapshot_has_history_and_asset_v():
     data = json.loads(docs)
     assert data["stats"]["same_period"]["pooled"]["n"] == 154
     html = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
-    assert "20261123acc1" in html
+    assert "20261123midx2" in html
 
     assert "cn_index_holders_charts.js" in html
     assert "机构持仓对照" in html

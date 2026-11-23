@@ -15,7 +15,7 @@ os.environ.setdefault("SKIP_BG_WARMUP", "1")
 import us_risk  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_V = "20261123acc1"
+ASSET_V = "20261123midx2"
 NOW = datetime(2026, 11, 22, 16, 0, tzinfo=us_risk.CST)
 
 
