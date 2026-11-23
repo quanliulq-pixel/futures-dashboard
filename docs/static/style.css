@@ -2084,3 +2084,36 @@ th.num, td.num { font-size: .8rem; font-variant-numeric: tabular-nums lining-num
 .usrisk-spark { display: inline-block; vertical-align: middle; }
 .usrisk-spark.up { color: var(--up, #e44545); }
 .usrisk-spark.down { color: var(--down, #2ea86a); }
+
+/* 吸筹/诱多量价监控 */
+.accum-panel { margin: 8px 0 14px; }
+.accum-disc, .accum-theory, .accum-wl, .accum-hint, .accum-chip, .accum-meta { color: var(--muted, #94a3b8); font-size: 12px; line-height: 1.55; }
+.accum-theory { margin: 6px 0 10px; }
+.accum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.accum-card { border: 1px solid var(--border, #1e293b); border-radius: 10px; padding: 10px 12px; background: rgba(15,23,42,0.4); }
+.accum-card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.accum-card h4 { margin: 0; font-size: 15px; }
+.accum-sym { font-weight: 400; color: var(--muted, #94a3b8); font-size: 12px; }
+.accum-example { font-size: 11px; color: #fbbf24; margin-left: 4px; }
+.accum-lab { font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.accum-lab-in { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; }
+.accum-lab-trap { background: rgba(251, 191, 36, 0.16); color: #fbbf24; }
+.accum-lab-mid { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
+.accum-lab-miss { background: rgba(148, 163, 184, 0.08); color: #94a3b8; }
+.accum-scores { display: flex; gap: 16px; margin: 6px 0; flex-wrap: wrap; }
+.accum-scores .l { display: block; font-size: 11px; color: var(--muted, #94a3b8); }
+.accum-scores strong { font-size: 18px; }
+.accum-details { margin-top: 6px; font-size: 12px; }
+.accum-details summary, .accum-rules summary { cursor: pointer; color: #cbd5e1; }
+.accum-hits { margin: 4px 0 8px; padding-left: 0; list-style: none; }
+.accum-hits li { margin: 2px 0; }
+.accum-flag { display: inline-block; min-width: 2.6em; margin-right: 6px; font-size: 11px; }
+.accum-hit .accum-flag { color: #7dd3fc; }
+.accum-missed .accum-flag { color: #64748b; }
+.accum-na { color: #64748b; }
+.accum-sub { margin: 12px 0 4px; font-size: 14px; }
+.accum-rules { margin: 8px 0 12px; font-size: 12px; color: var(--muted, #94a3b8); }
+.accum-rules ul { padding-left: 1.2em; }
+.accum-bt-sum { font-size: 12px; margin-bottom: 8px; }
+.accum-miss { color: var(--muted, #94a3b8); }
+.accum-card-miss { opacity: 0.85; }

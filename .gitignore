@@ -51,3 +51,5 @@ data/cn_index_analysis_latest.tmp
 # US market risk runtime cache (committed seed is data/us_risk.json)
 data/us_risk_latest.json
 data/us_risk_latest.tmp
+data/accum_trap_latest.json
+data/accum_trap_latest.tmp

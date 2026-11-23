@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>期货看板 · 高低位与成本</title>
-  <link rel="stylesheet" href="./static/style.css?v=20261122dark1" />
+  <link rel="stylesheet" href="./static/style.css?v=20261123acc1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -320,6 +320,15 @@
           </div>
           <div id="cnidx-flow-body"><div class="empty-card">加载中…</div></div>
           <div id="cnidx-holders-charts" class="cnidx-holders-charts"></div>
+        </div>
+        <div class="panel accum-panel" id="cnidx-accum-panel">
+          <div class="panel-head">
+            <div>
+              <h2>吸筹 / 诱多 · 量价监控</h2>
+              <p class="sub">上证指数 / 沪深300 / 上证50 / 中证1000。研究参考，不能下单。</p>
+            </div>
+          </div>
+          <div id="cnidx-accum" class="accum-host">打开本页加载量价监控快照…</div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -660,6 +669,15 @@
         </div>
       </section>
       <div id="usrisk-content" class="etf-content usrisk-content" aria-live="polite">打开本页加载美股风险快照…</div>
+      <section class="panel accum-panel" id="usetf-accum-panel" aria-label="吸筹诱多量价监控">
+        <div class="panel-head">
+          <div>
+            <h2>吸筹 / 诱多 · 量价监控</h2>
+            <p class="sub">标普500 / 纳指100 / 罗素2000。研究参考，不能下单。</p>
+          </div>
+        </div>
+        <div id="usetf-accum" class="accum-host">打开本页加载量价监控快照…</div>
+      </section>
       <div id="usetf-content" class="etf-content" aria-live="polite">打开本页加载美股ETF快照…</div>
     </section>
   </div>
@@ -690,20 +708,21 @@
   <script>
     window.APP_CONFIG = { refreshSec: 0 };
   </script>
-  <script src="./static/ng_option_judgment.js?v=20261122dark1"></script>
-  <script src="./static/us_movers_view.js?v=20261122dark1"></script>
-  <script src="./static/cn_index_fund_view.js?v=20261122dark1"></script>
-  <script src="./static/cn_index_flow_view.js?v=20261122dark1"></script>
-  <script src="./static/cn_index_holders_charts.js?v=20261122dark1"></script>
-  <script src="./static/cn_index_option_levels_view.js?v=20261122dark1"></script>
-  <script src="./static/gold_view.js?v=20261122dark1"></script>
-  <script src="./static/gold_put_view.js?v=20261122dark1"></script>
-  <script src="./static/us_etf_view.js?v=20261122dark1"></script>
-  <script src="./static/us_risk_view.js?v=20261122dark1"></script>
-  <script src="./static/ng_quant_view.js?v=20261122dark1"></script>
-  <script src="./static/ng_put_view.js?v=20261122dark1"></script>
-  <script src="./static/ng_strategy_lab_view.js?v=20261122dark1"></script>
-  <script src="./static/ng_strategy_lab2_view.js?v=20261122dark1"></script>
-  <script src="./static/app.js?v=20261122dark1"></script>
+  <script src="./static/ng_option_judgment.js?v=20261123acc1"></script>
+  <script src="./static/us_movers_view.js?v=20261123acc1"></script>
+  <script src="./static/cn_index_fund_view.js?v=20261123acc1"></script>
+  <script src="./static/cn_index_flow_view.js?v=20261123acc1"></script>
+  <script src="./static/cn_index_holders_charts.js?v=20261123acc1"></script>
+  <script src="./static/cn_index_option_levels_view.js?v=20261123acc1"></script>
+  <script src="./static/gold_view.js?v=20261123acc1"></script>
+  <script src="./static/gold_put_view.js?v=20261123acc1"></script>
+  <script src="./static/us_etf_view.js?v=20261123acc1"></script>
+  <script src="./static/us_risk_view.js?v=20261123acc1"></script>
+  <script src="./static/accum_trap_view.js?v=20261123acc1"></script>
+  <script src="./static/ng_quant_view.js?v=20261123acc1"></script>
+  <script src="./static/ng_put_view.js?v=20261123acc1"></script>
+  <script src="./static/ng_strategy_lab_view.js?v=20261123acc1"></script>
+  <script src="./static/ng_strategy_lab2_view.js?v=20261123acc1"></script>
+  <script src="./static/app.js?v=20261123acc1"></script>
 </body>
 </html>
