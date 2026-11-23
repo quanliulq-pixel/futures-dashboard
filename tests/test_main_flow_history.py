@@ -1,5 +1,5 @@
 """沪深主力净流入（新浪特大单 r0）：解析、合计口径、窗口合计、离线 seed。"""
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 
 import pytest
 
@@ -42,7 +42,7 @@ def test_refresh_offline_uses_seed_and_labels_snapshot(monkeypatch):
         "sz": [["2026-11-11", 420.2252], ["2026-11-12", -115.8023], ["2026-11-13", -133.3968]],
     }
     monkeypatch.setattr(F, "load_history_seed", lambda paths=None: seed)
-    out = F.refresh_history(live=False, write=False, today=TODAY, seed=seed)
+    out = F.refresh_history(live=False, write=False, today=date(2026, 11, 23), seed=seed)
     assert out["from_snapshot"] is True and out["live_ok"] is False
     tot = out["stats"]["main_total"]
     assert tot["status"] == "ok" and tot["asof"] == "2026-11-13"
@@ -105,12 +105,12 @@ def test_committed_seed_covers_2010_and_latest():
     sh, sz = F.seed_series(seed)
     assert sh[0][0] == date(2010, 3, 8)
     assert sz[0][0] == date(2010, 3, 24)
-    assert sh[-1][0] == date(2026, 11, 13)
-    assert sz[-1][0] == date(2026, 11, 13)
+    assert sh[-1][0] == date(2026, 11, 20)
+    assert sz[-1][0] == date(2026, 11, 20)
     st = seed["stats"]
-    assert st["main_sh"]["net_1d"] == pytest.approx(-82.4999, abs=1e-4)
-    assert st["main_sz"]["net_1d"] == pytest.approx(-133.3968, abs=1e-4)
-    assert st["main_total"]["net_1d"] == pytest.approx(-215.8967, abs=1e-4)
+    assert st["main_sh"]["net_1d"] == pytest.approx(64.8976, abs=1e-4)
+    assert st["main_sz"]["net_1d"] == pytest.approx(31.5220, abs=1e-4)
+    assert st["main_total"]["net_1d"] == pytest.approx(96.4197, abs=1e-3)
     assert st["main_sh"]["net_5d"] is not None and st["main_sh"]["net_20d"] is not None
     assert "特大单" in seed["sources"]["definition"]
 
@@ -128,18 +128,21 @@ def test_public_bundle_and_endpoint_no_network(monkeypatch):
     assert bundle["status"] == "ok"
     sh = bundle["markets"]["main_sh"]
     assert sh["label"] == "沪市" and sh["series"][0][0] == "2010-03-08"
-    assert sh["series"][-1][0] == "2026-11-13"
-    assert sh["series"][-1][1] == pytest.approx(-82.4999, abs=1e-4)
+    assert sh["series"][-1][0] == "2026-11-20"
+    assert sh["series"][-1][1] == pytest.approx(64.8976, abs=1e-4)
 
     import os
     os.environ["SKIP_BG_WARMUP"] = "1"
     import app as app_mod
+    monkeypatch.setattr(app_mod, "_spawn_bg_refresh", lambda *a, **k: "throttled")
     r = app_mod.app.test_client().get("/api/main-flow-history")
     assert r.status_code == 200
     data = r.get_json()
     assert data["status"] == "ok"
-    assert data["markets"]["main_total"]["net_1d"] == pytest.approx(-215.8967, abs=1e-4)
+    assert data["markets"]["main_total"]["net_1d"] == pytest.approx(96.4197, abs=1e-3)
+    assert data["markets"]["main_total"]["asof"] == "2026-11-20"
     assert called == []
+    assert not data.get("from_snapshot")
 
 
 def test_ensure_offline_does_not_call_network(monkeypatch):
@@ -159,3 +162,33 @@ def test_ensure_offline_does_not_call_network(monkeypatch):
     assert out["market"]["main"]["asof"] == out["market"]["main_total"]["asof"]
     # 输入对象不被改写
     assert b["market"]["main"]["status"] == "missing"
+
+def test_flow_needs_refresh_and_fresh_offline_not_snapshot():
+    cst = timezone(timedelta(hours=8))
+    assert F.expected_published_asof(datetime(2026, 11, 23, 15, 0, tzinfo=cst)) == date(2026, 11, 20)
+    assert F.needs_refresh({"asof": {"sh": "2026-11-13", "sz": "2026-11-13"}},
+                           now=datetime(2026, 11, 23, 15, 0, tzinfo=cst))
+    assert not F.needs_refresh({"asof": {"sh": "2026-11-20", "sz": "2026-11-20"}},
+                               now=datetime(2026, 11, 23, 15, 0, tzinfo=cst))
+    seed = {
+        "fetched_at": "2026-11-16T10:00:00+08:00",
+        "asof": {"sh": "2026-11-13", "sz": "2026-11-13"},
+        "sh": [["2026-11-11", 270.9689], ["2026-11-13", -82.4999]],
+        "sz": [["2026-11-11", 420.2252], ["2026-11-13", -133.3968]],
+    }
+    out = F.refresh_history(live=False, write=False, today=date(2026, 11, 16), seed=seed)
+    assert out["from_snapshot"] is False and out["fetched_at"] == "2026-11-16T10:00:00+08:00"
+
+
+def test_flow_live_failure_labels_snapshot():
+    seed = {
+        "sh": [["2026-11-13", -82.4999]],
+        "sz": [["2026-11-13", -133.3968]],
+    }
+
+    def boom(*a, **k):
+        raise RuntimeError("blocked")
+
+    out = F.refresh_history(live=True, write=False, today=date(2026, 11, 23), seed=seed, fetch=boom)
+    assert out["live_ok"] is False and out["from_snapshot"] is True
+    assert out["snapshot_asof"] == "2026-11-13"
