@@ -42,7 +42,7 @@ def add_header(resp):
 @app.route("/")
 def index():
     # cache-bust static assets so browser picks up JS/CSS changes
-    asset_v = "20261123midx1"
+    asset_v = "20261123midx2"
 
     return render_template("index.html", refresh_sec=QUOTE_REFRESH_SEC, asset_v=asset_v)
 
@@ -507,6 +507,29 @@ def us_risk_refresh_api():
     data["refresh_status"] = status
     data["refresh"] = bg_tasks.refresh_meta(status)
     data["note"] = (data.get("note") or "").lstrip(" ·") + _queued_note(status, "后台美股风险刷新")
+    return jsonify(data)
+
+
+@app.route("/api/accum-trap")
+def accum_trap_api():
+    """吸筹/诱多量价监控：快照秒回，过期时后台刷新。研究参考，不能下单。"""
+    import accum_trap
+    data = accum_trap.snapshot()
+    if accum_trap.needs_refresh(data):
+        data["refresh_status"] = _spawn_bg_refresh(
+            "accum-trap", accum_trap.refresh, min_interval=900.0, provider="accum-trap")
+    return jsonify(data)
+
+
+@app.route("/api/accum-trap/refresh")
+def accum_trap_refresh_api():
+    """手动后台重算吸筹/诱多监控：不阻塞请求，先返回当前快照。"""
+    import accum_trap
+    status = _spawn_bg_refresh(
+        "accum-trap", accum_trap.refresh, min_interval=300.0, provider="accum-trap")
+    data = accum_trap.snapshot()
+    data["refresh_status"] = status
+    data["refresh"] = bg_tasks.refresh_meta(status)
     return jsonify(data)
 
 
