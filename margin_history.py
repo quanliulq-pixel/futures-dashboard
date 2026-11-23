@@ -5,7 +5,8 @@
 全历史改用东方财富数据中心 datacenter-web（RPTA_WEB_RZRQ_LSSH，SCDM=001，非 push2），
 该口径与深交所当日汇总交叉核对一致。沪深合计 = 两市同一交易日相加，不含北交所
 （东财「全部」含北交所，故不直接用）。指数收盘用新浪日线：上交所→上证指数 000001，
-深交所→深证成指 399001，沪深合计→沪深300 000300。
+深交所→深证成指 399001，沪深合计→沪深300 000300。走势图另叠加上证指数 000001、沪深300 000300、上证50 000016、
+中证1000 000852（新浪日线；中证1000 自 2014-10-17 有数据之日起，更早日期留空不插补）。
 
 只在后台 refresh 时联网；请求线程只读已提交的 seed / 运行时缓存。缺历史一律「无数据」，不插补。
 """
@@ -47,6 +48,17 @@ INDEX_SPEC = {
     "margin_sh": {"symbol": "sh000001", "name": "上证指数", "code": "000001"},
     "margin_sz": {"symbol": "sz399001", "name": "深证成指", "code": "399001"},
     "margin_total": {"symbol": "sh000300", "name": "沪深300", "code": "000300"},
+}
+# 走势图叠加的四条指数（与市场对照指数分开存，上证/沪深300与对照指数共用同一序列）
+CHART_INDICES = {
+    "sse": {"symbol": "sh000001", "name": "上证指数", "code": "000001",
+            "listed_from": date(1990, 12, 19)},
+    "csi300": {"symbol": "sh000300", "name": "沪深300", "code": "000300",
+               "listed_from": date(2005, 4, 8)},
+    "sse50": {"symbol": "sh000016", "name": "上证50", "code": "000016",
+              "listed_from": date(2004, 1, 2)},
+    "csi1000": {"symbol": "sh000852", "name": "中证1000", "code": "000852",
+                "listed_from": date(2014, 10, 17)},
 }
 MARGIN_KEYS = ("margin_sh", "margin_sz", "margin_total")
 
@@ -340,22 +352,82 @@ MARKET_LABELS = {
 }
 
 
-def index_from_seed(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
-    """seed['index'] 按新浪代码或 market key 存放 [date, close] 行。"""
+def index_symbol_map(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
+    """seed['index'] 按新浪代码（或市场 key）存放 [date, close] 行。"""
     raw = (seed or {}).get("index") if isinstance(seed, dict) else None
     if not isinstance(raw, dict):
         raw = {}
     out: dict[str, list[tuple[date, float]]] = {}
-    for key, spec in INDEX_SPEC.items():
-        out[key] = series_from_rows(raw.get(spec["symbol"]) or raw.get(key) or [])
+    for key, rows in raw.items():
+        out[str(key)] = series_from_rows(rows)
     return out
 
 
-def index_rows(index_by_key: dict[str, list[tuple[date, float]]]) -> dict[str, list]:
-    out: dict[str, list] = {}
+def index_from_seed(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
+    """市场对照指数：上交所→上证指数，深交所→深证成指，沪深合计→沪深300。"""
+    by_sym = index_symbol_map(seed)
+    out: dict[str, list[tuple[date, float]]] = {}
     for key, spec in INDEX_SPEC.items():
-        seq = [p for p in (index_by_key.get(key) or []) if p[0] >= MARGIN_HISTORY_START]
-        out[spec["symbol"]] = rows_from_series(seq, n=4)
+        out[key] = by_sym.get(spec["symbol"]) or by_sym.get(key) or []
+    return out
+
+
+def chart_index_from_seed(seed: dict | None) -> dict[str, list[tuple[date, float]]]:
+    """走势图四条指数，按 CHART_INDICES 的 id。缺序列则为空，不插补。"""
+    by_sym = index_symbol_map(seed)
+    out: dict[str, list[tuple[date, float]]] = {}
+    for key, spec in CHART_INDICES.items():
+        out[key] = by_sym.get(spec["symbol"]) or by_sym.get(key) or []
+    return out
+
+
+def _listed_from(spec: dict) -> date:
+    d = spec.get("listed_from")
+    return d if isinstance(d, date) else MARGIN_HISTORY_START
+
+
+def _need_full_index(have: list[tuple[date, float]], spec: dict) -> bool:
+    """序列应从 max(两融起点, 指数上市日) 起；上市晚于 2010 的指数（如中证1000）不因晚于 2010 而重拉全历史。"""
+    need_from = max(MARGIN_HISTORY_START, _listed_from(spec))
+    return (not have) or have[0][0] > need_from
+
+
+def index_rows(index_by_key: dict[str, list[tuple[date, float]]],
+               chart_by_key: dict[str, list[tuple[date, float]]] | None = None) -> dict[str, list]:
+    """写出 seed['index']：对照指数 + 图上四条指数（按新浪代码去重）。"""
+    by_sym: dict[str, list[tuple[date, float]]] = {}
+    for key, spec in INDEX_SPEC.items():
+        by_sym[spec["symbol"]] = list(index_by_key.get(key) or [])
+    for key, spec in CHART_INDICES.items():
+        seq = (chart_by_key or {}).get(key) or by_sym.get(spec["symbol"]) or []
+        if seq or spec["symbol"] not in by_sym:
+            by_sym[spec["symbol"]] = list(seq)
+    out: dict[str, list] = {}
+    for symbol, seq in by_sym.items():
+        kept = [p for p in seq if p[0] >= MARGIN_HISTORY_START]
+        out[symbol] = rows_from_series(kept, n=4)
+    return out
+
+
+def chart_indices_payload(index_by_chart: dict[str, list[tuple[date, float]]] | None) -> dict:
+    """请求线程返回的四条指数日线（[date, close]），缺日期不插补。"""
+    out: dict[str, dict] = {}
+    for key, spec in CHART_INDICES.items():
+        seq = [p for p in (index_by_chart or {}).get(key) or [] if p[0] >= MARGIN_HISTORY_START]
+        rows = rows_from_series(seq, n=2)
+        out[key] = {
+            "id": key,
+            "name": spec["name"],
+            "code": spec["code"],
+            "symbol": spec["symbol"],
+            "listed_from": _listed_from(spec).isoformat(),
+            "status": "ok" if rows else "missing",
+            "reason": None if rows else "无数据",
+            "start": rows[0][0] if rows else None,
+            "asof": rows[-1][0] if rows else None,
+            "n": len(rows),
+            "series": rows,
+        }
     return out
 
 
@@ -442,6 +514,11 @@ def chart_bundle(payload: dict | None) -> dict:
         "from_snapshot": bool(payload.get("from_snapshot")),
         "sources": payload.get("sources") or SRC,
         "markets": markets,
+        "indices": chart_indices_payload(chart_index_from_seed(payload)),
+        "index_scale_note": (
+            "右轴默认把各指数按当前区间第一个有效收盘归一化为 100，便于比较涨跌；"
+            "也可改回绝对点位。缺当日收盘留空，不插补。中证1000 自有数据之日起。"
+        ),
     }
     if payload.get("from_snapshot"):
         out["snapshot_asof"] = payload.get("snapshot_asof")
@@ -483,15 +560,20 @@ def load_history_seed(paths: tuple[Path, ...] | None = None) -> dict | None:
         return str(a or "")
 
     best = max(cands, key=_asof_key)
-    # 运行时缓存可能早于本次提交、没有 index 序列：从其他候选合并进来。
-    idx = index_from_seed(best)
+    # 运行时缓存可能早于本次提交、缺少图上指数：把各候选的指数按代码合并进来。
+    by_sym = index_symbol_map(best)
     for other in cands:
-        other_idx = index_from_seed(other)
-        for key in INDEX_SPEC:
-            idx[key] = merge_series(other_idx.get(key) or [], idx.get(key) or [])
-    if any(idx.values()):
+        other_map = index_symbol_map(other)
+        for sym, seq in other_map.items():
+            by_sym[sym] = merge_series(seq, by_sym.get(sym) or [])
+    idx = {
+        key: by_sym.get(spec["symbol"]) or by_sym.get(key) or []
+        for key, spec in INDEX_SPEC.items()
+    }
+    chart = {key: by_sym.get(spec["symbol"]) or [] for key, spec in CHART_INDICES.items()}
+    if any(by_sym.values()):
         best = dict(best)
-        best["index"] = index_rows(idx)
+        best["index"] = index_rows(idx, chart)
     return best
 
 
@@ -616,7 +698,15 @@ def refresh_history(*, live: bool = True,
     sh, sz = seed_series(seed)
     sh_live = sz_live = False
     errors: dict[str, str] = {}
-    index_by_key: dict[str, list[tuple[date, float]]] = index_from_seed(seed)
+    index_by_symbol = index_symbol_map(seed)
+    index_by_key: dict[str, list[tuple[date, float]]] = {
+        key: index_by_symbol.get(spec["symbol"]) or index_by_symbol.get(key) or []
+        for key, spec in INDEX_SPEC.items()
+    }
+    chart_by_key: dict[str, list[tuple[date, float]]] = {
+        key: index_by_symbol.get(spec["symbol"]) or index_by_symbol.get(key) or []
+        for key, spec in CHART_INDICES.items()
+    }
 
     if live:
         sh_start = _next_day(sh[-1][0]) if sh else MARGIN_HISTORY_START
@@ -638,18 +728,29 @@ def refresh_history(*, live: bool = True,
         except Exception as exc:  # noqa: BLE001
             errors["sz"] = f"{type(exc).__name__}: {str(exc)[:80]}"
             logger.warning("margin sz history fetch failed: %s", errors["sz"])
-        # 指数：seed 已有从 2010-03-31 起的序列时只拉近一年做增量合并；否则拉满
+        # 指数：已覆盖「两融起点或上市日」时只拉近一年增量；否则拉满。中证1000 上市晚于 2010，不因此重拉。
         fn_ix = fetch_index or fetch_index_closes
-        for key, spec in INDEX_SPEC.items():
-            have = index_by_key.get(key) or []
-            need_full = (not have) or have[0][0] > MARGIN_HISTORY_START
-            datalen = 8000 if need_full else 260
+        specs = []
+        seen_sym: set[str] = set()
+        for key, spec in list(INDEX_SPEC.items()) + list(CHART_INDICES.items()):
+            if spec["symbol"] in seen_sym:
+                continue
+            seen_sym.add(spec["symbol"])
+            specs.append((key, spec))
+        for key, spec in specs:
+            have = index_by_symbol.get(spec["symbol"]) or []
+            datalen = 8000 if _need_full_index(have, spec) else 260
             try:
                 fetched = fn_ix(spec["symbol"], datalen)
-                index_by_key[key] = merge_series(have, fetched)
+                merged = merge_series(have, fetched)
+                index_by_symbol[spec["symbol"]] = merged
             except Exception as exc:  # noqa: BLE001
-                errors[f"index:{key}"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-                logger.warning("index close fetch failed %s: %s", spec["symbol"], errors[f"index:{key}"])
+                errors[f"index:{spec['symbol']}"] = f"{type(exc).__name__}: {str(exc)[:80]}"
+                logger.warning("index close fetch failed %s: %s", spec["symbol"], errors[f"index:{spec['symbol']}"])
+        for key, spec in INDEX_SPEC.items():
+            index_by_key[key] = index_by_symbol.get(spec["symbol"]) or []
+        for key, spec in CHART_INDICES.items():
+            chart_by_key[key] = index_by_symbol.get(spec["symbol"]) or []
 
     extrema = build_extrema(sh, sz, index_by_key)
     # 未新拉指数时（请求线程 / 指数接口失败），沿用 seed 里同日的收盘，不拿邻日顶替。
@@ -673,7 +774,7 @@ def refresh_history(*, live: bool = True,
         "sources": SRC,
         "sh": rows_from_series(sh),
         "sz": rows_from_series(sz),
-        "index": index_rows(index_by_key),
+        "index": index_rows(index_by_key, chart_by_key),
         "extrema": extrema,
         "live_ok": bool(live and (sh_live or sz_live)),
         "errors": errors,

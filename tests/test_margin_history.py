@@ -1,5 +1,6 @@
 """两融历史最高/最低及对应指数收盘：解析、合计口径、高低点、seed 回填。"""
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -308,7 +309,10 @@ def test_refresh_merges_cached_index_incrementally(tmp_path, monkeypatch):
 
     def fetch_index(symbol, datalen=8000):
         seen.append((symbol, datalen))
-        close = {"sh000001": 4000.0, "sz399001": 12000.0, "sh000300": 4500.0}[symbol]
+        close = {
+            "sh000001": 4000.0, "sz399001": 12000.0, "sh000300": 4500.0,
+            "sh000016": 2500.0, "sh000852": 7000.0,
+        }[symbol]
         return [(date(2026, 6, 26), close)]
 
     out = H.refresh_history(live=True, write=True, today=TODAY, seed=seed,
@@ -336,7 +340,10 @@ def test_refresh_merges_cached_index_incrementally(tmp_path, monkeypatch):
 
     out2 = H.refresh_history(live=True, write=False, today=TODAY, seed=seed2,
                              fetch_sh=fetch_none, fetch_sz=fetch_sz_none, fetch_index=fetch_index2)
-    assert all(d == 260 for _, d in seen)
+    by = dict(seen)
+    assert by["sh000001"] == 260 and by["sz399001"] == 260 and by["sh000300"] == 260
+    # 上证50 / 中证1000 还不在 seed 里，仍拉满
+    assert by["sh000016"] == 8000 and by["sh000852"] == 8000
     assert out2["index"]["sh000001"][0][0] == "2010-03-31"
 
 
@@ -388,3 +395,74 @@ def test_public_bundle_offline_and_endpoint_no_network(monkeypatch):
     assert data["status"] == "ok"
     assert "series" in data["markets"]["margin_sz"]
     assert called == []
+    assert set(data["indices"]) == {"sse", "csi300", "sse50", "csi1000"}
+    for key, name in (("sse", "上证指数"), ("csi300", "沪深300"),
+                      ("sse50", "上证50"), ("csi1000", "中证1000")):
+        ix = data["indices"][key]
+        assert ix["name"] == name and ix["status"] in ("ok", "missing")
+        if ix["status"] == "ok":
+            assert ix["series"][0][0] >= "2010-03-31"
+            assert ix["n"] == len(ix["series"])
+
+
+def test_need_full_respects_csi1000_listing_date():
+    csi = H.CHART_INDICES["csi1000"]
+    assert H._need_full_index([], csi) is True
+    assert H._need_full_index([(date(2014, 10, 17), 6041.0)], csi) is False
+    assert H._need_full_index([(date(2014, 10, 20), 6100.0)], csi) is True
+    sse50 = H.CHART_INDICES["sse50"]
+    assert H._need_full_index([(date(2010, 3, 31), 2000.0)], sse50) is False
+    assert H._need_full_index([(date(2010, 4, 1), 2000.0)], sse50) is True
+
+
+def test_chart_indices_leave_csi1000_prelisting_empty():
+    seed = {
+        "index": {
+            "sh000001": [["2010-03-31", 3109.11], ["2014-10-17", 2400.0]],
+            "sh000300": [["2010-03-31", 3345.6], ["2014-10-17", 2400.0]],
+            "sh000016": [["2010-03-31", 2000.0], ["2014-10-17", 1600.0]],
+            "sh000852": [["2014-10-17", 6041.0]],
+        }
+    }
+    payload = H.chart_indices_payload(H.chart_index_from_seed(seed))
+    assert payload["csi1000"]["start"] == "2014-10-17"
+    assert payload["csi1000"]["series"][0] == ["2014-10-17", 6041.0]
+    assert "2010-03-31" not in [p[0] for p in payload["csi1000"]["series"]]
+    assert payload["sse"]["start"] == "2010-03-31"
+    assert payload["sse50"]["code"] == "000016" and payload["csi1000"]["code"] == "000852"
+
+
+def test_module_has_no_eastmoney_push2():
+    src = Path(__file__).resolve().parents[1] / "margin_history.py"
+    text = src.read_text(encoding="utf-8")
+    assert "push2his" not in text and "push2." not in text and "push2/" not in text
+
+
+def test_load_seed_merges_chart_indices_from_other_candidate(tmp_path):
+    """运行时缓存 asof 更新但不含上证50/中证1000 时，从提交 seed 合并进来。"""
+    runtime = {
+        "asof": {"sh": "2026-11-18", "sz": "2026-11-18"},
+        "sh": [["2010-03-31", 0.05], ["2026-11-18", 15000.0]],
+        "sz": [["2010-03-31", 0.01], ["2026-11-18", 14000.0]],
+        "index": {"sh000001": [["2010-03-31", 3109.11], ["2026-11-18", 4000.0]]},
+    }
+    committed = {
+        "asof": {"sh": "2026-11-13", "sz": "2026-11-12"},
+        "sh": [["2010-03-31", 0.05], ["2026-11-13", 14900.0]],
+        "sz": [["2010-03-31", 0.01], ["2026-11-12", 13900.0]],
+        "index": {
+            "sh000001": [["2010-03-31", 3109.11], ["2026-11-13", 3990.0]],
+            "sh000016": [["2010-03-31", 2000.0], ["2026-11-13", 2700.0]],
+            "sh000852": [["2014-10-17", 6058.67], ["2026-11-13", 5600.0]],
+        },
+    }
+    rp = tmp_path / "latest.json"
+    sp = tmp_path / "seed.json"
+    rp.write_text(__import__("json").dumps(runtime), encoding="utf-8")
+    sp.write_text(__import__("json").dumps(committed), encoding="utf-8")
+    loaded = H.load_history_seed(paths=(rp, sp))
+    assert loaded["asof"]["sh"] == "2026-11-18"
+    assert loaded["index"]["sh000016"][0] == ["2010-03-31", 2000.0]
+    assert loaded["index"]["sh000852"][0][0] == "2014-10-17"
+    # 运行时更新的上证收盘保留
+    assert loaded["index"]["sh000001"][-1] == ["2026-11-18", 4000.0]
