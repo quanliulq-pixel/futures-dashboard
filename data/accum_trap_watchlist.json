@@ -1,0 +1,17 @@
+{
+  "note": "观察名单中的代表股，不是推荐。A股基准为沪深300，美股基准为标普500。可在此文件增删 {\"symbol\", \"name\"}。",
+  "cn_stocks": [
+    {"symbol": "600519", "name": "贵州茅台"},
+    {"symbol": "300750", "name": "宁德时代"},
+    {"symbol": "600036", "name": "招商银行"},
+    {"symbol": "300308", "name": "中际旭创"},
+    {"symbol": "002594", "name": "比亚迪"}
+  ],
+  "us_stocks": [
+    {"symbol": "NVDA", "name": "英伟达"},
+    {"symbol": "AAPL", "name": "苹果"},
+    {"symbol": "MSFT", "name": "微软"},
+    {"symbol": "TSLA", "name": "特斯拉"},
+    {"symbol": "META", "name": "Meta"}
+  ]
+}

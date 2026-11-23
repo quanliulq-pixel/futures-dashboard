@@ -27,6 +27,8 @@
       '/api/us-etf/refresh': './api/us_etf.json',
       '/api/us/risk': './api/us_risk.json',
       '/api/us/risk/refresh': './api/us_risk.json',
+      '/api/accum-trap': './api/accum_trap.json',
+      '/api/accum-trap/refresh': './api/accum_trap.json',
       '/api/health': './api/health.json',
       '/api/instruments': './api/instruments.json',
     };
@@ -803,6 +805,7 @@
       if (window.UsRiskView) {
         window.UsRiskView.load(false);
       }
+      if (window.AccumTrapView) loadAccumTrap("us");
     }
     if (name === "ng") {
       state.ngLoading = false;
@@ -813,6 +816,7 @@
     if (name === "cnidx") {
       state.cnidxLoading = false;
       loadCnIndices(false);
+      if (window.AccumTrapView) loadAccumTrap("cn");
       setTimeout(resizeHolderHistoryCharts, 50);
       setTimeout(resizeHolderHistoryCharts, 250);
     } else if (window.cnIndexHoldersCharts) {
@@ -2069,6 +2073,16 @@
       .then((res) => res.ok ? res.json() : null)
       .then((h) => { window.cnIndexHoldersCharts.mount(host, h); })
       .catch(() => { window.cnIndexHoldersCharts.mount(host, null); });
+  }
+
+  function loadAccumTrap(market) {
+    const id = market === "us" ? "usetf-accum" : "cnidx-accum";
+    const el = document.getElementById(id);
+    if (!el || !window.AccumTrapView) return;
+    fetch(apiUrl("/api/accum-trap"), { signal: AbortSignal.timeout(15000) })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { window.AccumTrapView.mount(el, data, market); })
+      .catch(() => { window.AccumTrapView.mount(el, { status: "no_data", error: "无数据" }, market); });
   }
 
   function renderMarginHistoryChart(host) {
