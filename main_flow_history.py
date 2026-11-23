@@ -67,7 +67,64 @@ SRC = {
 ROOT = Path(__file__).resolve().parent
 SEED_PATH = ROOT / "data" / "main_flow_history.json"
 RUNTIME_PATH = ROOT / "data" / "main_flow_history_latest.json"
+
 NO_DATA = "无数据"
+PUBLISH_CUTOFF = (9, 30)
+
+
+def _as_now(now: datetime | date | None = None, today: date | None = None) -> datetime:
+    if isinstance(now, datetime):
+        return now if now.tzinfo else now.replace(tzinfo=CST)
+    if isinstance(today, datetime):
+        return today if today.tzinfo else today.replace(tzinfo=CST)
+    if isinstance(now, date):
+        return datetime(now.year, now.month, now.day, 15, 0, tzinfo=CST)
+    if isinstance(today, date):
+        return datetime(today.year, today.month, today.day, 15, 0, tzinfo=CST)
+    return datetime.now(CST)
+
+
+def _prev_weekday(d: date) -> date:
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def _last_weekday_on_or_before(d: date) -> date:
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def expected_published_asof(now: datetime | date | None = None, today: date | None = None) -> date:
+    """上一份应已发布的主力净流入日期（工作日近似，不维护法定节假日）。
+
+    与两融类似：下一交易日上午发布前一交易日；09:30 CST 前视为尚未发布。
+    """
+    n = _as_now(now, today)
+    d = n.date()
+    if (n.hour, n.minute) < PUBLISH_CUTOFF:
+        d -= timedelta(days=1)
+    return _prev_weekday(_last_weekday_on_or_before(d))
+
+
+def market_asofs(payload: dict | None) -> tuple[date | None, date | None]:
+    a = (payload or {}).get("asof") or {}
+    if not isinstance(a, dict):
+        d = _to_date(a)
+        return d, d
+    return _to_date(a.get("sh")), _to_date(a.get("sz"))
+
+
+def needs_refresh(payload: dict | None, *, now: datetime | date | None = None,
+                  today: date | None = None) -> bool:
+    if not payload:
+        return True
+    sh, sz = market_asofs(payload)
+    if sh is None or sz is None:
+        return True
+    return min(sh, sz) < expected_published_asof(now=now, today=today)
 
 
 def _iso(d: date | None) -> str | None:
@@ -365,30 +422,41 @@ def refresh_history(*, live: bool = True,
         "sh": sh[-1][0].isoformat() if sh else None,
         "sz": sz[-1][0].isoformat() if sz else None,
     }
+    live_ok = bool(live and (sh_live or sz_live))
+    stale = needs_refresh({"asof": asof}, today=today)
+    seed_fetched = (seed or {}).get("fetched_at") if isinstance(seed, dict) else None
+    fetched_at = (datetime.now(CST).isoformat(timespec="seconds") if live
+                  else (seed_fetched or datetime.now(CST).isoformat(timespec="seconds")))
+    # 在线增量成功：以接口最新值为准，不标快照（节假日时 expected asof 可能偏严）。
+    # 只读缓存且已是应发布日期、或无数据：不标。过期缓存或在线全部失败：标上次快照。
+    if live_ok:
+        from_snapshot = False
+        snapshot_asof = None
+    elif (sh or sz) and (stale or live):
+        from_snapshot = True
+        snapshot_asof = max((v for v in asof.values() if v), default=None)
+    else:
+        from_snapshot = False
+        snapshot_asof = None
     payload = {
-        "fetched_at": datetime.now(CST).isoformat(timespec="seconds"),
+        "fetched_at": fetched_at,
         "coverage_start": coverage_start,
         "asof": asof,
         "sources": SRC,
         "sh": rows_from_series(sh),
         "sz": rows_from_series(sz),
         "stats": stats,
-        "live_ok": bool(live and (sh_live or sz_live)),
+        "live_ok": live_ok,
         "errors": errors,
+        "from_snapshot": from_snapshot,
     }
-    if not payload["live_ok"]:
-        if sh or sz:
-            payload["from_snapshot"] = True
-            payload["snapshot_asof"] = max((v for v in asof.values() if v), default=None)
-        else:
-            payload["from_snapshot"] = False
-    else:
-        payload["from_snapshot"] = False
-        if write and (sh or sz):
-            try:
-                save_history_seed(payload, RUNTIME_PATH)
-            except Exception:  # noqa: BLE001
-                logger.warning("write main flow runtime cache failed", exc_info=True)
+    if from_snapshot and snapshot_asof:
+        payload["snapshot_asof"] = snapshot_asof
+    if live_ok and write and (sh or sz):
+        try:
+            save_history_seed(payload, RUNTIME_PATH)
+        except Exception:  # noqa: BLE001
+            logger.warning("write main flow runtime cache failed", exc_info=True)
     return payload
 
 
@@ -426,6 +494,14 @@ def public_history_bundle(*, live: bool = False, seed: dict | None = None,
                           today: date | None = None) -> dict:
     payload = refresh_history(live=live, write=live, seed=seed, today=today)
     return chart_bundle(payload)
+
+
+def snapshot() -> dict:
+    return public_history_bundle(live=False)
+
+
+def refresh() -> dict:
+    return public_history_bundle(live=True)
 
 
 def _alias_market_main_from_sina(out: dict) -> dict:
@@ -497,6 +573,7 @@ __all__ = [
     "parse_sina_zjlrqs", "merge_series", "total_series", "window_sum", "stats_for",
     "series_from_rows", "rows_from_series", "load_history_seed", "save_history_seed",
     "fetch_main_flow_history", "refresh_history", "chart_bundle", "public_history_bundle",
+    "snapshot", "refresh", "needs_refresh", "expected_published_asof",
     "attach_main_flow", "ensure_main_flow", "_alias_market_main_from_sina",
 ]
 

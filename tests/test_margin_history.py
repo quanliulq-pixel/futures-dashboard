@@ -1,5 +1,5 @@
 """两融历史最高/最低及对应指数收盘：解析、合计口径、高低点、seed 回填。"""
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 import pytest
@@ -255,7 +255,8 @@ def test_ensure_offline_does_not_call_network(monkeypatch):
     out = H.ensure_margin_history(b, live=False)
     assert called == []
     assert out["market"]["margin_sh"]["hist_high"]["date"] == "2026-06-25"
-    assert out["market"]["margin_sh"].get("hist_from_snapshot") is True
+    # 提交 seed 已补到应发布日时，离线回填不标「上次快照」
+    assert not out["market"]["margin_sh"].get("hist_from_snapshot")
 
 
 def test_series_for_chart_no_interpolation():
@@ -389,12 +390,20 @@ def test_public_bundle_offline_and_endpoint_no_network(monkeypatch):
     import os
     os.environ["SKIP_BG_WARMUP"] = "1"
     import app as app_mod
+    monkeypatch.setattr(app_mod, "_spawn_bg_refresh", lambda *a, **k: "throttled")
     r = app_mod.app.test_client().get("/api/margin-history")
     assert r.status_code == 200
     data = r.get_json()
     assert data["status"] == "ok"
     assert "series" in data["markets"]["margin_sz"]
     assert called == []
+    sh_last = data["markets"]["margin_sh"]["series"][-1]
+    sz_last = data["markets"]["margin_sz"]["series"][-1]
+    tot_last = data["markets"]["margin_total"]["series"][-1]
+    assert sh_last[0] == "2026-11-20" and sh_last[1] == pytest.approx(11207.680384, abs=1e-4)
+    assert sz_last[0] == "2026-11-20" and sz_last[1] == pytest.approx(10230.23705, abs=1e-4)
+    assert tot_last[0] == "2026-11-20" and tot_last[1] == pytest.approx(21437.9174, abs=1e-3)
+    assert not data.get("from_snapshot")
     assert set(data["indices"]) == {"sse", "csi300", "sse50", "csi1000"}
     for key, name in (("sse", "上证指数"), ("csi300", "沪深300"),
                       ("sse50", "上证50"), ("csi1000", "中证1000")):
@@ -466,3 +475,117 @@ def test_load_seed_merges_chart_indices_from_other_candidate(tmp_path):
     assert loaded["index"]["sh000852"][0][0] == "2014-10-17"
     # 运行时更新的上证收盘保留
     assert loaded["index"]["sh000001"][-1] == ["2026-11-18", 4000.0]
+
+def test_expected_published_asof_and_needs_refresh():
+    cst = timezone(timedelta(hours=8))
+    assert H.expected_published_asof(datetime(2026, 11, 23, 15, 0, tzinfo=cst)) == date(2026, 11, 20)
+    assert H.expected_published_asof(datetime(2026, 11, 23, 9, 29, tzinfo=cst)) == date(2026, 11, 19)
+    assert H.expected_published_asof(datetime(2026, 11, 23, 9, 30, tzinfo=cst)) == date(2026, 11, 20)
+    # 周末：周五日报通常周一才出，期望仍为周四
+    assert H.expected_published_asof(datetime(2026, 11, 21, 15, 0, tzinfo=cst)) == date(2026, 11, 19)
+    assert H.expected_published_asof(datetime(2026, 11, 17, 10, 0, tzinfo=cst)) == date(2026, 11, 16)
+    cur = {"asof": {"sh": "2026-11-20", "sz": "2026-11-20"}}
+    assert not H.needs_refresh(cur, now=datetime(2026, 11, 23, 15, 0, tzinfo=cst))
+    stale = {"asof": {"sh": "2026-11-13", "sz": "2026-11-12"}}
+    assert H.needs_refresh(stale, now=datetime(2026, 11, 23, 15, 0, tzinfo=cst))
+    assert H.needs_refresh({"asof": {"sh": "2026-11-20"}}, now=datetime(2026, 11, 23, 15, 0, tzinfo=cst))
+    assert H.needs_refresh(None)
+
+
+def test_refresh_offline_fresh_asof_is_not_snapshot():
+    seed = {
+        "fetched_at": "2026-11-16T10:00:00+08:00",
+        "asof": {"sh": "2026-11-13", "sz": "2026-11-13"},
+        "sh": [["2014-09-22", 100.0], ["2026-11-13", 11692.6]],
+        "sz": [["2014-09-22", 80.0], ["2026-11-13", 10805.2]],
+    }
+    # 2026-11-16 周一 15:00，期望 asof 为上周五 11-13
+    out = H.refresh_history(live=False, write=False, today=date(2026, 11, 16), seed=seed)
+    assert out["from_snapshot"] is False and out["live_ok"] is False
+    assert out["fetched_at"] == "2026-11-16T10:00:00+08:00"
+
+
+def test_refresh_live_failure_falls_back_to_snapshot():
+    seed = {
+        "fetched_at": "2026-11-13T08:00:00+08:00",
+        "asof": {"sh": "2026-11-13", "sz": "2026-11-12"},
+        "sh": [["2026-11-13", 11692.6]],
+        "sz": [["2026-11-12", 10883.9]],
+    }
+
+    def boom(*a, **k):
+        raise RuntimeError("blocked")
+
+    out = H.refresh_history(live=True, write=False, today=date(2026, 11, 23), seed=seed,
+                            fetch_sh=boom, fetch_sz=boom, fetch_index=boom)
+    assert out["live_ok"] is False and out["from_snapshot"] is True
+    assert out["snapshot_asof"] == "2026-11-13"
+    assert out["sh"][-1][0] == "2026-11-13"
+    assert out["sz"][-1][0] == "2026-11-12"
+    assert "sh" in out["errors"] and "sz" in out["errors"]
+
+
+def test_empty_em_window_is_not_an_error():
+    def get_json(url, params, headers=None, retries=3):
+        assert "RPTA_WEB_RZRQ_LSSH" in str(params)
+        return {"success": False, "message": "返回数据为空", "result": None}
+
+    series, idx = H.fetch_margin_sz_history(start=date(2026, 11, 21), end=date(2026, 11, 23),
+                                            get_json=get_json)
+    assert series == [] and idx == {}
+
+
+def test_sse_fetch_sends_referer(monkeypatch):
+    seen = []
+
+    def get_json(url, params, headers=None, retries=3):
+        seen.append((url, headers or {}))
+        return {"result": [], "pageHelp": {"pageCount": 1}}
+
+    rows = H.fetch_margin_sh_history(start=date(2026, 11, 20), end=date(2026, 11, 20), get_json=get_json)
+    assert rows == []
+    assert seen and "queryMargin.do" in seen[0][0]
+    assert seen[0][1].get("Referer") == H.SSE_MARGIN_PAGE
+
+
+def test_endpoint_spawns_background_refresh_when_stale(monkeypatch, tmp_path):
+    seed = {
+        "fetched_at": "2026-11-13T08:00:00+08:00",
+        "coverage_start": "2010-03-31",
+        "low_coverage_start": "2014-09-22",
+        "asof": {"sh": "2026-11-13", "sz": "2026-11-12"},
+        "sh": [["2010-03-31", 0.0582], ["2014-09-22", 3776.4], ["2026-11-13", 11692.6391]],
+        "sz": [["2010-03-31", 0.0067], ["2014-09-22", 2133.8], ["2026-11-12", 10883.9358]],
+        "index": {
+            "sh000001": [["2010-03-31", 3109.11], ["2026-11-13", 3634.35]],
+            "sz399001": [["2010-03-31", 12494.35], ["2026-11-12", 11197.98]],
+            "sh000300": [["2010-03-31", 3345.6], ["2026-11-13", 4016.29]],
+            "sh000016": [["2010-03-31", 2000.0], ["2026-11-13", 2700.0]],
+            "sh000852": [["2014-10-17", 6058.67], ["2026-11-13", 5600.0]],
+        },
+        "extrema": {},
+    }
+    called = []
+
+    def boom(*a, **k):
+        called.append(1)
+        raise AssertionError("request thread must not network")
+
+    monkeypatch.setattr(H, "load_history_seed", lambda paths=None: seed)
+    monkeypatch.setattr(H, "fetch_margin_sh_history", boom)
+    monkeypatch.setattr(H, "fetch_margin_sz_history", boom)
+    monkeypatch.setattr(H, "fetch_index_closes", boom)
+    import os
+    os.environ["SKIP_BG_WARMUP"] = "1"
+    import app as app_mod
+    spawns = []
+    monkeypatch.setattr(app_mod, "_spawn_bg_refresh", lambda key, fn, **kw: spawns.append((key, kw)) or "started")
+    r = app_mod.app.test_client().get("/api/margin-history")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "ok"
+    assert data["from_snapshot"] is True
+    assert data["snapshot_asof"] == "2026-11-13"
+    assert data["markets"]["margin_sh"]["asof"] == "2026-11-13"
+    assert called == []
+    assert spawns and spawns[0][0] == "margin-history"

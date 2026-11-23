@@ -77,7 +77,66 @@ ROOT = Path(__file__).resolve().parent
 SEED_PATH = ROOT / "data" / "margin_history.json"
 RUNTIME_PATH = ROOT / "data" / "margin_history_latest.json"
 
+
 NO_DATA = "无数据"
+PUBLISH_CUTOFF = (9, 30)  # 两融日报通常在下一交易日 09:30 CST 前尚未发布
+
+
+def _as_now(now: datetime | date | None = None, today: date | None = None) -> datetime:
+    if isinstance(now, datetime):
+        return now if now.tzinfo else now.replace(tzinfo=CST)
+    if isinstance(today, datetime):
+        return today if today.tzinfo else today.replace(tzinfo=CST)
+    if isinstance(now, date):
+        return datetime(now.year, now.month, now.day, 15, 0, tzinfo=CST)
+    if isinstance(today, date):
+        return datetime(today.year, today.month, today.day, 15, 0, tzinfo=CST)
+    return datetime.now(CST)
+
+
+def _prev_weekday(d: date) -> date:
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def _last_weekday_on_or_before(d: date) -> date:
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def expected_published_asof(now: datetime | date | None = None, today: date | None = None) -> date:
+    """上一份应已发布的两融日报日期（工作日近似，不维护法定节假日）。
+
+    日报一般在下一交易日上午发布前一交易日数据。09:30 CST 之前视为尚未发布；
+    周末按最近工作日再回退一个工作日（周五数据通常周一上午才出）。
+    """
+    n = _as_now(now, today)
+    d = n.date()
+    if (n.hour, n.minute) < PUBLISH_CUTOFF:
+        d -= timedelta(days=1)
+    return _prev_weekday(_last_weekday_on_or_before(d))
+
+
+def market_asofs(payload: dict | None) -> tuple[date | None, date | None]:
+    a = (payload or {}).get("asof") or {}
+    if not isinstance(a, dict):
+        d = _to_date(a)
+        return d, d
+    return _to_date(a.get("sh")), _to_date(a.get("sz"))
+
+
+def needs_refresh(payload: dict | None, *, now: datetime | date | None = None,
+                  today: date | None = None) -> bool:
+    """任一市场 asof 早于应已发布的交易日，或缺少沪/深其中一侧，则需要增量刷新。"""
+    if not payload:
+        return True
+    sh, sz = market_asofs(payload)
+    if sh is None or sz is None:
+        return True
+    return min(sh, sz) < expected_published_asof(now=now, today=today)
 
 
 def _iso(d: date | None) -> str | None:
@@ -534,6 +593,16 @@ def public_history_bundle(*, live: bool = False, seed: dict | None = None,
     return chart_bundle(payload)
 
 
+def snapshot() -> dict:
+    """当前最佳缓存（内存/runtime/seed），不联网。"""
+    return public_history_bundle(live=False)
+
+
+def refresh() -> dict:
+    """后台增量拉取 SSE / 东财数据中心 / 新浪指数，写入运行时缓存。失败则回落缓存。"""
+    return public_history_bundle(live=True)
+
+
 # ---------------------------------------------------------------- seed I/O
 def load_history_seed(paths: tuple[Path, ...] | None = None) -> dict | None:
     """运行时缓存优先（asof 不早于提交的 seed），否则读提交的 seed。"""
@@ -613,7 +682,7 @@ def fetch_margin_sh_history(start: date | None = None, end: date | None = None,
     get_json = get_json or _get_json
     start = start or MARGIN_HISTORY_START
     end = end or datetime.now(CST).date()
-    headers = {"Referer": "https://www.sse.com.cn/", "User-Agent": UA}
+    headers = {"Referer": SSE_MARGIN_PAGE, "User-Agent": UA}
     all_rows: list[tuple[date, float]] = []
     page, pages = 1, 1
     while page <= pages:
@@ -663,12 +732,17 @@ def fetch_margin_sz_history(start: date | None = None, end: date | None = None,
         }
         js = get_json(EM_DC_URL, params, headers)
         part, part_idx, pages = parse_em_margin_page(js)
-        if not js.get("success") and not part:
-            raise ValueError(js.get("message") or "东财深市两融历史无返回")
+        if not part:
+            # 区间内尚无新日报（周末或 T+1 未发布）时，东财常返回 success=false、「返回数据为空」
+            if page == 1 and not all_rows:
+                msg = str((js or {}).get("message") or "") if isinstance(js, dict) else ""
+                if (isinstance(js, dict) and js.get("success") is False
+                        and msg and not any(k in msg for k in ("空", "无", "没有"))):
+                    raise ValueError(msg or "东财深市两融历史无返回")
+                return merge_series(all_rows), idx
+            break
         all_rows.extend(part)
         idx.update(part_idx)
-        if not part:
-            break
         page += 1
     return merge_series(all_rows), idx
 
@@ -766,8 +840,24 @@ def refresh_history(*, live: bool = True,
         "sh": sh[-1][0].isoformat() if sh else None,
         "sz": sz[-1][0].isoformat() if sz else None,
     }
+    live_ok = bool(live and (sh_live or sz_live))
+    stale = needs_refresh({"asof": asof}, today=today)
+    seed_fetched = (seed or {}).get("fetched_at") if isinstance(seed, dict) else None
+    fetched_at = (datetime.now(CST).isoformat(timespec="seconds") if live
+                  else (seed_fetched or datetime.now(CST).isoformat(timespec="seconds")))
+    # 在线增量成功：以接口最新值为准，不标快照（节假日时 expected asof 可能偏严）。
+    # 只读缓存且已是应发布日期、或无数据：不标。过期缓存或在线全部失败：标上次快照。
+    if live_ok:
+        from_snapshot = False
+        snapshot_asof = None
+    elif (sh or sz) and (stale or live):
+        from_snapshot = True
+        snapshot_asof = max((v for v in asof.values() if v), default=None)
+    else:
+        from_snapshot = False
+        snapshot_asof = None
     payload = {
-        "fetched_at": datetime.now(CST).isoformat(timespec="seconds"),
+        "fetched_at": fetched_at,
         "coverage_start": coverage_start or MARGIN_HISTORY_START.isoformat(),
         "low_coverage_start": MARGIN_LOW_START.isoformat(),
         "asof": asof,
@@ -776,23 +866,17 @@ def refresh_history(*, live: bool = True,
         "sz": rows_from_series(sz),
         "index": index_rows(index_by_key, chart_by_key),
         "extrema": extrema,
-        "live_ok": bool(live and (sh_live or sz_live)),
+        "live_ok": live_ok,
         "errors": errors,
+        "from_snapshot": from_snapshot,
     }
-    # live 失败但 seed 有数据：标上次快照
-    if not payload["live_ok"]:
-        if sh or sz:
-            payload["from_snapshot"] = True
-            payload["snapshot_asof"] = max((v for v in asof.values() if v), default=None)
-        else:
-            payload["from_snapshot"] = False
-    else:
-        payload["from_snapshot"] = False
-        if write and (sh or sz):
-            try:
-                save_history_seed(payload, RUNTIME_PATH)
-            except Exception:  # noqa: BLE001
-                logger.warning("write margin history runtime cache failed", exc_info=True)
+    if from_snapshot and snapshot_asof:
+        payload["snapshot_asof"] = snapshot_asof
+    if live_ok and write and (sh or sz):
+        try:
+            save_history_seed(payload, RUNTIME_PATH)
+        except Exception:  # noqa: BLE001
+            logger.warning("write margin history runtime cache failed", exc_info=True)
     return payload
 
 
@@ -867,6 +951,7 @@ __all__ = [
     "series_from_rows", "rows_from_series", "load_history_seed", "save_history_seed",
     "index_from_seed", "index_rows", "series_for_chart", "downsample_weekly",
     "insert_extrema_points", "chart_bundle", "public_history_bundle",
+    "snapshot", "refresh", "needs_refresh", "expected_published_asof",
     "fetch_margin_sh_history", "fetch_margin_sz_history", "fetch_index_closes",
     "refresh_history", "attach_margin_history", "ensure_margin_history",
 ]
